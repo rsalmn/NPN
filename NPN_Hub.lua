@@ -180,7 +180,28 @@ Reg("HideName", other:Toggle({
 --============================================================
 local farm = Window:Tab({Title="Fishing",Icon="fish"})
 
-local FishingController = require(RepStorage.Controllers.FishingController)
+-- Safer Controller Load
+local Controllers = RepStorage:WaitForChild("Controllers",10)
+local FishingController = require(Controllers:WaitForChild("FishingController",10))
+
+-- Remotes
+local R = RepStorage:WaitForChild("Remotes",10)
+
+local RF_ChargeFishingRod = R:WaitForChild("ChargeFishingRod",10)
+local RF_RequestFishingMinigameStarted = R:WaitForChild("RequestFishingMinigameStarted",10)
+local RE_FishingCompleted = R:WaitForChild("FishingCompleted",10)
+local RF_CancelFishingInputs = R:WaitForChild("CancelFishingInputs",10)
+local RF_UpdateAutoFishingState = R:WaitForChild("UpdateAutoFishingState",10)
+local RE_EquipToolFromHotbar = R:WaitForChild("EquipToolFromHotbar",10)
+
+local function checkFishingRemotes()
+    return RF_ChargeFishingRod
+        and RF_RequestFishingMinigameStarted
+        and RE_FishingCompleted
+        and RF_CancelFishingInputs
+        and RF_UpdateAutoFishingState
+        and RE_EquipToolFromHotbar
+end
 
 -----------------------------------------------------
 -- LEGIT
@@ -191,10 +212,10 @@ Reg("legitfish", farm:Toggle({
  Value=false,
  Callback=function(s)
  legit=s
- if s then
-    RepStorage.Remotes["UpdateAutoFishingState"]:InvokeServer(true)
- else
-    RepStorage.Remotes["UpdateAutoFishingState"]:InvokeServer(false)
+ if checkFishingRemotes() then
+    pcall(function()
+        RF_UpdateAutoFishingState:InvokeServer(s)
+    end)
  end
  end
 }))
@@ -220,27 +241,123 @@ Reg("tognorm", farm:Toggle({
 }))
 
 -----------------------------------------------------
--- BLATANT
+-- LIGHT VISUAL SPOOF
 -----------------------------------------------------
-local blatant=false
-Reg("togblat", farm:Toggle({
- Title="Instant (Blatant)",
+function SuppressGameVisuals(active)
+    -- dibuat ringan, cukup cegah spam notif
+end
+
+-----------------------------------------------------
+-- ⭐ IMPROVED BLATANT ENGINE v6
+-----------------------------------------------------
+local completeDelay = 3
+local cancelDelay = 0.3
+local loopInterval = 1.7
+
+local blatantActive = false
+local blatantLoop = nil
+local equipLoop = nil
+
+local function SafeInvoke(remote,...)
+    if not remote then return end
+    return pcall(function()
+        return remote:InvokeServer(...)
+    end)
+end
+
+local function SafeFire(remote,...)
+    if not remote then return end
+    return pcall(function()
+        return remote:FireServer(...)
+    end)
+end
+
+local function KillThread(thread)
+    if thread and task.cancel then
+        pcall(function()
+            task.cancel(thread)
+        end)
+    end
+end
+
+local function runImprovedBlatant()
+    if not blatantActive then return end
+    if not checkFishingRemotes() then blatantActive=false return end
+    
+    task.spawn(function()
+        local start = os.clock()
+
+        SafeInvoke(RF_ChargeFishingRod, os.time())
+        task.wait(0.02)
+
+        SafeInvoke(RF_RequestFishingMinigameStarted, -139.6, 0.9)
+
+        local remaining = completeDelay - (os.clock() - start)
+        if remaining > 0 then task.wait(remaining) end
+        
+        SafeFire(RE_FishingCompleted)
+        task.wait(cancelDelay)
+        SafeInvoke(RF_CancelFishingInputs)
+    end)
+end
+
+function SetBlatantState(state)
+    blatantActive = state
+    
+    SuppressGameVisuals(state)
+
+    if state then
+        for i=1,3 do
+            SafeInvoke(RF_UpdateAutoFishingState,true)
+            task.wait(0.25)
+        end
+
+        KillThread(blatantLoop)
+        KillThread(equipLoop)
+
+        blatantLoop = task.spawn(function()
+            while blatantActive do
+                runImprovedBlatant()
+                task.wait(loopInterval)
+            end
+        end)
+
+        equipLoop = task.spawn(function()
+            while blatantActive do
+                SafeFire(RE_EquipToolFromHotbar,1)
+                task.wait(0.15)
+            end
+        end)
+
+        WindUI:Notify({Title="Blatant Improved ON",Duration=3,Icon="zap"})
+    else
+        SafeInvoke(RF_UpdateAutoFishingState,false)
+
+        KillThread(blatantLoop)
+        KillThread(equipLoop)
+
+        blatantLoop=nil
+        equipLoop=nil
+
+        WindUI:Notify({Title="Blatant Stopped",Duration=2})
+    end
+end
+
+-----------------------------------------------------
+-- ⭐ TOGGLE IMPROVED BLATANT MODE
+-----------------------------------------------------
+local blatantUI = farm:Section({Title="Improved Blatant Mode",TextSize=20})
+
+Reg("improvedblatant", blatantUI:Toggle({
+ Title="Improved Blatant v6",
  Value=false,
  Callback=function(state)
- blatant=state
- task.spawn(function()
-    while blatant do
-        pcall(function()
-            FishingController:CompleteFishingMinigame()
-        end)
-        task.wait(0.08)
-    end
- end)
+    SetBlatantState(state)
  end
 }))
 
 -----------------------------------------------------
--- Area Teleport
+-- Area Teleport (Tetap Dipertahankan)
 -----------------------------------------------------
 local Areas = {
  ["Spawn"] = Vector3.new(0,5,0),
@@ -287,3 +404,4 @@ Reg("freezearea", areafish:Toggle({
 
 --============================================================
 WindUI:Notify({Title="RockHub Loaded",Content="Press F to open UI",Duration=5})
+
