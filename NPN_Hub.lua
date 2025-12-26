@@ -1149,7 +1149,7 @@ do
     local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
     local RunService = game:GetService("RunService")
 
-    local notif = Reg("togglenot",farm:Toggle({
+    local notif = Reg("togglenot",fishingSupport:Toggle({
         Title = "Remove Fish Notification Pop-up",
         Value = false,
         Icon = "slash",
@@ -1190,7 +1190,7 @@ do
 
     -- 2. ENABLE FISHING RADAR
     local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
-    farm:Toggle({
+    fishingSupport:Toggle({
         Title = "Enable Fishing Radar",
         Value = false,
         Icon = "radar",
