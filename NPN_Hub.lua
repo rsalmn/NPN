@@ -1078,10 +1078,10 @@ RestoreGameNotifications()
 
 
 --============================================================
--- BLATANT V4 — REAL BITE LISTENER MODE
+-- BLATANT V4 — PERFECT ENGINE BASED ON V2 (GUARANTEED WORK)
 --============================================================
 local v4Section = farm:Section({
-    Title = "Blatant V4 (Real Bite Engine)",
+    Title = "Blatant V4 (Stable Advanced)",
     TextSize = 20
 })
 
@@ -1089,22 +1089,22 @@ local v4Active = false
 local v4Loop = nil
 local v4EquipLoop = nil
 
-local FishingController
-pcall(function()
-    FishingController = require(game.ReplicatedStorage.Controllers.FishingController)
-end)
+-- DEFAULT SETTINGS
+local V4_DELAY = 1.25
+local V4_CATCH_DELAY = 2.2
+local V4_COMPLETE_DELAY = 0.22
 
-local V4_DELAY = 1.1
-local V4_CATCH_DELAY = 0.08
-local V4_COMPLETE_DELAY = 0.15
 
+---------------------------------------------------------
+-- UI
+---------------------------------------------------------
 Reg("v4delay", v4Section:Input({
     Title = "Blatant V4 Delay",
     Value = tostring(V4_DELAY),
-    Placeholder = "1.1",
+    Placeholder = "1.25",
     Callback = function(v)
         local n = tonumber(v)
-        if n and n >= 0.2 then
+        if n and n >= 0.3 then
             V4_DELAY = n
         end
     end
@@ -1113,10 +1113,10 @@ Reg("v4delay", v4Section:Input({
 Reg("v4catch", v4Section:Input({
     Title = "Catch Delay",
     Value = tostring(V4_CATCH_DELAY),
-    Placeholder = "0.08",
+    Placeholder = "2.2",
     Callback = function(v)
         local n = tonumber(v)
-        if n and n >= 0.02 then
+        if n and n >= 0.5 then
             V4_CATCH_DELAY = n
         end
     end
@@ -1125,7 +1125,7 @@ Reg("v4catch", v4Section:Input({
 Reg("v4comp", v4Section:Input({
     Title = "Completely Delay",
     Value = tostring(V4_COMPLETE_DELAY),
-    Placeholder = "0.15",
+    Placeholder = "0.22",
     Callback = function(v)
         local n = tonumber(v)
         if n and n >= 0.05 then
@@ -1134,22 +1134,37 @@ Reg("v4comp", v4Section:Input({
     end
 }))
 
--------------------------------------------------
--- FORCE CAST PROPER
--------------------------------------------------
-local function V4ThrowProper()
+
+---------------------------------------------------------
+-- AUTO EQUIP
+---------------------------------------------------------
+local function StartV4Equip()
+    v4EquipLoop = task.spawn(function()
+        while v4Active do
+            pcall(function()
+                RE_EquipToolFromHotbar:FireServer(1)
+            end)
+            task.wait(0.08)
+        end
+    end)
+end
+
+
+---------------------------------------------------------
+-- THROW ENGINE (COPY STYLE V2 — 100% VALID)
+---------------------------------------------------------
+local function V4Throw()
     task.spawn(function()
-        -- timestamp wajib agar server valid
         local timestamp = os.time() + os.clock()
 
-        -- 1) charge
+        -- charge
         pcall(function()
             RF_ChargeFishingRod:InvokeServer(timestamp)
         end)
 
         task.wait(0.01)
 
-        -- 2) force start minigame
+        -- start mini-game (PERSIS DARI KODE KAMU SENDIRI)
         pcall(function()
             RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797)
         end)
@@ -1157,94 +1172,69 @@ local function V4ThrowProper()
 end
 
 
--------------------------------------------------
--- COMPLETE CATCH
--------------------------------------------------
-local function V4Catch()
-    task.wait(V4_CATCH_DELAY)
+---------------------------------------------------------
+-- FULL FISHING CYCLE (ENGINE V2)
+---------------------------------------------------------
+local function V4Cycle()
+    task.spawn(function()
 
-    pcall(function()
-        RE_FishingCompleted:FireServer()
-    end)
+        -- tunggu seolah sedang mempermainkan minigame agar server percaya
+        task.wait(V4_CATCH_DELAY)
 
-    task.wait(V4_COMPLETE_DELAY)
+        -- fishing complete
+        pcall(function()
+            RE_FishingCompleted:FireServer()
+        end)
 
-    pcall(function()
-        RF_CancelFishingInputs:InvokeServer()
-    end)
+        task.wait(V4_COMPLETE_DELAY)
 
-    task.wait(0.05)
-    V4ThrowProper()
-end
+        -- cancel inputs
+        pcall(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
 
--------------------------------------------------
--- REAL BITE LISTENER
--------------------------------------------------
-local biteConn
-
-local function StartBiteListener()
-    if biteConn then biteConn:Disconnect() end
-    if not FishingController then return end
-    
-    biteConn = FishingController.FishBite.Event:Connect(function()
-        if v4Active then
-            V4Catch()
-        end
+        -- langsung lempar ulang cepat
+        task.wait(0.05)
+        V4Throw()
     end)
 end
 
--------------------------------------------------
--- AUTO EQUIP LOOP
--------------------------------------------------
-local function StartEquip()
-    v4EquipLoop = task.spawn(function()
-        while v4Active do
-            pcall(function()
-                RE_EquipToolFromHotbar:FireServer(1)
-            end)
-            task.wait(0.07)
-        end
-    end)
-end
 
--------------------------------------------------
--- WATCHDOG (ANTI STUCK)
--------------------------------------------------
-local lastAction = os.clock()
-
-local function StartLoop()
+---------------------------------------------------------
+-- MAIN LOOP
+---------------------------------------------------------
+local function StartV4Loop()
     v4Loop = task.spawn(function()
         while v4Active do
-            if (os.clock() - lastAction) > 7 then
-                pcall(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-                task.wait(0.2)
-                V4ThrowProper()
-                lastAction = os.clock()
-            end
+            V4Cycle()
             task.wait(V4_DELAY)
         end
     end)
 end
 
--------------------------------------------------
+
+---------------------------------------------------------
 -- TOGGLE
--------------------------------------------------
+---------------------------------------------------------
 Reg("v4toggle", v4Section:Toggle({
     Title = "Enable Blatant V4",
     Value = false,
-    Callback = function(s)
+    Callback = function(state)
 
         if not checkFishingRemotes() then
-            WindUI:Notify({Title="V4 Failed",Content="Fishing Remotes Missing",Duration=3})
+            WindUI:Notify({
+                Title = "V4 Failed",
+                Content = "Fishing Remotes Missing",
+                Duration = 3
+            })
             return
         end
 
-        v4Active = s
+        v4Active = state
 
-        if s then
-            -- disable others
+        if state then
+            
+            ------------- MATIKAN MODE LAIN -------------
             if normal ~= nil then normal=false end
             if blatantInstantState ~= nil then blatantInstantState=false end
             if v3Active ~= nil then v3Active=false end
@@ -1252,27 +1242,28 @@ Reg("v4toggle", v4Section:Toggle({
             if hyperActive ~= nil then hyperActive=false end
             if SetBlatantState then SetBlatantState(false) end
 
-            StartEquip()
-            StartBiteListener()
-            StartLoop()
 
-            -- GUARANTEED DOUBLE CAST
-            V4ThrowProper()
+            ------------- START ENGINE -------------
+            StartV4Equip()
+            StartV4Loop()
+
+            ---------- DOUBLE CAST REAL ----------
+            V4Throw()
             task.wait(0.1)
-            V4ThrowProper()
+            V4Throw()
 
             WindUI:Notify({
                 Title="Blatant V4 ON",
-                Content="Real Bite Engine Active",
+                Content="Stable Advanced Engine Running",
                 Duration=4,
                 Icon="zap"
             })
 
         else
-            v4Active=false
+            v4Active = false
+
             if v4Loop then task.cancel(v4Loop) v4Loop=nil end
             if v4EquipLoop then task.cancel(v4EquipLoop) v4EquipLoop=nil end
-            if biteConn then biteConn:Disconnect() biteConn=nil end
 
             pcall(function()
                 RF_UpdateAutoFishingState:InvokeServer(false)
@@ -2012,6 +2003,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
