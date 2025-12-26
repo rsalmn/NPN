@@ -247,6 +247,257 @@ function SuppressGameVisuals(active)
     -- dibuat ringan, cukup cegah spam notif
 end
 
+--============================================================
+-- BLATANT (OLD) TAB
+--============================================================
+local blatantTab = Window:Tab({Title="Blatant (Old)", Icon="zap"})
+
+local blatant = blatantTab:Section({ Title = "Blatant Mode V5", TextSize = 20 })
+
+local completeDelay = 3.055
+local cancelDelay = 0.3
+local loopInterval = 1.715
+
+_G.RockHub_BlatantActive = false
+
+---------------------------------------------------------
+-- OPTIONAL SAFETY : Disable Other Modes When This ON
+---------------------------------------------------------
+local blatantInstantState = false
+local blatantLoopThread = nil
+local blatantEquipThread = nil
+
+local function disableOtherModes(except)
+    -- LEGIT OFF
+    if except ~= "legit" and RF_UpdateAutoFishingState then
+        pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+    end
+    
+    -- Normal Instant OFF
+    if normal ~= nil then
+        normal = false
+    end
+    
+    -- Improved Blatant OFF
+    if SetBlatantState and except ~= "improved" then
+        SetBlatantState(false)
+    end
+end
+
+---------------------------------------------------------
+-- 1. LOGIC KILLER
+---------------------------------------------------------
+task.spawn(function()
+    local S1, FishingController = pcall(function()
+        return require(game:GetService("ReplicatedStorage").Controllers.FishingController)
+    end)
+
+    if S1 and FishingController then
+        local Old_Charge = FishingController.RequestChargeFishingRod
+        local Old_Cast = FishingController.SendFishingRequestToServer
+        
+        FishingController.RequestChargeFishingRod = function(...)
+            if _G.RockHub_BlatantActive then return end
+            return Old_Charge(...)
+        end
+        
+        FishingController.SendFishingRequestToServer = function(...)
+            if _G.RockHub_BlatantActive then return false, "Blocked by RockHub" end
+            return Old_Cast(...)
+        end
+    end
+end)
+
+---------------------------------------------------------
+-- 2. REMOTE KILLER
+---------------------------------------------------------
+local mt = getrawmetatable(game)
+local old_namecall = mt.__namecall
+setreadonly(mt, false)
+
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+
+    if _G.RockHub_BlatantActive and not checkcaller() then
+        
+        if method == "InvokeServer" and 
+        (self.Name == "RequestFishingMinigameStarted" 
+        or self.Name == "ChargeFishingRod" 
+        or self.Name == "UpdateAutoFishingState") then
+            return nil
+        end
+        
+        if method == "FireServer" and self.Name == "FishingCompleted" then
+            return nil
+        end
+    end
+
+    return old_namecall(self, ...)
+end)
+
+setreadonly(mt, true)
+
+---------------------------------------------------------
+-- 3. VISUAL SPOOF
+---------------------------------------------------------
+local function SuppressGameVisuals(active)
+    local Succ, TextController = pcall(function()
+        return require(game.ReplicatedStorage.Controllers.TextNotificationController)
+    end)
+
+    if Succ and TextController then
+        if active then
+            if not TextController._OldDeliver then
+                TextController._OldDeliver = TextController.DeliverNotification
+            end
+
+            TextController.DeliverNotification = function(self, data)
+                if data and data.Text and (
+                    string.find(tostring(data.Text),"Auto Fishing") or
+                    string.find(tostring(data.Text),"Reach Level")) then
+                    return
+                end
+                return TextController._OldDeliver(self, data)
+            end
+        elseif TextController._OldDeliver then
+            TextController.DeliverNotification = TextController._OldDeliver
+            TextController._OldDeliver = nil
+        end
+    end
+end
+
+---------------------------------------------------------
+-- UI INPUTS
+---------------------------------------------------------
+Reg("blatantint", blatant:Input({
+    Title = "Blatant Interval",
+    Value = tostring(loopInterval),
+    Icon = "fast-forward",
+    Type = "Input",
+    Placeholder = "1.58",
+    Callback = function(input)
+        local v = tonumber(input)
+        if v and v >= 0.5 then loopInterval = v end
+    end
+}))
+
+Reg("blatantcom", blatant:Input({
+    Title = "Complete Delay",
+    Value = tostring(completeDelay),
+    Icon = "loader",
+    Type = "Input",
+    Placeholder = "2.75",
+    Callback = function(input)
+        local v = tonumber(input)
+        if v and v >= 0.5 then completeDelay = v end
+    end
+}))
+
+Reg("blatantcanc", blatant:Input({
+    Title = "Cancel Delay",
+    Value = tostring(cancelDelay),
+    Icon = "clock",
+    Type = "Input",
+    Placeholder = "0.3",
+    Callback = function(input)
+        local v = tonumber(input)
+        if v and v >= 0.1 then cancelDelay = v end
+    end
+}))
+
+---------------------------------------------------------
+-- CORE LOOP
+---------------------------------------------------------
+local function runBlatantInstant()
+    if not blatantInstantState then return end
+    if not checkFishingRemotes(true) then blatantInstantState = false return end
+
+    task.spawn(function()
+        local startTime = os.clock()
+        local timestamp = os.time() + os.clock()
+
+        pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+        task.wait(0.001)
+        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.63, 0.99) end)
+
+        local waitTime = completeDelay - (os.clock() - startTime)
+        if waitTime > 0 then task.wait(waitTime) end
+
+        pcall(function() RE_FishingCompleted:FireServer() end)
+        task.wait(cancelDelay)
+        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+    end)
+end
+
+---------------------------------------------------------
+-- TOGGLE
+---------------------------------------------------------
+Reg("blatantt", blatant:Toggle({
+    Title = "Instant Fishing (Blatant V5)",
+    Value=false,
+    Callback=function(state)
+
+        if not checkFishingRemotes() then
+            WindUI:Notify({Title="Remotes Missing",Duration=3})
+            return
+        end
+
+        disableOtherModes("blatant")
+
+        blatantInstantState = state
+        _G.RockHub_BlatantActive = state
+
+        SuppressGameVisuals(state)
+
+        if state then
+            pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+            task.wait(0.5)
+            pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+
+            blatantLoopThread = task.spawn(function()
+                while blatantInstantState do
+                    runBlatantInstant()
+                    task.wait(loopInterval)
+                end
+            end)
+
+            blatantEquipThread = task.spawn(function()
+                while blatantInstantState do
+                    pcall(function()
+                        RE_EquipToolFromHotbar:FireServer(1)
+                    end)
+                    task.wait(0.1)
+                end
+            end)
+
+            WindUI:Notify({
+                Title="Blatant V5 ON",
+                Duration=3,
+                Icon="zap"
+            })
+
+        else
+            pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+
+            if blatantLoopThread then
+                task.cancel(blatantLoopThread)
+                blatantLoopThread=nil
+            end
+            
+            if blatantEquipThread then
+                task.cancel(blatantEquipThread)
+                blatantEquipThread=nil
+            end
+
+            WindUI:Notify({
+                Title="Stopped",
+                Duration=2
+            })
+        end
+    end
+}))
+
+
 -----------------------------------------------------
 -- ⭐ IMPROVED BLATANT ENGINE v6
 -----------------------------------------------------
@@ -404,4 +655,5 @@ Reg("freezearea", areafish:Toggle({
 
 --============================================================
 WindUI:Notify({Title="RockHub Loaded",Content="Press F to open UI",Duration=5})
+
 
