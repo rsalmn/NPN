@@ -867,285 +867,297 @@ do
 
 -- [[ 3. BLATANT V2 (NEW) - X5 LOGIC + REAL NOTIF STACK ]] --
 do
-    local BlatantV2 = farm:Section({ Title = "3. Blatant V2 (New)", TextSize = 20 })
-    
-    local Modules_X5 = {}
-    local featureState_X5 = {
-        AutoFish = false,
-        Instant_ChargeDelay = 0.07,
-        Instant_SpamCount = 5,
-        Instant_WorkerCount = 2,
-        Instant_StartDelay = 1.20,
-        Instant_CatchTimeout = 0.01,
-        Instant_CycleDelay = 0.01,
-        Instant_ResetCount = 10,
-        Instant_ResetPause = 0.01
-    }
-    local fishingTrove_X5 = {}
-    local autoFishThread_X5 = nil
-    local fishCaughtBindable_X5 = Instance.new("BindableEvent")
+    ------------------------------------------------------------
+-- FISH NOTIFICATION QUEUE ENGINE
+------------------------------------------------------------
+local RepStorage = game:GetService("ReplicatedStorage")
+local Net = RepStorage.Packages._Index["sleitnick_net@0.2.0"].net
 
-    -- [[ NOTIFICATION SYSTEM (REAL STACK) ]] --
-    local NotifQueue = {}
-    local NotifListener = nil
-    local NotifProcessRunning = false
-    local NotifEvent = nil
+local ObtainedNotifEvent = Net["RE/ObtainedNewFishNotification"]
 
-    local function deepCopy(original)
-        local copy = {}
-        for k,v in pairs(original) do
-            if type(v) == "table" then v = deepCopy(v) end
-            copy[k] = v
+local NotifQueue = {}
+local NotifProcessing = false
+local FishNotifConnection = nil
+local NotificationEnabled = false
+
+local function DeepCopy(tbl)
+    local new = {}
+    for k, v in pairs(tbl) do
+        new[k] = (type(v) == "table") and DeepCopy(v) or v
+    end
+    return new
+end
+
+local function ProcessQueue()
+    if NotifProcessing then return end
+    NotifProcessing = true
+
+    task.spawn(function()
+        while NotificationEnabled and #NotifQueue > 0 do
+            local args = table.remove(NotifQueue, 1)
+
+            pcall(function()
+                firesignal(ObtainedNotifEvent.OnClientEvent, unpack(args))
+            end)
+
+            task.wait(1.2) -- antar notif
         end
-        return copy
+
+        NotifProcessing = false
+    end)
+end
+
+function StartFishNotificationControl()
+    NotificationEnabled = true
+
+    if FishNotifConnection then
+        FishNotifConnection:Disconnect()
     end
 
-    local function SetGameNotifState(enabled)
-        if NotifEvent and getconnections then
-            for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
-                pcall(function()
-                    if enabled then 
-                        if c.Enable then c:Enable() end
-                    else 
-                        if c.Disable then c:Disable() end
-                    end
-                end)
-            end
-        end
-    end
-
-    function StartFishNotificationControl()
-    NotifProcessRunning = true
-
-    if NotifProcessRunning then
-        NotifProcessRunning:Disconnect()
-    end
-
-    NotifProcessRunning = ObtainedNotifEvent.OnClientEvent:Connect(function(...)
+    FishNotifConnection = ObtainedNotifEvent.OnClientEvent:Connect(function(...)
         local args = {...}
         local data = args[3]
 
-        -- Anti infinite loop
         if data and data.CustomDuration == 15 then
             return
         end
 
         local clonedArgs = DeepCopy(args)
-
-        -- paksa durasi lama (biar kelihatan jelas)
         if clonedArgs[3] then
             clonedArgs[3].CustomDuration = 15
         end
 
-        -- masukkan ke queue
         table.insert(NotifQueue, clonedArgs)
-
-        -- jalankan processor
         ProcessQueue()
     end)
-        end
-    function StopFishNotificationControl()
-    NotifProcessRunning = false
+end
 
-    if NotifProcessRunning then
-        NotifProcessRunning:Disconnect()
-        NotifProcessRunning = nil
+function StopFishNotificationControl()
+    NotificationEnabled = false
+
+    if FishNotifConnection then
+        FishNotifConnection:Disconnect()
+        FishNotifConnection = nil
     end
 
     NotifQueue = {}
+end
+
+
+------------------------------------------------------------
+-- 🔥 BLATANT V2 (Stable Engine / X5 Mode) + Notification Sync
+------------------------------------------------------------
+local v2 = farm:Section({
+    Title = "Blatant V2 (Stable / X5 Mode)",
+    TextSize = 20
+})
+
+local v2Active = false
+local v2Loop = nil
+local v2EquipLoop = nil
+
+local v2LoopDelay = 1.25
+local v2CatchDelay = 2.05
+local v2CancelDelay = 0.22
+
+
+-------------------------------------------------
+-- UI
+-------------------------------------------------
+Reg("v2loopdelay", v2:Input({
+    Title = "Loop Delay",
+    Value = tostring(v2LoopDelay),
+    Placeholder = "1.25",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.4 then
+            v2LoopDelay = n
         end
-
-    local function ProcessNotifQueue()
-        if NotifProcessRunning then return end
-        NotifProcessRunning = true
-        task.spawn(function()
-            while #NotifQueue > 0 do
-                local data = table.remove(NotifQueue, 1)
-                SetGameNotifState(true)
-                if firesignal and NotifEvent then pcall(function() firesignal(NotifEvent.OnClientEvent, table.unpack(data)) end) end
-                SetGameNotifState(false)
-                task.wait(1.2) 
-            end
-            NotifProcessRunning = false
-        end)
     end
+}))
 
-    local function StartInterceptor()
-        if NotifListener then NotifListener:Disconnect() NotifListener = nil end
-        if not NotifEvent then return end
-        SetGameNotifState(false)
-        NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
-            local args = {...}
-            if featureState_X5.AutoFish then fishCaughtBindable_X5:Fire() end
-            local newArgs = deepCopy(args)
-            if newArgs[3] then newArgs[3].CustomDuration = 10 end
-            table.insert(NotifQueue, newArgs)
-            ProcessNotifQueue()
-        end)
+Reg("v2catchdelay", v2:Input({
+    Title = "Catch Delay",
+    Value = tostring(v2CatchDelay),
+    Placeholder = "2.05",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.5 then
+            v2CatchDelay = n
+        end
     end
+}))
 
-    local function StopInterceptor()
-        if NotifListener then NotifListener:Disconnect() NotifListener = nil end
-        SetGameNotifState(true)
-        NotifQueue = {}
+Reg("v2canceldelay", v2:Input({
+    Title = "Completely Delay",
+    Value = tostring(v2CancelDelay),
+    Placeholder = "0.22",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.05 then
+            v2CancelDelay = n
+        end
     end
+}))
 
-    local function customRequire_X5(module)
-        if not module then return nil end
-        local success, result = pcall(require, module)
-        if success then return result end
-        local clone = module:Clone()
-        clone.Parent = nil
-        local s, r = pcall(require, clone)
-        return s and r or nil
-    end
 
-    pcall(function()
-        local Controllers = RepStorage:WaitForChild("Controllers", 20)
-        local NetFolder = RepStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net", 20)
-        local Shared = RepStorage:WaitForChild("Shared", 20)
-        Modules_X5.Replion = customRequire_X5(RepStorage.Packages.Replion)
-        Modules_X5.ItemUtility = customRequire_X5(Shared.ItemUtility)
-        Modules_X5.FishingController = customRequire_X5(Controllers.FishingController)
-        Modules_X5.EquipToolEvent = NetFolder["RE/EquipToolFromHotbar"]
-        Modules_X5.ChargeRodFunc = NetFolder["RF/ChargeFishingRod"]
-        Modules_X5.StartMinigameFunc = NetFolder["RF/RequestFishingMinigameStarted"]
-        Modules_X5.CompleteFishingEvent = NetFolder["RE/FishingCompleted"]
-        NotifEvent = NetFolder:FindFirstChild("RE/ObtainedNewFishNotification")
+-------------------------------------------------
+-- SAFE WRAPPER
+-------------------------------------------------
+local function safe(fn)
+    task.spawn(function()
+        pcall(fn)
     end)
+end
 
-    local function equipFishingRod_X5()
-        if Modules_X5.EquipToolEvent then pcall(Modules_X5.EquipToolEvent.FireServer, Modules_X5.EquipToolEvent, 1) end
+
+-------------------------------------------------
+-- ENGINE
+-------------------------------------------------
+local function RunV2()
+    if not v2Active then return end
+    if not checkFishingRemotes() then
+        v2Active = false
+        return
     end
 
-    local function stopAutoFishProcesses_X5()
-        featureState_X5.AutoFish = false
-        StopFishNotificationControl()
-        for i, item in ipairs(fishingTrove_X5) do
-            if typeof(item) == "RBXScriptConnection" then item:Disconnect()
-            elseif typeof(item) == "thread" then task.cancel(item) end
-        end
-        fishingTrove_X5 = {}
-        pcall(function()
-            if Modules_X5.FishingController and Modules_X5.FishingController.RequestClientStopFishing then
-                Modules_X5.FishingController:RequestClientStopFishing(true)
-            end
+    task.spawn(function()
+
+        safe(function()
+            RF_CancelFishingInputs:InvokeServer()
         end)
-    end
 
-    local function startAutoFishMethod_Instant_X5()
-        if not (Modules_X5.ChargeRodFunc and Modules_X5.StartMinigameFunc and Modules_X5.CompleteFishingEvent) then return end
-        featureState_X5.AutoFish = true
-        StartFishNotificationControl()
-        local chargeCount = 0
-        local isCurrentlyResetting = false
-        local counterLock = false
+        task.wait(0.05)
 
-        local function worker()
-            while featureState_X5.AutoFish and LocalPlayer do
-                local currentResetTarget = featureState_X5.Instant_ResetCount or 10
-                if isCurrentlyResetting or chargeCount >= currentResetTarget then break end
-                local success, err = pcall(function()
-                    while counterLock do task.wait() end
-                    counterLock = true
-                    if chargeCount < currentResetTarget then chargeCount = chargeCount + 1 else counterLock = false; return end
-                    counterLock = false
-                    Modules_X5.ChargeRodFunc:InvokeServer(nil, nil, nil, workspace:GetServerTimeNow())
-                    task.wait(featureState_X5.Instant_ChargeDelay)
-                    Modules_X5.StartMinigameFunc:InvokeServer(-139, 1, workspace:GetServerTimeNow())
-                    task.wait(featureState_X5.Instant_StartDelay)
-                    if not featureState_X5.AutoFish or isCurrentlyResetting then return end
-                    for _ = 1, featureState_X5.Instant_SpamCount do
-                        if not featureState_X5.AutoFish or isCurrentlyResetting then break end
-                        Modules_X5.CompleteFishingEvent:FireServer()
-                        task.wait(0.05)
-                    end
-                    if not featureState_X5.AutoFish or isCurrentlyResetting then return end
-                    local gotFishSignal = false
-                    local connection
-                    local timeoutThread = task.delay(featureState_X5.Instant_CatchTimeout, function()
-                        if not gotFishSignal and connection then connection:Disconnect() end
-                    end)
-                    connection = fishCaughtBindable_X5.Event:Connect(function()
-                        if gotFishSignal then return end
-                        gotFishSignal = true
-                        if timeoutThread then task.cancel(timeoutThread) end
-                        if connection then connection:Disconnect() end
-                    end)
-                    while not gotFishSignal and task.wait() do
-                        if not featureState_X5.AutoFish or isCurrentlyResetting then break end
-                        if timeoutThread and coroutine.status(timeoutThread) == "dead" then break end
-                    end
-                    if connection then connection:Disconnect() end
-                    if Modules_X5.FishingController then
-                        pcall(Modules_X5.FishingController.RequestClientStopFishing, Modules_X5.FishingController, true)
-                    end
-                    task.wait()
-                end)
-                if not success then task.wait(1) end
-                if not featureState_X5.AutoFish then break end
-                task.wait(featureState_X5.Instant_CycleDelay)
-            end
-        end
+        local t = tick()
 
-        autoFishThread_X5 = task.spawn(function()
-            while featureState_X5.AutoFish do
-                local currentResetTarget = featureState_X5.Instant_ResetCount or 10
-                local currentPauseTime = featureState_X5.Instant_ResetPause or 0.01
-                chargeCount = 0; isCurrentlyResetting = false
-                local batchTrove = {}
-                for i = 1, featureState_X5.Instant_WorkerCount do
-                    if not featureState_X5.AutoFish then break end
-                    local t = task.spawn(worker)
-                    table.insert(batchTrove, t); table.insert(fishingTrove_X5, t)
-                end
-                while featureState_X5.AutoFish and chargeCount < currentResetTarget do task.wait() end
-                isCurrentlyResetting = true
-                if featureState_X5.AutoFish then
-                    for _, t in ipairs(batchTrove) do task.cancel(t) end
-                    batchTrove = {}
-                    task.wait(currentPauseTime)
-                end
-            end
-            stopAutoFishProcesses_X5()
+        safe(function()
+            RF_ChargeFishingRod:InvokeServer({[2] = t})
         end)
-        table.insert(fishingTrove_X5, autoFishThread_X5)
+
+        task.wait(0.01)
+
+        safe(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(
+                -139.6379699707,
+                0.99647927980797,
+                t
+            )
+        end)
+
+        task.wait(v2CatchDelay)
+
+        safe(function()
+            RE_FishingCompleted:FireServer()
+        end)
+
+        task.wait(v2CancelDelay)
+
+        safe(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
+
+        task.wait(0.05)
+
+        safe(function()
+            RF_ChargeFishingRod:InvokeServer({[2] = t})
+        end)
+
+        task.wait(0.01)
+
+        safe(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(
+                -139.6379699707,
+                0.99647927980797,
+                t
+            )
+        end)
+
+    end)
+end
+
+
+-------------------------------------------------
+-- AUTO EQUIP LOOP
+-------------------------------------------------
+local function StartV2Equip()
+    v2EquipLoop = task.spawn(function()
+        while v2Active do
+            pcall(function()
+                RE_EquipToolFromHotbar:FireServer(1)
+            end)
+            task.wait(0.08)
+        end
+    end)
+end
+
+
+-------------------------------------------------
+-- LOOP
+-------------------------------------------------
+local function StartV2Loop()
+    v2Loop = task.spawn(function()
+        while v2Active do
+            RunV2()
+            task.wait(v2LoopDelay)
+        end
+    end)
+end
+
+
+-------------------------------------------------
+-- TOGGLE
+-------------------------------------------------
+Reg("v2toggle", v2:Toggle({
+    Title = "Enable Blatant V2",
+    Value = false,
+    Callback = function(s)
+
+        if not checkFishingRemotes() then
+            WindUI:Notify({
+                Title="Missing Remotes",
+                Duration=3
+            })
+            return
+        end
+
+        v2Active = s
+
+        if s then
+            if normal ~= nil then normal = false end
+            if v3proActive ~= nil then v3proActive = false end
+            if hyperActive ~= nil then hyperActive = false end
+
+            StartV2Equip()
+            StartV2Loop()
+
+            StartFishNotificationControl()
+
+            WindUI:Notify({
+                Title="Blatant V2 Enabled",
+                Content="Stable X5 Mode + Notification Engine",
+                Duration=4,
+                Icon="zap"
+            })
+
+        else
+            v2Active = false
+            if v2Loop then task.cancel(v2Loop) v2Loop = nil end
+            if v2EquipLoop then task.cancel(v2EquipLoop) v2EquipLoop = nil end
+
+            StopFishNotificationControl()
+
+            pcall(function()
+                RF_UpdateAutoFishingState:InvokeServer(false)
+            end)
+
+            WindUI:Notify({
+                Title="Blatant V2 Stopped",
+                Duration=2
+            })
+        end
     end
-
-    Reg("x5startdelay", BlatantV2:Input({ Title = "Delay Recast", Value = tostring(featureState_X5.Instant_StartDelay), Placeholder = "1.20", Callback = function(text) local num = tonumber(text); if num then featureState_X5.Instant_StartDelay = num end end }))
-    Reg("x5resetcount", BlatantV2:Input({ Title = "Spam Finish", Value = tostring(featureState_X5.Instant_ResetCount), Placeholder = "10", Callback = function(text) local num = tonumber(text); if num then featureState_X5.Instant_ResetCount = math.floor(num) end end }))
-    Reg("x5resetpause", BlatantV2:Input({ Title = "Cooldown Recast", Value = tostring(featureState_X5.Instant_ResetPause), Placeholder = "0.01", Callback = function(text) local num = tonumber(text); if num then featureState_X5.Instant_ResetPause = num end end }))
-
-    Reg("x5toggle", BlatantV2:Toggle({
-        Title = "Enable Blatant V2", Desc = "Old Blatant + Stacked Notif", Value = false,
-        Callback = function(v)
-            if v then
-                stopAutoFishProcesses_X5()
-                featureState_X5.AutoFish = true
-                equipFishingRod_X5()
-                task.wait(0.01)
-                startAutoFishMethod_Instant_X5()
-                WindUI:Notify({ Title = "X5 Started", Duration = 2 })
-            else
-                stopAutoFishProcesses_X5()
-                WindUI:Notify({ Title = "X5 Stopped", Duration = 2 })
-            end
-        end
-    }))
-    
-    BlatantV2:Button({
-        Title = "No Animation (Game)", Desc = "Disable all game animations",
-        Callback = function()
-            local char = LocalPlayer.Character
-            if char then
-                local hum = char:FindFirstChild("Humanoid")
-                if hum then
-                     local animator = hum:FindFirstChild("Animator")
-                     if animator then for _, t in pairs(animator:GetPlayingAnimationTracks()) do t:Stop() end end
-                end
-            end
-        end
-    })
+}))
 end
 
     -- FISHING AREA SECTION
@@ -1476,4 +1488,5 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
