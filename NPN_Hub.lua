@@ -920,7 +920,7 @@ do
     -- DEFAULT DELAYS
     local V4_CompleteDelay = 0.73
     local V4_CancelDelay = 0.30
-    local V4_RecastDelay = 0.001
+    local V4_RecastDelay = 0.01
 
 
     ------------------------------------------------------------
@@ -1072,20 +1072,7 @@ do
             end
         end
     }))
-
-    Reg("v4_recast", v4:Input({
-        Title = "Recast Delay",
-        Value = tostring(V4_RecastDelay),
-        Placeholder = "0.001",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then
-                V4_RecastDelay = n
-            end
-        end
-    }))
-
-
+    
     ------------------------------------------------------------
     -- TOGGLE
     ------------------------------------------------------------
