@@ -650,143 +650,84 @@ do
     local autoFishThread_X5 = nil
     local fishCaughtBindable_X5 = Instance.new("BindableEvent")
 
-    --============================================================
--- [[ NOTIFICATION SYSTEM (REAL STACK FIX) ]]
---============================================================
+    -- [[ NOTIFICATION SYSTEM (REAL STACK) ]] --
+    local NotifQueue = {}
+    local NotifListener = nil
+    local NotifProcessRunning = false
+    local NotifEvent = nil
 
-local NotifQueue = {}
-local NotifListener = nil
-local NotifProcessRunning = false
-local NotifEvent = NotifEvent or nil -- pastikan variabel tetap konsisten
-local LastNotifTime = {}
-
----------------------------------------------------------
--- Deep Copy (Avoid reference mutation)
----------------------------------------------------------
-local function deepCopy(original)
-    local copy = {}
-    for k,v in pairs(original) do
-        if type(v) == "table" then
-            v = deepCopy(v)
-        end
-        copy[k] = v
+    -- Fungsi untuk memproses antrian notifikasi
+    local function ProcessNotifQueue()
+        if NotifProcessRunning then return end
+        NotifProcessRunning = true
+        
+        task.spawn(function()
+            while #NotifQueue > 0 do
+                -- Ambil data ikan paling lama (FIFO)
+                local data = table.remove(NotifQueue, 1)
+                
+                -- Kirim ulang notifikasi dengan durasi lama
+                if firesignal and NotifEvent then
+                    pcall(function()
+                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
+                    end)
+                end
+                
+                -- Jeda agar notifikasi muncul satu per satu (Menumpuk)
+                task.wait(1.2) -- Delay Fixed
+            end
+            NotifProcessRunning = false
+        end)
     end
-    return copy
-end
 
----------------------------------------------------------
--- Disable Default Game Notification Listeners
----------------------------------------------------------
-local function DisableGameNotifListeners()
-    if NotifEvent and getconnections then
-        for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
-            pcall(function()
-                if c.Disable then
-                    c:Disable()
+    -- Fungsi untuk Clone Table (Agar tidak merubah data asli secara referensi)
+    local function deepCopy(original)
+        local copy = {}
+        for k, v in pairs(original) do
+            if type(v) == "table" then
+                v = deepCopy(v)
+            end
+            copy[k] = v
+        end
+        return copy
+    end
+    
+    -- Listener Notifikasi Asli
+    local function StartNotifListener()
+        if NotifListener then NotifListener:Disconnect() end
+        
+        if NotifEvent then
+            NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
+                local args = {...}
+                local itemData = args[3] -- Argumen ke-3 biasanya data item di Fisch
+                
+                -- Cek apakah ini notifikasi buatan kita (Flagging)
+                if itemData and itemData.CustomDuration == 15 then 
+                    return -- Jangan proses notifikasi buatan sendiri (Infinite Loop Protection)
+                end
+                
+                -- Modifikasi Data (Hanya Durasi)
+                if itemData then
+                    -- Copy argumen agar aman
+                    local newArgs = deepCopy(args)
+                    
+                    -- Ubah durasi menjadi 15 detik (Lama)
+                    newArgs[3].CustomDuration = 15 
+                    
+                    -- Masukkan ke antrian
+                    table.insert(NotifQueue, newArgs)
+                    
+                    -- Jalankan prosesor antrian
+                    ProcessNotifQueue()
                 end
             end)
         end
     end
-end
 
----------------------------------------------------------
--- Notification Queue Processor
----------------------------------------------------------
-local function ProcessNotifQueue()
-    if NotifProcessRunning then return end
-    NotifProcessRunning = true
-
-    task.spawn(function()
-        while #NotifQueue > 0 do
-            local data = table.remove(NotifQueue, 1)
-
-            if firesignal and NotifEvent then
-                pcall(function()
-                    firesignal(NotifEvent.OnClientEvent, table.unpack(data))
-                end)
-            end
-            
-            task.wait(1.2) -- delay tampil satu per satu
-        end
-
-        NotifProcessRunning = false
-    end)
-end
-
----------------------------------------------------------
--- Start Notification Listener
----------------------------------------------------------
-local function StartNotifListener()
-    if NotifListener then
-        NotifListener:Disconnect()
-        NotifListener = nil
+    local function StopNotifListener()
+        if NotifListener then NotifListener:Disconnect() NotifListener = nil end
+        NotifQueue = {} -- Bersihkan antrian
     end
-
-    if not NotifEvent then return end
-
-    DisableGameNotifListeners()
-
-    NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
-        local args = {...}
-        local itemData = args[3]
-
-        if not itemData then return end
-
-        -------------------------------------------------
-        -- Stop jika ini notifikasi buatan (loop protector)
-        -------------------------------------------------
-        if itemData.CustomDuration == 15 then
-            return
-        end
-
-        -------------------------------------------------
-        -- Anti Duplicate Same Fish Spam
-        -------------------------------------------------
-        local itemId =
-            itemData.Id
-            or itemData.Identifier
-            or itemData.Name
-            or "UnknownFish"
-
-        local now = os.clock()
-
-        if LastNotifTime[itemId]
-        and (now - LastNotifTime[itemId]) < 0.5 then
-            return
-        end
-
-        LastNotifTime[itemId] = now
-
-        -------------------------------------------------
-        -- Push to Queue
-        -------------------------------------------------
-        local newArgs = deepCopy(args)
-        newArgs[3].CustomDuration = 15 -- Durasi panjang
-
-        table.insert(NotifQueue, newArgs)
-        ProcessNotifQueue()
-    end)
-end
-
----------------------------------------------------------
--- Stop Listener
----------------------------------------------------------
-local function StopNotifListener()
-    if NotifListener then
-        NotifListener:Disconnect()
-        NotifListener = nil
-    end
-
-    NotifQueue = {}
-end
-
----------------------------------------------------------
--- AUTO START SYSTEM
----------------------------------------------------------
-task.delay(1,function()
-    StartNotifListener()
-end)
-
 
     -- 1. Custom Require X5
     local function customRequire_X5(module)
