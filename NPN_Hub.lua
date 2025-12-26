@@ -968,6 +968,195 @@ do
     })
 end
 
+--============================================================
+-- BLATANT GHOST MODE V3
+--============================================================
+local ghostTab = Window:Tab({Title="Blatant (Ghost V3)", Icon="ghost"})
+
+local ghostSection = ghostTab:Section({
+    Title = "Ghost Mode V3 (Stealth Instant)",
+    TextSize = 20
+})
+
+-- CONFIG
+local ghostActive = false
+local ghostLoop = nil
+
+local ghostInterval = 1.65
+local ghostCompleteDelay = 2.85
+local ghostCancelDelay = 0.35
+
+---------------------------------------------------------
+-- UI CONFIG
+---------------------------------------------------------
+Reg("ghostint", ghostSection:Input({
+    Title = "Loop Interval",
+    Value = tostring(ghostInterval),
+    Icon = "repeat",
+    Type = "Input",
+    Placeholder = "1.6",
+    Callback = function(input)
+        local v = tonumber(input)
+        if v and v >= 0.6 then
+            ghostInterval = v
+        end
+    end
+}))
+
+Reg("ghostcom", ghostSection:Input({
+    Title = "Complete Delay",
+    Value = tostring(ghostCompleteDelay),
+    Icon = "clock",
+    Placeholder = "2.8",
+    Callback = function(input)
+        local v = tonumber(input)
+        if v and v >= 0.5 then
+            ghostCompleteDelay = v
+        end
+    end
+}))
+
+Reg("ghostcanc", ghostSection:Input({
+    Title = "Cancel Delay",
+    Value = tostring(ghostCancelDelay),
+    Icon = "timer",
+    Placeholder = "0.3",
+    Callback = function(input)
+        local v = tonumber(input)
+        if v and v >= 0.1 then
+            ghostCancelDelay = v
+        end
+    end
+}))
+
+---------------------------------------------------------
+-- SOFT SPOOF VISUAL
+---------------------------------------------------------
+local function GhostVisualSpoof(state)
+    local Succ, TextController = pcall(function()
+        return require(game.ReplicatedStorage.Controllers.TextNotificationController)
+    end)
+
+    if Succ and TextController then
+        if state then
+            if not TextController._OldDeliver then
+                TextController._OldDeliver = TextController.DeliverNotification
+            end
+            TextController.DeliverNotification = function(self, data)
+                if data and data.Text and (string.find(tostring(data.Text),"Auto Fishing")) then
+                    return
+                end
+                return TextController._OldDeliver(self, data)
+            end
+        elseif TextController._OldDeliver then
+            TextController.DeliverNotification = TextController._OldDeliver
+            TextController._OldDeliver = nil
+        end
+    end
+end
+
+---------------------------------------------------------
+-- GHOST ENGINE
+---------------------------------------------------------
+local function GhostRunInstant()
+    if not ghostActive then return end
+    if not checkFishingRemotes() then ghostActive=false return end
+
+    task.spawn(function()
+        local start = os.clock()
+
+        -- Fake legit behaviour
+        pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+        task.wait(0.1)
+
+        -- Fake "starting minigame"
+        pcall(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(-139.63, 0.99)
+        end)
+
+        -- Make it look like we stayed inside minigame
+        local waited = os.clock() - start
+        local remain = ghostCompleteDelay - waited
+        if remain > 0 then task.wait(remain) end
+
+        -- Win silently
+        pcall(function() RE_FishingCompleted:FireServer() end)
+
+        -- Soft cancel
+        task.wait(ghostCancelDelay)
+        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+
+        -- Keep server happy
+        pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+    end)
+end
+
+---------------------------------------------------------
+-- PROTECTION: Disable Other Modes
+---------------------------------------------------------
+local function disableAllOtherModes()
+    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+
+    if normal ~= nil then normal = false end
+    if blatantInstantState ~= nil then blatantInstantState = false end
+    if SetBlatantState then SetBlatantState(false) end
+end
+
+---------------------------------------------------------
+-- TOGGLE
+---------------------------------------------------------
+Reg("ghosttoggle", ghostSection:Toggle({
+    Title = "Activate Ghost Mode V3",
+    Value = false,
+    Callback = function(state)
+
+        if not checkFishingRemotes() then
+            WindUI:Notify({
+                Title="Ghost Failed",
+                Content="Fishing Remotes Missing",
+                Duration=3
+            })
+            return
+        end
+
+        ghostActive = state
+        GhostVisualSpoof(state)
+
+        if state then
+            disableAllOtherModes()
+
+            ghostLoop = task.spawn(function()
+                while ghostActive do
+                    GhostRunInstant()
+                    task.wait(ghostInterval)
+                end
+            end)
+
+            WindUI:Notify({
+                Title="Ghost Mode V3 ON",
+                Content="Stealth Fishing Activated",
+                Duration=3,
+                Icon="ghost"
+            })
+
+        else
+            ghostActive = false
+            
+            if ghostLoop then
+                task.cancel(ghostLoop)
+                ghostLoop=nil
+            end
+
+            pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+
+            WindUI:Notify({
+                Title="Ghost Mode OFF",
+                Duration=2
+            })
+        end
+    end
+}))
+
 
     -- FISHING AREA SECTION
     farm:Divider()
