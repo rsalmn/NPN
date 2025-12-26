@@ -825,6 +825,324 @@ do
     })
 end
 
+do
+    local SettingsTab = Window:Tab({
+        Title = "Settings",
+        Icon = "settings",
+        Locked = false,
+    })
+
+    local MiscSection = SettingsTab:Section({
+        Title = "Misc. Area",
+        TextSize = 20,
+    })
+
+    -- [[ DEPENDENCIES & VARIABLES ]] --
+    local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
+    local function GetRemote(remotePath, name, timeout)
+        local currentInstance = game:GetService("ReplicatedStorage")
+        for _, childName in ipairs(remotePath) do
+            currentInstance = currentInstance:WaitForChild(childName, timeout or 0.5)
+            if not currentInstance then return nil end
+        end
+        return currentInstance:FindFirstChild(name)
+    end
+
+    local RunService = game:GetService("RunService")
+    local LocalPlayer = game:GetService("Players").LocalPlayer
+
+    -- 1. REMOVE FISH NOTIFICATION POP-UP
+    local DisableNotificationConnection = nil
+    MiscSection:Toggle({
+        Title = "Remove Fish Notification Pop-up",
+        Desc = "Menghilangkan pop-up notifikasi saat menangkap ikan.",
+        Value = false,
+        Icon = "bell-off",
+        Callback = function(state)
+            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+            local SmallNotification = PlayerGui:FindFirstChild("Small Notification")
+            
+            if not SmallNotification then
+                -- Coba cari sebentar jika belum load
+                SmallNotification = PlayerGui:WaitForChild("Small Notification", 5)
+            end
+
+            if not SmallNotification then 
+                WindUI:Notify({ Title = "Error", Content = "GUI Notifikasi tidak ditemukan.", Duration = 3, Icon = "x" })
+                return 
+            end
+
+            if state then
+                -- Paksa disable setiap frame agar tidak muncul kembali
+                DisableNotificationConnection = RunService.RenderStepped:Connect(function()
+                    if SmallNotification then SmallNotification.Enabled = false end
+                end)
+                WindUI:Notify({ Title = "Notif Diblokir", Duration = 2, Icon = "check" })
+            else
+                if DisableNotificationConnection then
+                    DisableNotificationConnection:Disconnect()
+                    DisableNotificationConnection = nil
+                end
+                SmallNotification.Enabled = true
+                WindUI:Notify({ Title = "Notif Normal", Duration = 2, Icon = "check" })
+            end
+        end
+    })
+
+    -- 2. ENABLE FISHING RADAR
+    local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
+    MiscSection:Toggle({
+        Title = "Enable Fishing Radar",
+        Desc = "Menampilkan radar ikan di HUD.",
+        Value = false,
+        Icon = "radar",
+        Callback = function(state)
+            if not RF_UpdateFishingRadar then
+                WindUI:Notify({ Title = "Error", Content = "Remote Radar tidak ditemukan.", Duration = 3, Icon = "x" })
+                return
+            end
+            pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
+            
+            if state then
+                WindUI:Notify({ Title = "Radar ON", Duration = 2, Icon = "check" })
+            else
+                WindUI:Notify({ Title = "Radar OFF", Duration = 2, Icon = "x" })
+            end
+        end
+    })
+
+    -- 3. NO ANIMATION
+    local isNoAnimationActive = false
+    local originalAnimator = nil
+    local originalAnimateScript = nil
+
+    local function ToggleAnimations(disable)
+        local character = LocalPlayer.Character
+        if not character then return end
+        local humanoid = character:FindFirstChild("Humanoid")
+        if not humanoid then return end
+
+        if disable then
+            -- Disable Animate Script
+            local animScript = character:FindFirstChild("Animate")
+            if animScript and animScript:IsA("LocalScript") and animScript.Enabled then
+                originalAnimateScript = animScript.Enabled
+                animScript.Enabled = false
+            end
+            -- Destroy Animator
+            local animator = humanoid:FindFirstChildOfClass("Animator")
+            if animator then
+                originalAnimator = animator
+                animator:Destroy()
+            end
+        else
+            -- Restore
+            local animScript = character:FindFirstChild("Animate")
+            if animScript and originalAnimateScript ~= nil then
+                animScript.Enabled = originalAnimateScript
+            end
+            local existingAnimator = humanoid:FindFirstChildOfClass("Animator")
+            if not existingAnimator then
+                Instance.new("Animator", humanoid)
+            end
+        end
+    end
+
+    MiscSection:Toggle({
+        Title = "No Animation",
+        Desc = "Mematikan animasi karakter (mengurangi lag).",
+        Value = false,
+        Icon = "activity",
+        Callback = function(state)
+            isNoAnimationActive = state
+            ToggleAnimations(state)
+            if state then
+                WindUI:Notify({ Title = "No Anim ON", Duration = 2, Icon = "check" })
+            else
+                WindUI:Notify({ Title = "No Anim OFF", Duration = 2, Icon = "x" })
+            end
+        end
+    })
+    
+    -- Handle Respawn for No Animation
+    LocalPlayer.CharacterAdded:Connect(function()
+        if isNoAnimationActive then
+            task.wait(0.5)
+            ToggleAnimations(true)
+        end
+    end)
+
+    -- 4. REMOVE SKIN EFFECT
+    -- Load Controller (Safe Call)
+    local VFXControllerModule = nil
+    local originalVFXHandle = nil
+    pcall(function()
+        VFXControllerModule = require(game:GetService("ReplicatedStorage").Controllers.VFXController)
+        originalVFXHandle = VFXControllerModule.Handle
+    end)
+
+    MiscSection:Toggle({
+        Title = "Remove Skin Effect",
+        Desc = "Menghilangkan efek partikel/aura skin rod.",
+        Value = false,
+        Icon = "sparkles",
+        Callback = function(state)
+            if not VFXControllerModule then 
+                WindUI:Notify({ Title = "Error", Content = "VFX Controller tidak ditemukan.", Duration = 3, Icon = "x" })
+                return 
+            end
+
+            if state then
+                -- Override Handle function to do nothing
+                VFXControllerModule.Handle = function(...) end
+                -- Optional: Clear existing effects
+                local cosmeticFolder = workspace:FindFirstChild("CosmeticFolder")
+                if cosmeticFolder then pcall(function() cosmeticFolder:ClearAllChildren() end) end
+                WindUI:Notify({ Title = "Skin FX OFF", Duration = 2 })
+            else
+                -- Restore original function
+                if originalVFXHandle then
+                    VFXControllerModule.Handle = originalVFXHandle
+                end
+                WindUI:Notify({ Title = "Skin FX ON", Duration = 2 })
+            end
+        end
+    })
+
+    -- 5. NO CUTSCENE
+    local CutsceneController = nil
+    local OldPlayCutscene = nil
+    pcall(function()
+        CutsceneController = require(game:GetService("ReplicatedStorage").Controllers.CutsceneController)
+        OldPlayCutscene = CutsceneController.Play
+    end)
+    local isNoCutsceneActive = false
+
+    if CutsceneController then
+        -- Hook Function (Permanent Hook with Toggle Check)
+        CutsceneController.Play = function(self, ...)
+            if isNoCutsceneActive then return end -- Block if active
+            return OldPlayCutscene(self, ...)
+        end
+    end
+
+    MiscSection:Toggle({
+        Title = "No Cutscene",
+        Desc = "Melewati animasi sinematik saat menangkap ikan.",
+        Value = false,
+        Icon = "film",
+        Callback = function(state)
+            isNoCutsceneActive = state
+            if state then
+                WindUI:Notify({ Title = "No Cutscene ON", Duration = 2 })
+            else
+                WindUI:Notify({ Title = "No Cutscene OFF", Duration = 2 })
+            end
+        end
+    })
+
+    -- 6. DISABLE 3D RENDERING
+    MiscSection:Toggle({
+        Title = "Disable 3D Rendering",
+        Desc = "Mematikan render dunia 3D (Layar Hitam) untuk hemat CPU/GPU.",
+        Value = false,
+        Icon = "monitor-off",
+        Callback = function(state)
+            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+            local Camera = workspace.CurrentCamera
+            
+            if state then
+                if not _G.BlackScreenGUI then
+                    _G.BlackScreenGUI = Instance.new("ScreenGui")
+                    _G.BlackScreenGUI.Name = "RockHub_BlackScreen"
+                    _G.BlackScreenGUI.IgnoreGuiInset = true
+                    _G.BlackScreenGUI.DisplayOrder = -999
+                    _G.BlackScreenGUI.Parent = PlayerGui
+                    
+                    local Frame = Instance.new("Frame", _G.BlackScreenGUI)
+                    Frame.Size = UDim2.new(1,0,1,0)
+                    Frame.BackgroundColor3 = Color3.new(0,0,0)
+                    
+                    local Label = Instance.new("TextLabel", Frame)
+                    Label.Size = UDim2.new(1,0,0.1,0)
+                    Label.BackgroundTransparency = 1
+                    Label.Text = "3D Rendering Disabled (Saver Mode)"
+                    Label.TextColor3 = Color3.new(1,1,1)
+                    Label.TextSize = 20
+                end
+                _G.BlackScreenGUI.Enabled = true
+                _G.OldCamType = Camera.CameraType
+                Camera.CameraType = Enum.CameraType.Scriptable
+                Camera.CFrame = CFrame.new(0, 100000, 0)
+            else
+                if _G.BlackScreenGUI then _G.BlackScreenGUI.Enabled = false end
+                if _G.OldCamType then Camera.CameraType = _G.OldCamType else Camera.CameraType = Enum.CameraType.Custom end
+                if LocalPlayer.Character then Camera.CameraSubject = LocalPlayer.Character:FindFirstChild("Humanoid") end
+            end
+        end
+    })
+
+    -- 7. FPS ULTRA BOOST
+    local originalLighting = {}
+    local function ToggleFPSBoost(enable)
+        local Lighting = game:GetService("Lighting")
+        local Terrain = workspace:FindFirstChildOfClass("Terrain")
+        
+        if enable then
+            -- Save Originals
+            if not next(originalLighting) then
+                originalLighting = {
+                    GlobalShadows = Lighting.GlobalShadows,
+                    FogEnd = Lighting.FogEnd,
+                    Brightness = Lighting.Brightness
+                }
+            end
+            
+            -- Apply Boost
+            Lighting.GlobalShadows = false
+            Lighting.FogEnd = 9e9
+            Lighting.Brightness = 0
+            
+            -- Disable Effects
+            for _, v in pairs(workspace:GetDescendants()) do
+                if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") then
+                    v.Enabled = false
+                elseif v:IsA("Texture") or v:IsA("Decal") then
+                    v.Transparency = 1
+                end
+            end
+            
+            if Terrain then
+                Terrain.WaterWaveSize = 0
+                Terrain.WaterTransparency = 1
+                Terrain.Decoration = false
+            end
+            
+            setfpscap(60) -- Stabilize
+        else
+            -- Restore
+            if originalLighting.GlobalShadows ~= nil then
+                Lighting.GlobalShadows = originalLighting.GlobalShadows
+                Lighting.FogEnd = originalLighting.FogEnd
+                Lighting.Brightness = originalLighting.Brightness
+            end
+        end
+    end
+
+    MiscSection:Toggle({
+        Title = "FPS Ultra Boost",
+        Desc = "Menurunkan kualitas grafik ekstrem untuk FPS maksimal.",
+        Value = false,
+        Icon = "zap",
+        Callback = function(state)
+            ToggleFPSBoost(state)
+            if state then
+                WindUI:Notify({ Title = "FPS Boost ON", Duration = 2, Icon = "zap" })
+            else
+                WindUI:Notify({ Title = "FPS Boost OFF", Duration = 2, Icon = "rotate-ccw" })
+            end
+        end
+    })
+end
+
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
-
-
