@@ -729,57 +729,95 @@ local function RunV3Pro()
         v3proActive = false
         return
     end
-
+    
     task.spawn(function()
         lastCatchTime = os.clock()
 
-        -- charge rod legit style
-        pcall(function()
-            RF_ChargeFishingRod:InvokeServer(os.clock())
+        ---------------------------------------------
+        -- 1️⃣ HARD RESET STATE (DIAMBIL DARI TEMANMU)
+        ---------------------------------------------
+        safeFire(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
+
+        task.wait(0.05)
+
+        ---------------------------------------------
+        -- 2️⃣ TIMESTAMP SINKRON (COMBO V2 + FRIEND)
+        ---------------------------------------------
+        local serverTime = workspace:GetServerTimeNow()
+        local tickNow = tick()
+        local timestamp = os.time() + os.clock()
+
+        ---------------------------------------------
+        -- 3️⃣ CHARGE (VERSI PALING STABLE)
+        ---------------------------------------------
+        safeFire(function()
+            RF_ChargeFishingRod:InvokeServer({
+                [2] = tickNow
+            })
         end)
 
         task.wait(0.01)
 
-        -- request start
-        pcall(function()
-            RF_RequestFishingMinigameStarted:InvokeServer(-139.4, 0.98)
+        ---------------------------------------------
+        -- 4️⃣ START MINIGAME (ENGINE V2 → TERBUKTI WORK)
+        ---------------------------------------------
+        safeFire(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(
+                -139.6379699707,
+                0.99647927980797,
+                tickNow
+            )
         end)
 
-        -- wait like a “real minigame”
+        ---------------------------------------------
+        -- 5️⃣ DELAY (MASIH RESPECT KE V3 CONFIG KAMU)
+        ---------------------------------------------
         local waited = os.clock() - lastCatchTime
         local remain = v3proCompleteDelay - waited
         if remain > 0 then
             task.wait(remain)
         end
 
-        -- complete catch
-pcall(function()
-    RE_FishingCompleted:FireServer()
-end)
+        ---------------------------------------------
+        -- 6️⃣ COMPLETE (SUPER FAST)
+        ---------------------------------------------
+        safeFire(function()
+            RE_FishingCompleted:FireServer()
+        end)
 
--- cancel safely
-task.wait(v3proCancelDelay)
+        task.wait(v3proCancelDelay)
 
-pcall(function()
-    RF_CancelFishingInputs:InvokeServer()
-end)
+        ---------------------------------------------
+        -- 7️⃣ CLEAN EXIT
+        ---------------------------------------------
+        safeFire(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
 
--------------------------------------------------
--- 🔥 AUTO RECAST (NO WAIT MODE)
--------------------------------------------------
-task.wait(0.05)
+        ---------------------------------------------
+        -- 8️⃣ AUTO RECAST CEPAT (SIGNATURE V3 MU)
+        ---------------------------------------------
+        task.wait(0.05)
 
-pcall(function()
-    RF_ChargeFishingRod:InvokeServer(os.clock())
-end)
+        safeFire(function()
+            RF_ChargeFishingRod:InvokeServer({[2] = tickNow})
+        end)
 
-task.wait(0.01)
+        task.wait(0.01)
 
-pcall(function()
-    RF_RequestFishingMinigameStarted:InvokeServer(-139.4, 0.98)
-end)
+        safeFire(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(
+                -139.6379699707,
+                0.99647927980797,
+                tickNow
+            )
+        end)
+
     end)
 end
+
 
 ---------------------------------------------------------
 -- WATCHDOG (ANTI STUCK)
@@ -2003,15 +2041,3 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
-
-
-
-
-
-
-
-
-
-
-
-
