@@ -151,186 +151,344 @@ local farm = Window:Tab({ Title = "Fishing", Icon = "fish" })
 
 -- [[ 1. X7 SPEED (BETA) ]] --
 do
-    local MainSection = farm:Section({ Title = "1. X7 Speed (Beta)", TextSize = 20 })
+    -- Variables for Fishing
+    local legitAutoState = false
+    local normalInstantState = false
+    local blatantInstantState = false
+    local normalLoopThread, normalEquipThread
+    local blatantLoopThread, blatantEquipThread
+    local legitClickThread, legitEquipThread
+    
+    -- Remotes
+    local RE_EquipToolFromHotbar = GetRemote(RPath, "RE/EquipToolFromHotbar")
+    local RF_ChargeFishingRod = GetRemote(RPath, "RF/ChargeFishingRod")
+    local RF_RequestFishingMinigameStarted = GetRemote(RPath, "RF/RequestFishingMinigameStarted")
+    local RE_FishingCompleted = GetRemote(RPath, "RE/FishingCompleted")
+    local RF_CancelFishingInputs = GetRemote(RPath, "RF/CancelFishingInputs")
+    local RF_UpdateAutoFishingState = GetRemote(RPath, "RF/UpdateAutoFishingState")
 
-    local Modules = {}
-    local featureState = {
-        AutoFish = false,
-        Instant_ChargeDelay = 0.07,
-        Instant_SpamCount = 5,
-        Instant_WorkerCount = 1, 
-        Instant_StartDelay = 1.20,
-        Instant_CatchTimeout = 0.25,
-        Instant_CycleDelay = 0.10,
-        Instant_ResetCount = 15,
-        Instant_ResetPause = 0.1,
-        AutoSellMode = "Disabled",
-        AutoSellDelay = 1800
-    }
-    local fishingTrove = {}
-    local fishCaughtBindable = Instance.new("BindableEvent")
-    local lastSellTime = 0
-
-    local function customRequire(module)
-        if not module then return nil end
-        local success, result = pcall(require, module)
-        if success then return result end
-        local clone = module:Clone()
-        clone.Parent = nil
-        local s, r = pcall(require, clone)
-        return s and r or nil
+    local function checkFishingRemotes()
+        if not (RE_EquipToolFromHotbar and RF_ChargeFishingRod and RF_RequestFishingMinigameStarted and RE_FishingCompleted) then
+            WindUI:Notify({ Title = "Error", Content = "Fishing Remotes not found!", Duration = 5, Icon = "x" })
+            return false
+        end
+        return true
     end
 
-    local function LoadX7Modules()
-        pcall(function()
-            local Packages = RepStorage:WaitForChild("Packages")
-            local NetFolder = Packages:WaitForChild("_Index"):WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net")
+    local function disableOtherModes()
+        legitAutoState = false; normalInstantState = false; blatantInstantState = false
+        if legitClickThread then task.cancel(legitClickThread) end
+        if normalLoopThread then task.cancel(normalLoopThread) end
+        if blatantLoopThread then task.cancel(blatantLoopThread) end
+    end
+
+    -- SECTION: AUTO FISHING
+    local autofish = farm:Section({ Title = "Auto Fishing", TextSize = 20 })
+
+    -- 1. LEGIT MODE
+    local SPEED_LEGIT = 0.05
+    Reg("legit", autofish:Toggle({
+        Title = "Auto Fish (Legit)", Value = false,
+        Callback = function(state)
+            if not checkFishingRemotes() then return end
+            disableOtherModes()
+            legitAutoState = state
             
-            Modules.NetFolder = NetFolder
-            Modules.ChargeRodFunc = NetFolder["RF/ChargeFishingRod"]
-            Modules.StartMinigameFunc = NetFolder["RF/RequestFishingMinigameStarted"]
-            Modules.CompleteFishingEvent = NetFolder["RE/FishingCompleted"]
-            Modules.CancelFishing = NetFolder["RF/CancelFishingInputs"]
-            Modules.EquipToolEvent = NetFolder["RE/EquipToolFromHotbar"]
-            Modules.SellAllItemsFunc = NetFolder["RF/SellAllItems"]
-            Modules.FishingController = customRequire(RepStorage.Controllers.FishingController)
-            Modules.ReplicateTextEffect = NetFolder["RE/ReplicateTextEffect"]
-        end)
-    end
-    LoadX7Modules()
-
-    local function stopAutoFishProcesses()
-        featureState.AutoFish = false
-        for _, item in ipairs(fishingTrove) do
-            if typeof(item) == "RBXScriptConnection" then item:Disconnect()
-            elseif typeof(item) == "thread" then task.cancel(item) end
-        end
-        fishingTrove = {}
-        pcall(function() Modules.FishingController:RequestClientStopFishing(true) end)
-        if Modules.NetFolder then
-             local RF_State = Modules.NetFolder:FindFirstChild("RF/UpdateAutoFishingState")
-             if RF_State then pcall(function() RF_State:InvokeServer(false) end) end
-        end
-    end
-
-    local function equipFishingRod()
-        if Modules.EquipToolEvent then pcall(Modules.EquipToolEvent.FireServer, Modules.EquipToolEvent, 1) end
-    end
-
-    local function sellAllItems()
-        if Modules.SellAllItemsFunc then pcall(Modules.SellAllItemsFunc.InvokeServer, Modules.SellAllItemsFunc) end
-    end
-
-    local function startAutoFishMethod_Instant()
-        if not (Modules.ChargeRodFunc and Modules.StartMinigameFunc and Modules.CompleteFishingEvent) then
-            LoadX7Modules(); return
-        end
-        featureState.AutoFish = true
-        
-        if Modules.NetFolder then
-             local RF_State = Modules.NetFolder:FindFirstChild("RF/UpdateAutoFishingState")
-             if RF_State then pcall(function() RF_State:InvokeServer(true) end) end
-        end
-
-        local chargeCount = 0
-        local isCurrentlyResetting = false
-
-        local function worker()
-            while featureState.AutoFish and LocalPlayer do
-                local currentResetTarget_Worker = featureState.Instant_ResetCount or 15
-                if isCurrentlyResetting or chargeCount >= currentResetTarget_Worker then break end
-
-                pcall(function()
-                    if featureState.AutoSellMode ~= "Disabled" and (tick() - lastSellTime > featureState.AutoSellDelay) then
-                        sellAllItems(); lastSellTime = tick()
+            local FishingController = require(RepStorage.Controllers.FishingController)
+            
+            if state then
+                -- Hook logic simple
+                local oldRodStarted = FishingController.FishingRodStarted
+                FishingController.FishingRodStarted = function(self, ...)
+                    oldRodStarted(self, ...)
+                    if legitAutoState then
+                        legitClickThread = task.spawn(function()
+                            while legitAutoState do
+                                FishingController:RequestFishingMinigameClick()
+                                task.wait(SPEED_LEGIT)
+                            end
+                        end)
                     end
-
-                    if not featureState.AutoFish or isCurrentlyResetting then return end
-                    if chargeCount < currentResetTarget_Worker then chargeCount = chargeCount + 1 else return end
-
-                    Modules.ChargeRodFunc:InvokeServer(workspace:GetServerTimeNow())
-                    task.wait(featureState.Instant_ChargeDelay)
-                    
-                    local char = LocalPlayer.Character
-                    local castPos = char and char.PrimaryPart and (char.PrimaryPart.Position + char.PrimaryPart.CFrame.LookVector * 10) or Vector3.new(-1.25, 1, 0)
-                    if typeof(castPos) == "Vector3" then Modules.StartMinigameFunc:InvokeServer(castPos, 100)
-                    else Modules.StartMinigameFunc:InvokeServer(-1.25, 1, workspace:GetServerTimeNow()) end
-                    
-                    task.wait(featureState.Instant_StartDelay)
-
-                    for _ = 1, featureState.Instant_SpamCount do
-                        if not featureState.AutoFish then break end
-                        Modules.CompleteFishingEvent:FireServer()
-                        task.wait(0.01)
-                    end
-
-                    local signalReceived = false
-                    local connection
-                    local timeoutThread = task.delay(featureState.Instant_CatchTimeout, function()
-                         if not signalReceived and connection then connection:Disconnect() end
-                    end)
-                    Modules.CancelFishing:InvokeServer()
-                    connection = fishCaughtBindable.Event:Connect(function()
-                        signalReceived = true
-                        if timeoutThread then task.cancel(timeoutThread) end
-                        if connection then connection:Disconnect() end
-                    end)
-                    
-                    local wTime = 0
-                    while not signalReceived and wTime < featureState.Instant_CatchTimeout do
-                        task.wait(0.1); wTime = wTime + 0.1
-                        if not featureState.AutoFish then break end
-                    end
-                    if connection then connection:Disconnect() end
-                    Modules.CancelFishing:InvokeServer()
-                    pcall(function() Modules.FishingController:RequestClientStopFishing(true) end)
-                end)
-                task.wait(featureState.Instant_CycleDelay)
-            end
-        end
-
-        local autoFishThread = task.spawn(function()
-            while featureState.AutoFish do
-                chargeCount = 0; isCurrentlyResetting = false
-                local batchTrove = {}
-                for i = 1, featureState.Instant_WorkerCount do
-                    local t = task.spawn(worker)
-                    table.insert(batchTrove, t); table.insert(fishingTrove, t)
                 end
-                while featureState.AutoFish and chargeCount < (featureState.Instant_ResetCount or 15) do task.wait(0.1) end
-                isCurrentlyResetting = true
-                for _, t in ipairs(batchTrove) do task.cancel(t) end
-                task.wait(featureState.Instant_ResetPause)
+                
+                -- Auto Equip Loop
+                legitEquipThread = task.spawn(function()
+                    while legitAutoState do
+                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                        task.wait(0.5)
+                    end
+                end)
+            else
+                if legitClickThread then task.cancel(legitClickThread) end
+                if legitEquipThread then task.cancel(legitEquipThread) end
             end
-            stopAutoFishProcesses()
-        end)
-        table.insert(fishingTrove, autoFishThread)
-    end
-
-    if Modules.ReplicateTextEffect then
-        Modules.ReplicateTextEffect.OnClientEvent:Connect(function(data)
-            if featureState.AutoFish then fishCaughtBindable:Fire("caught") end
-        end)
-    else
-        task.spawn(function()
-            while task.wait(1) do if featureState.AutoFish then fishCaughtBindable:Fire("caught") end end
-        end)
-    end
-
-    Reg("x7toggle", MainSection:Toggle({
-        Title = "Enable X7 Speed", Desc = "Logic Worker + Reset (Sangat Cepat).", Value = false,
-        Callback = function(v)
-            if v then stopAutoFishProcesses(); featureState.AutoFish = true; equipFishingRod(); task.wait(0.2); startAutoFishMethod_Instant()
-            else stopAutoFishProcesses() end
         end
     }))
 
-    -- X7 Tuning (Input)
-    local TuningSection = farm:Section({ Title = "X7 Tuning (Delay Pantat)", TextSize = 18 })
-    Reg("x7startdelay", TuningSection:Input({ Title = "Start Delay", Value = tostring(featureState.Instant_StartDelay), Placeholder = "1.20", Callback = function(text) local num = tonumber(text); if num then featureState.Instant_StartDelay = num end end }))
-    Reg("x7timeout", TuningSection:Input({ Title = "Catch Timeout", Value = tostring(featureState.Instant_CatchTimeout), Placeholder = "0.25", Callback = function(text) local num = tonumber(text); if num then featureState.Instant_CatchTimeout = num end end }))
-    Reg("x7cycle", TuningSection:Input({ Title = "Cycle Cooldown", Value = tostring(featureState.Instant_CycleDelay), Placeholder = "0.10", Callback = function(text) local num = tonumber(text); if num then featureState.Instant_CycleDelay = num end end }))
-    TuningSection:Toggle({ Title = "Auto Sell All", Value = false, Callback = function(state) featureState.AutoSellMode = state and "Auto Sell All" or "Disabled"; if state then lastSellTime = tick() end end })
+    --============================================================
+    -- NOTIFICATION RESTORE FUNCTION
+    --============================================================
+    function RestoreGameNotifications()
+        if NotifEvent and getconnections then
+            for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
+                pcall(function()
+                    if c.Enable then
+                        c:Enable()
+                    end
+                end)
+            end
+        end
+    end
+
+    -- 2. NORMAL INSTANT MODE
+    local normalDelay = 1.5
+    Reg("tognorm", autofish:Toggle({
+        Title = "Normal Instant Fish", Value = false,
+        Callback = function(state)
+            if not checkFishingRemotes() then return end
+            disableOtherModes()
+            normalInstantState = state
+            
+            if state then
+                normalLoopThread = task.spawn(function()
+                    while normalInstantState do
+                        local ts = os.time() + os.clock()
+                        pcall(function() RF_ChargeFishingRod:InvokeServer(ts) end)
+                        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99) end)
+                        task.wait(normalDelay)
+                        pcall(function() RE_FishingCompleted:FireServer() end)
+                        task.wait(0.3)
+                        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+                        task.wait(0.1)
+                    end
+                end)
+                
+                normalEquipThread = task.spawn(function()
+                    while normalInstantState do
+                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                        task.wait(0.5)
+                    end
+                end)
+            else
+                if normalLoopThread then task.cancel(normalLoopThread) end
+                if normalEquipThread then task.cancel(normalEquipThread) end
+            end
+        end
+    }))
+
+    -- [[ BLATANT MODE (OLD / KILLER LOGIC) ]] --
+    local blatant = farm:Section({ Title = "Blatant Mode (Old)", TextSize = 20, })
+
+    local completeDelay = 3.055
+    local cancelDelay = 0.3
+    local loopInterval = 1.715
+    
+    _G.RockHub_BlatantActive = false
+
+    -- [[ 1. LOGIC KILLER: LUMPUHKAN CONTROLLER ]]
+    task.spawn(function()
+        local S1, FishingController = pcall(function() return require(game:GetService("ReplicatedStorage").Controllers.FishingController) end)
+        if S1 and FishingController then
+            local Old_Charge = FishingController.RequestChargeFishingRod
+            local Old_Cast = FishingController.SendFishingRequestToServer
+            
+            -- Matikan fungsi charge & cast game asli saat Blatant ON
+            FishingController.RequestChargeFishingRod = function(...)
+                if _G.RockHub_BlatantActive then return end 
+                return Old_Charge(...)
+            end
+            FishingController.SendFishingRequestToServer = function(...)
+                if _G.RockHub_BlatantActive then return false, "Blocked by RockHub" end
+                return Old_Cast(...)
+            end
+        end
+    end)
+
+    -- [[ 2. REMOTE KILLER: BLOKIR KOMUNIKASI ]]
+    local mt = getrawmetatable(game)
+    local old_namecall = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if _G.RockHub_BlatantActive and not checkcaller() then
+            -- Cegah game mengirim request mancing atau request update state
+            if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod" or self.Name == "UpdateAutoFishingState") then
+                return nil 
+            end
+            if method == "FireServer" and self.Name == "FishingCompleted" then
+                return nil
+            end
+        end
+        return old_namecall(self, ...)
+    end)
+    setreadonly(mt, true)
+
+    -- [[ 3. UI & NOTIF KILLER (VISUAL SPOOFING) ]]
+    -- Ini yang bikin UI tetep kelihatan mati padahal server taunya idup
+    local function SuppressGameVisuals(active)
+        -- A. Hook Notifikasi biar ga spam "Auto Fishing: Enabled"
+        local Succ, TextController = pcall(function() return require(game.ReplicatedStorage.Controllers.TextNotificationController) end)
+        if Succ and TextController then
+            if active then
+                if not TextController._OldDeliver then TextController._OldDeliver = TextController.DeliverNotification end
+                TextController.DeliverNotification = function(self, data)
+                    -- Filter pesan Auto Fishing
+                    if data and data.Text and (string.find(tostring(data.Text), "Auto Fishing") or string.find(tostring(data.Text), "Reach Level")) then
+                        return 
+                    end
+                    return TextController._OldDeliver(self, data)
+                end
+            elseif TextController._OldDeliver then
+                TextController.DeliverNotification = TextController._OldDeliver
+                TextController._OldDeliver = nil
+            end
+        end
+
+        -- B. Paksa Tombol Jadi Merah (Inactive) Setiap Frame
+        if active then
+            task.spawn(function()
+                local RunService = game:GetService("RunService")
+                local CollectionService = game:GetService("CollectionService")
+                local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+                
+                -- Warna Merah (Inactive) dari kode game yang kamu kasih
+                local InactiveColor = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromHex("ff5d60")), 
+                    ColorSequenceKeypoint.new(1, Color3.fromHex("ff2256"))
+                })
+
+                while _G.RockHub_BlatantActive do
+                    -- Cari tombol Auto Fishing (Bisa di Backpack atau tagged)
+                    local targets = {}
+                    
+                    -- Cek Tag (Cara paling akurat sesuai script game)
+                    for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
+                        table.insert(targets, btn)
+                    end
+                    
+                    -- Fallback cek path manual
+                    if #targets == 0 then
+                        local btn = PlayerGui:FindFirstChild("Backpack") and PlayerGui.Backpack:FindFirstChild("AutoFishingButton")
+                        if btn then table.insert(targets, btn) end
+                    end
+
+                    -- Paksa Gradientnya jadi Merah
+                    for _, btn in ipairs(targets) do
+                        local grad = btn:FindFirstChild("UIGradient")
+                        if grad then
+                            grad.Color = InactiveColor -- Timpa animasi spr game
+                        end
+                    end
+                    
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+        end
+    end
+
+    -- [[ UI CONFIG ]]
+    local LoopIntervalInput = Reg("blatantint_old", blatant:Input({
+        Title = "Blatant Interval", Value = tostring(loopInterval), Icon = "fast-forward", Type = "Input", Placeholder = "1.58",
+        Callback = function(input)
+            local newInterval = tonumber(input)
+            if newInterval and newInterval >= 0.5 then loopInterval = newInterval end
+        end
+    }))
+
+    local CompleteDelayInput = Reg("blatantcom_old", blatant:Input({
+        Title = "Complete Delay", Value = tostring(completeDelay), Icon = "loader", Type = "Input", Placeholder = "2.75",
+        Callback = function(input)
+            local newDelay = tonumber(input)
+            if newDelay and newDelay >= 0.5 then completeDelay = newDelay end
+        end
+    }))
+
+    local CancelDelayInput = Reg("blatantcanc_old",blatant:Input({
+        Title = "Cancel Delay", Value = tostring(cancelDelay), Icon = "clock", Type = "Input", Placeholder = "0.3", Flag = "canlay",
+        Callback = function(input)
+            local newDelay = tonumber(input)
+            if newDelay and newDelay >= 0.1 then cancelDelay = newDelay end
+        end
+    }))
+
+    local function runBlatantInstant()
+        if not blatantInstantState then return end
+        if not checkFishingRemotes(true) then blatantInstantState = false return end
+
+        task.spawn(function()
+            local startTime = os.clock()
+            local timestamp = os.time() + os.clock()
+            
+            -- Bypass: Panggil remote langsung (Script kita lolos hook checkcaller)
+            pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+            task.wait(0.001)
+            pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
+            
+            local completeWaitTime = completeDelay - (os.clock() - startTime)
+            if completeWaitTime > 0 then task.wait(completeWaitTime) end
+            
+            pcall(function() RE_FishingCompleted:FireServer() end)
+            task.wait(cancelDelay)
+            pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+        end)
+    end
+
+    local togblat = Reg("blatantt_old",blatant:Toggle({
+        Title = "Instant Fishing (Blatant Old)",
+        Value = false,
+        Callback = function(state)
+            if not checkFishingRemotes() then return end
+            disableOtherModes("blatant")
+            blatantInstantState = state
+            _G.RockHub_BlatantActive = state
+            
+            -- Jalankan Visual Killer
+            SuppressGameVisuals(state)
+            
+            if state then
+                -- 1. Server State: ON (Perfection)
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                end
+                task.wait(0.5)
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                end
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                end
+
+                -- 2. Loop Kita
+                blatantLoopThread = task.spawn(function()
+                    while blatantInstantState do
+                        runBlatantInstant()
+                        task.wait(loopInterval)
+                    end
+                end)
+
+                -- 3. Auto Equip
+                if blatantEquipThread then task.cancel(blatantEquipThread) end
+                blatantEquipThread = task.spawn(function()
+                    while blatantInstantState do
+                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                        task.wait(0.1) 
+                    end
+                end)
+                StopNotifListener()
+                WindUI:Notify({ Title = "Blatant Mode ON", Duration = 3, Icon = "zap" })
+            else
+                -- 4. Server State: OFF
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+                end
+
+                if blatantLoopThread then task.cancel(blatantLoopThread) blatantLoopThread = nil end
+                if blatantEquipThread then task.cancel(blatantEquipThread) blatantEquipThread = nil end
+                
+                WindUI:Notify({ Title = "Stopped", Duration = 2 })
+            end
+        end
+    }))
 end
 
 -- [[ 2. BLATANT V3 (RESTORED) ]] --
@@ -653,8 +811,29 @@ do
     
     local FishingAreas = {
         ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
+        ["Arrow Lever"] = {Pos = Vector3.new(898.296, 8.449, -361.856), Look = Vector3.new(0.023, -0.000, 1.000)},
         ["Coral Reef"] = {Pos = Vector3.new(-3207.538, 6.087, 2011.079), Look = Vector3.new(0.973, 0.000, 0.229)},
-        ["Roslit"] = {Pos = Vector3.new(-1518.5, 2.8, 1916.1), Look = Vector3.new(0.04, 0, 0.99)},
+        ["Crater Island"] = {Pos = Vector3.new(1058.976, 2.330, 5032.878), Look = Vector3.new(-0.789, 0.000, 0.615)},
+        ["Cresent Lever"] = {Pos = Vector3.new(1419.750, 31.199, 78.570), Look = Vector3.new(0.000, -0.000, -1.000)},
+        ["Crystalline Passage"] = {Pos = Vector3.new(6051.567, -538.900, 4370.979), Look = Vector3.new(0.109, 0.000, 0.994)},
+        ["Ancient Ruin"] = {Pos = Vector3.new(6031.981, -585.924, 4713.157), Look = Vector3.new(0.316, -0.000, -0.949)},
+        ["Diamond Lever"] = {Pos = Vector3.new(1818.930, 8.449, -284.110), Look = Vector3.new(0.000, 0.000, -1.000)},
+        ["Enchant Room"] = {Pos = Vector3.new(3255.670, -1301.530, 1371.790), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Esoteric Island"] = {Pos = Vector3.new(2164.470, 3.220, 1242.390), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Fisherman Island"] = {Pos = Vector3.new(74.030, 9.530, 2705.230), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Hourglass Diamond Lever"] = {Pos = Vector3.new(1484.610, 8.450, -861.010), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Kohana"] = {Pos = Vector3.new(-668.732, 3.000, 681.580), Look = Vector3.new(0.889, -0.000, 0.458)},
+        ["Lost Isle"] = {Pos = Vector3.new(-3804.105, 2.344, -904.653), Look = Vector3.new(-0.901, -0.000, 0.433)},
+        --["Ocean (for element)"] = {Pos = Vector3.new(4675.870, 5.210, -554.690), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Sacred Temple"] = {Pos = Vector3.new(1461.815, -22.125, -670.234), Look = Vector3.new(-0.990, -0.000, 0.143)},
+        ["Second Enchant Altar"] = {Pos = Vector3.new(1479.587, 128.295, -604.224), Look = Vector3.new(-0.298, 0.000, -0.955)},
+        ["Sisyphus Statue"] = {Pos = Vector3.new(-3743.745, -135.074, -1007.554), Look = Vector3.new(0.310, 0.000, 0.951)},
+        ["Treasure Room"] = {Pos = Vector3.new(-3598.440, -281.274, -1645.855), Look = Vector3.new(-0.065, 0.000, -0.998)},
+        ["Tropical Island"] = {Pos = Vector3.new(-2162.920, 2.825, 3638.445), Look = Vector3.new(0.381, -0.000, 0.925)},
+        ["Underground Cellar"] = {Pos = Vector3.new(2118.417, -91.448, -733.800), Look = Vector3.new(0.854, 0.000, 0.521)},
+        ["Volcano"] = {Pos = Vector3.new(-605.121, 19.516, 160.010), Look = Vector3.new(0.854, 0.000, 0.520)},
+        ["Weather Machine"] = {Pos = Vector3.new(-1518.550, 2.875, 1916.148), Look = Vector3.new(0.042, 0.000, 0.999)},
+        ["Christmas Island"] = {Pos = Vector3.new(1136.833, 23.573, 1562.916), Look = Vector3.new(0.790, 0.000, -0.613)},
     }
     
     local AreaNames = {}
