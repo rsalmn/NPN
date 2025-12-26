@@ -630,6 +630,216 @@ do
     }))
 
 
+    --============================================================
+    -- BLATANT V3 (TURBO MODE)
+    --============================================================
+    local v3Section = farm:Section({
+        Title = "Blatant V3 (Turbo)",
+        TextSize = 20
+    })
+
+    local v3Active = false
+    local v3Loop = nil
+    local v3EquipLoop = nil
+
+    -- DEFAULT SUPER FAST SETTING (kamu bisa edit nanti)
+    local v3Interval = 1.25
+    local v3CompleteDelay = 2.25
+    local v3CancelDelay = 0.25
+
+    ---------------------------------------------------------
+    -- UI CONFIG INPUT
+    ---------------------------------------------------------
+    Reg("v3int", v3Section:Input({
+        Title = "Loop Interval",
+        Value = tostring(v3Interval),
+        Icon = "repeat",
+        Placeholder = "1.25",
+        Callback = function(i)
+            local v = tonumber(i)
+            if v and v >= 0.4 then
+                v3Interval = v
+            end
+        end
+    }))
+
+    Reg("v3com", v3Section:Input({
+        Title = "Complete Delay",
+        Value = tostring(v3CompleteDelay),
+        Icon = "clock",
+        Placeholder = "2.25",
+        Callback = function(i)
+            local v = tonumber(i)
+            if v and v >= 0.5 then
+                v3CompleteDelay = v
+            end
+        end
+    }))
+
+    Reg("v3canc", v3Section:Input({
+        Title = "Cancel Delay",
+        Value = tostring(v3CancelDelay),
+        Icon = "timer",
+        Placeholder = "0.25",
+        Callback = function(i)
+            local v = tonumber(i)
+            if v and v >= 0.1 then
+                v3CancelDelay = v
+            end
+        end
+    }))
+
+    ---------------------------------------------------------
+    -- DISABLE OTHER MODES
+    ---------------------------------------------------------
+    local function disableOtherModesV3()
+        -- Legit OFF
+        pcall(function()
+            RF_UpdateAutoFishingState:InvokeServer(false)
+        end)
+
+        -- Normal Instant OFF
+        if normal ~= nil then
+            normal = false
+        end
+
+        -- Blatant Old OFF
+        if blatantInstantState ~= nil then
+            blatantInstantState = false
+        end
+
+        -- Ghost OFF
+        if ghostActive ~= nil then
+            ghostActive = false
+        end
+
+        -- Improved Blatant OFF
+        if SetBlatantState then
+            SetBlatantState(false)
+        end
+    end
+
+    ---------------------------------------------------------
+    -- CORE ENGINE
+    ---------------------------------------------------------
+    local function RunV3()
+        if not v3Active then return end
+        if not checkFishingRemotes() then
+            v3Active = false
+            return
+        end
+
+        task.spawn(function()
+            local start = os.clock()
+
+            -- Charge rod
+            pcall(function()
+                RF_ChargeFishingRod:InvokeServer(os.time())
+            end)
+
+            task.wait(0.01)
+
+            -- Force Start Minigame
+            pcall(function()
+                RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.98)
+            end)
+
+            local waited = os.clock() - start
+            local remain = v3CompleteDelay - waited
+            if remain > 0 then
+                task.wait(remain)
+            end
+
+            -- Complete catch
+            pcall(function()
+                RE_FishingCompleted:FireServer()
+            end)
+
+            -- Fast cancel
+            task.wait(v3CancelDelay)
+
+            pcall(function()
+                RF_CancelFishingInputs:InvokeServer()
+            end)
+        end)
+    end
+
+    ---------------------------------------------------------
+    -- TOGGLE
+    ---------------------------------------------------------
+    Reg("v3toggle", v3Section:Toggle({
+        Title = "Enable Blatant V3 (Turbo)",
+        Value = false,
+        Callback = function(state)
+
+            if not checkFishingRemotes() then
+                WindUI:Notify({
+                    Title = "Blatant V3 Failed",
+                    Content = "Fishing Remotes Missing",
+                    Duration = 3
+                })
+                return
+            end
+
+            v3Active = state
+
+            if state then
+                disableOtherModesV3()
+
+                -- Main Loop
+                v3Loop = task.spawn(function()
+                    while v3Active do
+                        RunV3()
+                        task.wait(v3Interval)
+                    end
+                end)
+
+                -- Auto Equip
+                v3EquipLoop = task.spawn(function()
+                    while v3Active do
+                        pcall(function()
+                            RE_EquipToolFromHotbar:FireServer(1)
+                        end)
+                        task.wait(0.12)
+                    end
+                end)
+
+                WindUI:Notify({
+                    Title = "Blatant V3 ON",
+                    Content = "Turbo Fishing Activated",
+                    Duration = 3,
+                    Icon = "zap"
+                })
+
+            else
+                v3Active = false
+
+                if v3Loop then
+                    task.cancel(v3Loop)
+                    v3Loop = nil
+                end
+
+                if v3EquipLoop then
+                    task.cancel(v3EquipLoop)
+                    v3EquipLoop = nil
+                end
+
+                pcall(function()
+                    RF_UpdateAutoFishingState:InvokeServer(false)
+                end)
+
+                WindUI:Notify({
+                    Title = "Blatant V3 Stopped",
+                    Duration = 2
+                })
+            end
+        end
+    }))
+
+
+
+
+
 do
     local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
     
@@ -706,7 +916,7 @@ do
                     end)
                 end
                 
-                task.wait(1.2) -- delay tampil satu per satu
+                task.wait(1.1) -- delay tampil satu per satu
             end
 
             NotifProcessRunning = false
@@ -735,7 +945,7 @@ do
             -------------------------------------------------
             -- Stop jika ini notifikasi buatan (loop protector)
             -------------------------------------------------
-            if itemData.CustomDuration == 15 then
+            if itemData.CustomDuration == 3 then
                 return
             end
 
@@ -761,7 +971,7 @@ do
             -- Push to Queue
             -------------------------------------------------
             local newArgs = deepCopy(args)
-            newArgs[3].CustomDuration = 15 -- Durasi panjang
+            newArgs[3].CustomDuration = 3 -- Durasi panjang
 
             table.insert(NotifQueue, newArgs)
             ProcessNotifQueue()
