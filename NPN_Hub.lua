@@ -1005,6 +1005,13 @@ do
         NotifQueue = {}
     end
 
+    ---------------------------------------------------------
+    -- AUTO START SYSTEM
+    ---------------------------------------------------------
+    task.delay(1,function()
+        StartNotifListener()
+    end)
+
     local function StartInterceptor()
         if NotifListener then NotifListener:Disconnect() NotifListener = nil end
         if not NotifEvent then return end
