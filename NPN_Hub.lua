@@ -1138,14 +1138,24 @@ Reg("v4comp", v4Section:Input({
 -- FORCE CAST PROPER
 -------------------------------------------------
 local function V4ThrowProper()
-    pcall(function()
-        RF_ChargeFishingRod:InvokeServer(os.clock())
-    end)
-    task.wait(0.03)
-    pcall(function()
-        RF_RequestFishingMinigameStarted:InvokeServer(-139.4, 0.99)
+    task.spawn(function()
+        -- timestamp wajib agar server valid
+        local timestamp = os.time() + os.clock()
+
+        -- 1) charge
+        pcall(function()
+            RF_ChargeFishingRod:InvokeServer(timestamp)
+        end)
+
+        task.wait(0.01)
+
+        -- 2) force start minigame
+        pcall(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797)
+        end)
     end)
 end
+
 
 -------------------------------------------------
 -- COMPLETE CATCH
@@ -2002,6 +2012,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
