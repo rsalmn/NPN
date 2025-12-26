@@ -629,6 +629,7 @@ do
         end
     }))
 
+
 do
     local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
     
@@ -643,59 +644,89 @@ do
         Instant_CatchTimeout = 0.01,
         Instant_CycleDelay = 0.01,
         Instant_ResetCount = 10,
-        Instant_ResetPause = 0.01,
-        FakeNotifDelay = 0.5 -- [BARU] Delay antar notifikasi
+        Instant_ResetPause = 0.01
     }
     local fishingTrove_X5 = {}
     local autoFishThread_X5 = nil
     local fishCaughtBindable_X5 = Instance.new("BindableEvent")
 
-    -- [[ NOTIFICATION QUEUE SYSTEM (BARU) ]] --
+    -- [[ NOTIFICATION SYSTEM (REAL STACK) ]] --
     local NotifQueue = {}
+    local NotifListener = nil
     local NotifProcessRunning = false
-    local NotifEvent = nil -- Akan diisi saat load modules
+    local NotifEvent = nil
 
-    local function TriggerFakeNotification()
-        if not NotifEvent or not firesignal then return end
+    -- Fungsi untuk memproses antrian notifikasi
+    local function ProcessNotifQueue()
+        if NotifProcessRunning then return end
+        NotifProcessRunning = true
         
-        -- Masukkan ke antrian agar menumpuk rapi
-        table.insert(NotifQueue, true)
-        
-        if not NotifProcessRunning then
-            task.spawn(function()
-                NotifProcessRunning = true
-                while #NotifQueue > 0 do
-                    table.remove(NotifQueue, 1)
-                    
-                    -- LOGIC MANIPULASI NOTIFIKASI
-                    -- Menggunakan firesignal untuk memalsukan event server
+        task.spawn(function()
+            while #NotifQueue > 0 do
+                -- Ambil data ikan paling lama (FIFO)
+                local data = table.remove(NotifQueue, 1)
+                
+                -- Kirim ulang notifikasi dengan durasi lama
+                if firesignal and NotifEvent then
                     pcall(function()
-                        firesignal(NotifEvent.OnClientEvent, 
-                            196, -- Item ID (Sample)
-                            { Weight = 0.84 }, -- Data 1
-                            {
-                                CustomDuration = 5,
-                                Type = "Item",
-                                ItemType = "Fishes",
-                                _newlyIndexed = false,
-                                InventoryItem = {
-                                    Favorited = false,
-                                    Id = 196,
-                                    UUID = "8d7dc388-bc51-4d7e-aece-4961fd5f2146",
-                                    Metadata = { Weight = 0.84 }
-                                },
-                                ItemId = 196
-                            },
-                            false
-                        )
+                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
                     end)
-                    
-                    -- Delay agar notifikasi "menumpuk" di layar (tidak instan hilang)
-                    task.wait(featureState_X5.FakeNotifDelay) 
                 end
-                NotifProcessRunning = false
+                
+                -- Jeda agar notifikasi muncul satu per satu (Menumpuk)
+                task.wait(1.2) -- Delay Fixed
+            end
+            NotifProcessRunning = false
+        end)
+    end
+
+    -- Fungsi untuk Clone Table (Agar tidak merubah data asli secara referensi)
+    local function deepCopy(original)
+        local copy = {}
+        for k, v in pairs(original) do
+            if type(v) == "table" then
+                v = deepCopy(v)
+            end
+            copy[k] = v
+        end
+        return copy
+    end
+
+    -- Listener Notifikasi Asli
+    local function StartNotifListener()
+        if NotifListener then NotifListener:Disconnect() end
+        
+        if NotifEvent then
+            NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
+                local args = {...}
+                local itemData = args[3] -- Argumen ke-3 biasanya data item di Fisch
+                
+                -- Cek apakah ini notifikasi buatan kita (Flagging)
+                if itemData and itemData.CustomDuration == 15 then 
+                    return -- Jangan proses notifikasi buatan sendiri (Infinite Loop Protection)
+                end
+                
+                -- Modifikasi Data (Hanya Durasi)
+                if itemData then
+                    -- Copy argumen agar aman
+                    local newArgs = deepCopy(args)
+                    
+                    -- Ubah durasi menjadi 15 detik (Lama)
+                    newArgs[3].CustomDuration = 15 
+                    
+                    -- Masukkan ke antrian
+                    table.insert(NotifQueue, newArgs)
+                    
+                    -- Jalankan prosesor antrian
+                    ProcessNotifQueue()
+                end
             end)
         end
+    end
+
+    local function StopNotifListener()
+        if NotifListener then NotifListener:Disconnect() NotifListener = nil end
+        NotifQueue = {} -- Bersihkan antrian
     end
 
     -- 1. Custom Require X5
@@ -724,7 +755,7 @@ do
         Modules_X5.StartMinigameFunc = NetFolder["RF/RequestFishingMinigameStarted"]
         Modules_X5.CompleteFishingEvent = NetFolder["RE/FishingCompleted"]
         
-        -- Ambil Event Notifikasi untuk manipulasi
+        -- Event Notifikasi
         NotifEvent = NetFolder:FindFirstChild("RE/ObtainedNewFishNotification")
     end)
 
@@ -763,6 +794,8 @@ do
 
     local function stopAutoFishProcesses_X5()
         featureState_X5.AutoFish = false
+        StopNotifListener() -- Stop listener saat fitur mati
+        
         for i, item in ipairs(fishingTrove_X5) do
             if typeof(item) == "RBXScriptConnection" then item:Disconnect()
             elseif typeof(item) == "thread" then task.cancel(item) end
@@ -779,6 +812,7 @@ do
     local function startAutoFishMethod_Instant_X5()
         if not (Modules_X5.ChargeRodFunc and Modules_X5.StartMinigameFunc and Modules_X5.CompleteFishingEvent) then return end
         featureState_X5.AutoFish = true
+        StartNotifListener() -- Start listener saat fitur nyala
 
         local chargeCount = 0
         local isCurrentlyResetting = false
@@ -808,10 +842,6 @@ do
                         task.wait(0.05)
                     end
                     
-                    -- [MANIPULASI] Trigger Fake Notif Disini!
-                    -- Ini akan memicu UI "Caught" muncul, sehingga loop di bawah langsung jalan tanpa nunggu server asli
-                    TriggerFakeNotification()
-
                     if not featureState_X5.AutoFish or isCurrentlyResetting then return end
 
                     local gotFishSignal = false
@@ -871,7 +901,7 @@ do
     end
 
     -- ==========================================================
-    -- X5 TUNING (DENGAN INPUT)
+    -- X5 TUNING (UI)
     -- ==========================================================
     
     Reg("x5startdelay", BlatantV2:Input({
@@ -884,18 +914,6 @@ do
         end
     }))
     
-    -- [BARU] Pengaturan Delay Notifikasi Palsu
-    Reg("x5notifdelay", BlatantV2:Input({
-        Title = "Notif Stack Delay",
-        Desc = "Jeda antar notif palsu agar terlihat menumpuk.",
-        Value = tostring(featureState_X5.FakeNotifDelay),
-        Placeholder = "0.5",
-        Callback = function(text)
-            local num = tonumber(text)
-            if num then featureState_X5.FakeNotifDelay = num end
-        end
-    }))
-
     Reg("x5resetcount", BlatantV2:Input({
         Title = "Spam Finish (Reset Count)",
         Value = tostring(featureState_X5.Instant_ResetCount),
@@ -917,7 +935,7 @@ do
     }))
 
     Reg("x5toggle", BlatantV2:Toggle({
-        Title = "Enable X5 Speed", Desc = "Old Blatant + Notif Spoofer", Value = false,
+        Title = "Enable X5 Speed", Desc = "Old Blatant + Stacked Notif", Value = false,
         Callback = function(v)
             if v then
                 stopAutoFishProcesses_X5()
@@ -1279,3 +1297,5 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
+
