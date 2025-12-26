@@ -1177,8 +1177,8 @@ do
     local V5_Active = false
     local V5_Thread = nil
 
-    local V5_CompleteDelay = 0.001
-    local V5_CancelDelay = 0.001
+    local V5_CompleteDelay = 0.79
+    local V5_CancelDelay = 0.329
 
     ------------------------------------------------------------
     -- SAFE WRAPPER
@@ -1652,3 +1652,4 @@ do
 end
 
 WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
+
