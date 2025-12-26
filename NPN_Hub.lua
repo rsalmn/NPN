@@ -611,30 +611,92 @@ do
         end
     end
 
+    ---------------------------------------------------------
+    -- Disable Default Game Notification Listeners
+    ---------------------------------------------------------
+    local function DisableGameNotifListeners()
+        if NotifEvent and getconnections then
+            for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
+                pcall(function()
+                    if c.Disable then
+                        c:Disable()
+                    end
+                end)
+            end
+        end
+    end
+
     local function ProcessNotifQueue()
         if NotifProcessRunning then return end
         NotifProcessRunning = true
+
         task.spawn(function()
             while #NotifQueue > 0 do
                 local data = table.remove(NotifQueue, 1)
-                SetGameNotifState(true)
-                if firesignal and NotifEvent then pcall(function() firesignal(NotifEvent.OnClientEvent, table.unpack(data)) end) end
-                SetGameNotifState(false)
-                task.wait(1.2) 
+
+                if firesignal and NotifEvent then
+                    pcall(function()
+                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
+                    end)
+                end
+                
+                task.wait(1.2) -- delay tampil satu per satu
             end
+
             NotifProcessRunning = false
         end)
     end
 
-    local function StartInterceptor()
-        if NotifListener then NotifListener:Disconnect() NotifListener = nil end
+    ---------------------------------------------------------
+    -- Start Notification Listener
+    ---------------------------------------------------------
+    local function StartNotifListener()
+        if NotifListener then
+            NotifListener:Disconnect()
+            NotifListener = nil
+        end
+
         if not NotifEvent then return end
-        SetGameNotifState(false)
+
+        DisableGameNotifListeners()
+
         NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
             local args = {...}
-            if featureState_X5.AutoFish then fishCaughtBindable_X5:Fire() end
+            local itemData = args[3]
+
+            if not itemData then return end
+
+            -------------------------------------------------
+            -- Stop jika ini notifikasi buatan (loop protector)
+            -------------------------------------------------
+            if itemData.CustomDuration == 8 then
+                return
+            end
+
+            -------------------------------------------------
+            -- Anti Duplicate Same Fish Spam
+            -------------------------------------------------
+            local itemId =
+                itemData.Id
+                or itemData.Identifier
+                or itemData.Name
+                or "UnknownFish"
+
+            local now = os.clock()
+
+            if LastNotifTime[itemId]
+            and (now - LastNotifTime[itemId]) < 0.5 then
+                return
+            end
+
+            LastNotifTime[itemId] = now
+
+            -------------------------------------------------
+            -- Push to Queue
+            -------------------------------------------------
             local newArgs = deepCopy(args)
-            if newArgs[3] then newArgs[3].CustomDuration = 10 end
+            newArgs[3].CustomDuration = 8 -- Durasi panjang
+
             table.insert(NotifQueue, newArgs)
             ProcessNotifQueue()
         end)
@@ -643,6 +705,18 @@ do
     local function StopInterceptor()
         if NotifListener then NotifListener:Disconnect() NotifListener = nil end
         SetGameNotifState(true)
+        NotifQueue = {}
+    end
+
+    ---------------------------------------------------------
+    -- Stop Listener
+    ---------------------------------------------------------
+    local function StopNotifListener()
+        if NotifListener then
+            NotifListener:Disconnect()
+            NotifListener = nil
+        end
+
         NotifQueue = {}
     end
 
@@ -676,7 +750,7 @@ do
 
     local function stopAutoFishProcesses_X5()
         featureState_X5.AutoFish = false
-        StopInterceptor()
+        StopNotifListener()
         for i, item in ipairs(fishingTrove_X5) do
             if typeof(item) == "RBXScriptConnection" then item:Disconnect()
             elseif typeof(item) == "thread" then task.cancel(item) end
@@ -692,7 +766,8 @@ do
     local function startAutoFishMethod_Instant_X5()
         if not (Modules_X5.ChargeRodFunc and Modules_X5.StartMinigameFunc and Modules_X5.CompleteFishingEvent) then return end
         featureState_X5.AutoFish = true
-        StartInterceptor()
+        StartNotifListener() -- Start listener saat fitur nyala
+
         local chargeCount = 0
         local isCurrentlyResetting = false
         local counterLock = false
