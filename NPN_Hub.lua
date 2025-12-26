@@ -753,16 +753,18 @@ local function RunV3Pro()
         end
 
         -- complete catch
-        pcall(function()
-            RE_FishingCompleted:FireServer()
-        end)
+        -- AUTO RECAST AFTER CATCH
+task.wait(0.05)
 
-        -- cancel safely
-        task.wait(v3proCancelDelay)
+pcall(function()
+    RF_ChargeFishingRod:InvokeServer(os.clock())
+end)
 
-        pcall(function()
-            RF_CancelFishingInputs:InvokeServer()
-        end)
+task.wait(0.01)
+
+pcall(function()
+    RF_RequestFishingMinigameStarted:InvokeServer(-139.4, 0.98)
+end)
     end)
 end
 
@@ -1792,6 +1794,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
