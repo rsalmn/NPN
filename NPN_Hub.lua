@@ -3,9 +3,9 @@ local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/rel
 local Window = WindUI:CreateWindow({
     Title = "NPN Hub Premium",
     Icon = "rbxassetid://116236936447443",
-    Author = "XYOURZONE",
-    Folder = "RockHubExtracted",
-    Size = UDim2.fromOffset(600, 360),
+    Author = "XYOURZONE | Notif Stack",
+    Folder = "RockHubCombined",
+    Size = UDim2.fromOffset(600, 400),
     Transparent = true,
     Theme = "Rose",
     Resizable = true,
@@ -19,12 +19,9 @@ local RunService = game:GetService("RunService")
 local RepStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
--- Helper untuk Registry (Agar UI tidak error saat dipanggil Reg)
-local RockHubConfig = Window.ConfigManager:CreateConfig("rockhub_extracted")
-local ElementRegistry = {}
+local RockHubConfig = Window.ConfigManager:CreateConfig("rockhub_combined")
 local function Reg(id, element)
     RockHubConfig:Register(id, element)
-    ElementRegistry[id] = element
     return element
 end
 
@@ -50,76 +47,32 @@ local function TeleportToLookAt(position, lookVector)
     end
 end
 
--- Remote Handling (Untuk Fishing)
-local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
-local function GetRemote(remotePath, name, timeout)
-    local currentInstance = RepStorage
-    for _, childName in ipairs(remotePath) do
-        currentInstance = currentInstance:WaitForChild(childName, timeout or 0.5)
-        if not currentInstance then return nil end
-    end
-    return currentInstance:FindFirstChild(name)
-end
-
-local function EnableAnimations()
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    
-    -- 1. Restore script 'Animate'
-    local animateScript = character:FindFirstChild("Animate")
-    if animateScript and originalAnimateScript ~= nil then
-        animateScript.Enabled = originalAnimateScript
-    end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-
-    -- 2. Restore/Tambahkan Animator
-    local existingAnimator = humanoid:FindFirstChildOfClass("Animator")
-    if not existingAnimator then
-        -- Jika Animator tidak ada, dan kita memiliki objek aslinya, restore
-        if originalAnimator and not originalAnimator.Parent then
-            originalAnimator.Parent = humanoid
-        else
-            -- Jika objek asli hilang, buat yang baru
-            Instance.new("Animator").Parent = humanoid
-        end
-    end
-    originalAnimator = nil -- Bersihkan referensi lama
-end
-
 -- =================================================================
--- 1. TAB PLAYER & LOGIC
+-- 1. TAB PLAYER
 -- =================================================================
 do
     local player = Window:Tab({ Title = "Player", Icon = "user" })
     local movement = player:Section({ Title = "Movement", TextSize = 20 })
 
-    -- Variables
     local DEFAULT_SPEED = 16
     local DEFAULT_JUMP = 50
-    local InfinityJumpConnection = nil
     
-    -- WalkSpeed
-    local SliderSpeed = Reg("Walkspeed", movement:Slider({
-        Title = "WalkSpeed", Step = 1,
-        Value = { Min = 16, Max = 200, Default = 16 },
+    Reg("Walkspeed", movement:Slider({
+        Title = "WalkSpeed", Step = 1, Value = { Min = 16, Max = 200, Default = 16 },
         Callback = function(value)
             local hum = GetHumanoid()
             if hum then hum.WalkSpeed = tonumber(value) end
         end,
     }))
 
-    -- JumpPower
-    local SliderJump = Reg("slidjump", movement:Slider({
-        Title = "JumpPower", Step = 1,
-        Value = { Min = 50, Max = 200, Default = 50 },
+    Reg("slidjump", movement:Slider({
+        Title = "JumpPower", Step = 1, Value = { Min = 50, Max = 200, Default = 50 },
         Callback = function(value)
             local hum = GetHumanoid()
             if hum then hum.JumpPower = tonumber(value) end
         end,
     }))
 
-    -- Reset Movement
     movement:Button({
         Title = "Reset Movement", Icon = "rotate-ccw",
         Callback = function()
@@ -127,180 +80,24 @@ do
             if hum then
                 hum.WalkSpeed = DEFAULT_SPEED
                 hum.JumpPower = DEFAULT_JUMP
-                SliderSpeed:Set(DEFAULT_SPEED)
-                SliderJump:Set(DEFAULT_JUMP)
             end
         end
     })
 
-    -- Freeze Player
     Reg("frezee", movement:Toggle({
-        Title = "Freeze Player", Desc = "Anti-Push / Anchor Position",
-        Value = false,
+        Title = "Freeze Player", Desc = "Anti-Push / Anchor Position", Value = false,
         Callback = function(state)
             local hrp = GetHRP()
             if hrp then
                 hrp.Anchored = state
-                if state then
-                    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                    hrp.Velocity = Vector3.new(0,0,0)
-                end
-            end
-        end
-    }))
-
-    -- ABILITIES SECTION
-    local ability = player:Section({ Title = "Abilities", TextSize = 20 })
-
-    -- Infinite Jump
-    Reg("infj", ability:Toggle({
-        Title = "Infinite Jump", Value = false,
-        Callback = function(state)
-            if state then
-                InfinityJumpConnection = UserInputService.JumpRequest:Connect(function()
-                    local hum = GetHumanoid()
-                    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-                end)
-            else
-                if InfinityJumpConnection then InfinityJumpConnection:Disconnect() end
-            end
-        end
-    }))
-
-    -- No Clip
-    local noclipConnection = nil
-    Reg("nclip", ability:Toggle({
-        Title = "No Clip", Value = false,
-        Callback = function(state)
-            if state then
-                noclipConnection = RunService.Stepped:Connect(function()
-                    local char = LocalPlayer.Character
-                    if char then
-                        for _, part in ipairs(char:GetDescendants()) do
-                            if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
-                        end
-                    end
-                end)
-            else
-                if noclipConnection then noclipConnection:Disconnect() end
-            end
-        end
-    }))
-
-    -- Fly Mode
-    local flyConnection, bodyGyro, bodyVel
-    local isFlying = false
-    Reg("flym", ability:Toggle({
-        Title = "Fly Mode", Value = false,
-        Callback = function(state)
-            local hrp = GetHRP()
-            local hum = GetHumanoid()
-            local cam = workspace.CurrentCamera
-            
-            if state and hrp and hum then
-                isFlying = true
-                bodyGyro = Instance.new("BodyGyro", hrp)
-                bodyGyro.P = 9e4; bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-                bodyVel = Instance.new("BodyVelocity", hrp)
-                bodyVel.MaxForce = Vector3.new(9e9, 9e9, 9e9); bodyVel.Velocity = Vector3.zero
-                
-                flyConnection = RunService.RenderStepped:Connect(function()
-                    if not isFlying or not hrp then return end
-                    bodyGyro.CFrame = cam.CFrame
-                    local moveDir = hum.MoveDirection
-                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveDir = moveDir - Vector3.new(0,1,0) end
-                    bodyVel.Velocity = moveDir.Unit * 60
-                end)
-            else
-                isFlying = false
-                if flyConnection then flyConnection:Disconnect() end
-                if bodyGyro then bodyGyro:Destroy() end
-                if bodyVel then bodyVel:Destroy() end
-            end
-        end
-    }))
-
-    -- Walk on Water
-    local walkWaterConn, waterPlatform
-    Reg("walkwat", ability:Toggle({
-        Title = "Walk on Water", Value = false,
-        Callback = function(state)
-            if state then
-                walkWaterConn = RunService.RenderStepped:Connect(function()
-                    local hrp = GetHRP()
-                    if not hrp then return end
-                    
-                    if not waterPlatform or not waterPlatform.Parent then
-                        waterPlatform = Instance.new("Part", workspace)
-                        waterPlatform.Name = "WaterPlatform"; waterPlatform.Anchored = true
-                        waterPlatform.CanCollide = true; waterPlatform.Transparency = 1; waterPlatform.Size = Vector3.new(15, 1, 15)
-                    end
-                    
-                    local rayOrigin = hrp.Position + Vector3.new(0, 5, 0)
-                    local rayParams = RaycastParams.new()
-                    rayParams.FilterDescendantsInstances = {workspace.Terrain}; rayParams.FilterType = Enum.RaycastFilterType.Include
-                    rayParams.IgnoreWater = false
-                    
-                    local result = workspace:Raycast(rayOrigin, Vector3.new(0, -500, 0), rayParams)
-                    if result and result.Material == Enum.Material.Water then
-                        waterPlatform.Position = Vector3.new(hrp.Position.X, result.Position.Y, hrp.Position.Z)
-                    else
-                        waterPlatform.Position = Vector3.new(hrp.Position.X, -500, hrp.Position.Z)
-                    end
-                end)
-            else
-                if walkWaterConn then walkWaterConn:Disconnect() end
-                if waterPlatform then waterPlatform:Destroy() end
-            end
-        end
-    }))
-
-    -- OTHER (ESP)
-    local other = player:Section({ Title = "Other", TextSize = 20 })
-    local espEnabled, espConnections = false, {}
-    
-    local function removeESP(plr)
-        if espConnections[plr] then
-            pcall(function() espConnections[plr].billboard:Destroy() end)
-            espConnections[plr] = nil
-        end
-    end
-
-    local function createESP(target)
-        if not target or not target.Character or target == LocalPlayer then return end
-        removeESP(target)
-        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-
-        local bb = Instance.new("BillboardGui", target.Character)
-        bb.Size = UDim2.new(0, 100, 0, 40); bb.AlwaysOnTop = true; bb.StudsOffset = Vector3.new(0, 3, 0)
-        local txt = Instance.new("TextLabel", bb)
-        txt.Size = UDim2.new(1,0,1,0); txt.BackgroundTransparency = 1
-        txt.Text = target.DisplayName; txt.TextColor3 = Color3.new(1,0,0); txt.TextStrokeTransparency = 0
-        
-        espConnections[target] = {billboard = bb}
-    end
-
-    Reg("esp", other:Toggle({
-        Title = "Player ESP", Value = false,
-        Callback = function(state)
-            espEnabled = state
-            if state then
-                for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
-                espConnections.Added = Players.PlayerAdded:Connect(function(p) 
-                    p.CharacterAdded:Connect(function() task.wait(1) if espEnabled then createESP(p) end end)
-                end)
-            else
-                for p, _ in pairs(espConnections) do if typeof(p)=="Instance" then removeESP(p) end end
-                if espConnections.Added then espConnections.Added:Disconnect() end
+                if state then hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
             end
         end
     }))
 end
 
 -- =================================================================
--- 2. TAB FISHING & LOGIC
+-- 2. TAB FISHING
 -- =================================================================
 do
     local farm = Window:Tab({ Title = "Fishing", Icon = "fish" })
@@ -629,9 +426,7 @@ do
         end
     }))
 
-    -- [[ SECTION: BLATANT V2 (NEW) - X5 LOGIC ]] --
--- Kode ini diambil persis dari request user (X5 Speed) dan diisolasi agar aman
--- [[ SECTION: BLATANT V2 (NEW) - X5 LOGIC ]] --
+-- [[ SECTION: BLATANT V2 (NEW) - X5 LOGIC + NOTIF MANIPULATION ]] --
 do
     local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
     
@@ -646,11 +441,60 @@ do
         Instant_CatchTimeout = 0.01,
         Instant_CycleDelay = 0.01,
         Instant_ResetCount = 10,
-        Instant_ResetPause = 0.01
+        Instant_ResetPause = 0.01,
+        FakeNotifDelay = 0.5 -- [BARU] Delay antar notifikasi
     }
     local fishingTrove_X5 = {}
     local autoFishThread_X5 = nil
     local fishCaughtBindable_X5 = Instance.new("BindableEvent")
+
+    -- [[ NOTIFICATION QUEUE SYSTEM (BARU) ]] --
+    local NotifQueue = {}
+    local NotifProcessRunning = false
+    local NotifEvent = nil -- Akan diisi saat load modules
+
+    local function TriggerFakeNotification()
+        if not NotifEvent or not firesignal then return end
+        
+        -- Masukkan ke antrian agar menumpuk rapi
+        table.insert(NotifQueue, true)
+        
+        if not NotifProcessRunning then
+            task.spawn(function()
+                NotifProcessRunning = true
+                while #NotifQueue > 0 do
+                    table.remove(NotifQueue, 1)
+                    
+                    -- LOGIC MANIPULASI NOTIFIKASI
+                    -- Menggunakan firesignal untuk memalsukan event server
+                    pcall(function()
+                        firesignal(NotifEvent.OnClientEvent, 
+                            196, -- Item ID (Sample)
+                            { Weight = 0.84 }, -- Data 1
+                            {
+                                CustomDuration = 5,
+                                Type = "Item",
+                                ItemType = "Fishes",
+                                _newlyIndexed = false,
+                                InventoryItem = {
+                                    Favorited = false,
+                                    Id = 196,
+                                    UUID = "8d7dc388-bc51-4d7e-aece-4961fd5f2146",
+                                    Metadata = { Weight = 0.84 }
+                                },
+                                ItemId = 196
+                            },
+                            false
+                        )
+                    end)
+                    
+                    -- Delay agar notifikasi "menumpuk" di layar (tidak instan hilang)
+                    task.wait(featureState_X5.FakeNotifDelay) 
+                end
+                NotifProcessRunning = false
+            end)
+        end
+    end
 
     -- 1. Custom Require X5
     local function customRequire_X5(module)
@@ -677,6 +521,9 @@ do
         Modules_X5.ChargeRodFunc = NetFolder["RF/ChargeFishingRod"]
         Modules_X5.StartMinigameFunc = NetFolder["RF/RequestFishingMinigameStarted"]
         Modules_X5.CompleteFishingEvent = NetFolder["RE/FishingCompleted"]
+        
+        -- Ambil Event Notifikasi untuk manipulasi
+        NotifEvent = NetFolder:FindFirstChild("RE/ObtainedNewFishNotification")
     end)
 
     -- 3. UI Detection Loop (Detection Logic from X5)
@@ -758,6 +605,10 @@ do
                         Modules_X5.CompleteFishingEvent:FireServer()
                         task.wait(0.05)
                     end
+                    
+                    -- [MANIPULASI] Trigger Fake Notif Disini!
+                    -- Ini akan memicu UI "Caught" muncul, sehingga loop di bawah langsung jalan tanpa nunggu server asli
+                    TriggerFakeNotification()
 
                     if not featureState_X5.AutoFish or isCurrentlyResetting then return end
 
@@ -818,7 +669,7 @@ do
     end
 
     -- ==========================================================
-    -- X5 TUNING (DENGAN INPUT, BUKAN SLIDER)
+    -- X5 TUNING (DENGAN INPUT)
     -- ==========================================================
     
     Reg("x5startdelay", BlatantV2:Input({
@@ -828,6 +679,18 @@ do
         Callback = function(text)
             local num = tonumber(text)
             if num then featureState_X5.Instant_StartDelay = num end
+        end
+    }))
+    
+    -- [BARU] Pengaturan Delay Notifikasi Palsu
+    Reg("x5notifdelay", BlatantV2:Input({
+        Title = "Notif Stack Delay",
+        Desc = "Jeda antar notif palsu agar terlihat menumpuk.",
+        Value = tostring(featureState_X5.FakeNotifDelay),
+        Placeholder = "0.5",
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then featureState_X5.FakeNotifDelay = num end
         end
     }))
 
@@ -852,7 +715,7 @@ do
     }))
 
     Reg("x5toggle", BlatantV2:Toggle({
-        Title = "Enable X5 Speed", Desc = "Old Blatant Logic (UI Detection)", Value = false,
+        Title = "Enable X5 Speed", Desc = "Old Blatant + Notif Spoofer", Value = false,
         Callback = function(v)
             if v then
                 stopAutoFishProcesses_X5()
@@ -885,8 +748,8 @@ do
     })
 end
 
-
-    -- FISHING AREA SECTION
+-- FISHING AREA SECTION
+do
     farm:Divider()
     local areafish = farm:Section({ Title = "Fishing Area", TextSize = 20 })
     
@@ -986,8 +849,6 @@ do
     })
 
     -- Dependencies
-    local RunService = game:GetService("RunService")
-    local LocalPlayer = game:GetService("Players").LocalPlayer
     local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
     local function GetRemote(remotePath, name, timeout)
         local currentInstance = game:GetService("ReplicatedStorage")
@@ -996,6 +857,34 @@ do
             if not currentInstance then return nil end
         end
         return currentInstance:FindFirstChild(name)
+    end
+    
+    -- [VARIABEL GLOBAL ANIMASI] (Perbaikan dari error sebelumnya)
+    local originalAnimateScript = nil
+    local originalAnimator = nil
+
+    local function EnableAnimations()
+        local character = LocalPlayer.Character
+        if not character then return end
+        
+        -- 1. Restore script 'Animate'
+        local animateScript = character:FindFirstChild("Animate")
+        if animateScript then
+            animateScript.Enabled = true
+        end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+
+        -- 2. Restore/Tambahkan Animator
+        local existingAnimator = humanoid:FindFirstChildOfClass("Animator")
+        if not existingAnimator then
+            if originalAnimator then
+                originalAnimator.Parent = humanoid
+            else
+                Instance.new("Animator", humanoid)
+            end
+        end
     end
 
     -- 1. REMOVE FISH NOTIFICATION POP-UP
@@ -1038,9 +927,6 @@ do
     })
 
     -- 3. NO ANIMATION (LOGIC FIXED)
-    local originalAnimateParent = nil
-    local originalAnimateScript = nil
-    
     MiscSection:Toggle({
         Title = "No Animation",
         Desc = "Mematikan animasi karakter. (Memulihkan animasi saat dimatikan)",
@@ -1056,17 +942,19 @@ do
                 -- SIMPAN & MATIKAN
                 local animScript = Char:FindFirstChild("Animate")
                 if animScript then
-                    originalAnimateScript = animScript
-                    animScript.Enabled = false -- Matikan scriptnya
+                    originalAnimateScript = animScript.Enabled -- Simpan status boolean atau instance
+                    animScript.Enabled = false 
                 end
                 
                 local animator = Hum:FindFirstChildOfClass("Animator")
                 if animator then
-                    animator:Destroy() -- Hapus animator
+                    originalAnimator = animator -- Simpan ke global
+                    animator.Parent = nil -- Jangan destroy, cukup parent nil agar bisa direstore
                 end
                 
                 WindUI:Notify({ Title = "No Anim ON", Duration = 2 })
             else
+                -- Panggil fungsi global yang ada di atas
                 EnableAnimations()
                 WindUI:Notify({ Title = "No Anim OFF (Restored)", Duration = 2 })
             end
@@ -1103,6 +991,17 @@ do
                     local globalCosmetics = workspace:FindFirstChild("CosmeticFolder")
                     if globalCosmetics then
                         globalCosmetics:ClearAllChildren()
+                    end
+
+                    -- 2. Bersihkan Efek di Karakter & Tools
+                    local Char = LocalPlayer.Character
+                    if Char then
+                        for _, v in ipairs(Char:GetDescendants()) do
+                            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then
+                                v.Enabled = false
+                                v:Destroy() 
+                            end
+                        end
                     end
                 end)
                 
@@ -1213,4 +1112,4 @@ do
     })
 end
 
-WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+WindUI:Notify({ Title = "NPN Hub Loaded", Content = "X7 & X5 Logic Integrated!", Duration = 5, Icon = "check" })
