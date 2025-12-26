@@ -379,6 +379,21 @@ do
         end
     }))
 
+    --============================================================
+-- NOTIFICATION RESTORE FUNCTION
+--============================================================
+function RestoreGameNotifications()
+    if NotifEvent and getconnections then
+        for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
+            pcall(function()
+                if c.Enable then
+                    c:Enable()
+                end
+            end)
+        end
+    end
+    end
+
     -- 2. NORMAL INSTANT MODE
     local normalDelay = 1.5
     Reg("tognorm", autofish:Toggle({
@@ -1425,6 +1440,7 @@ do
                 WindUI:Notify({ Title = "X5 Started", Duration = 2 })
             else
                 stopAutoFishProcesses_X5()
+                RestoreGameNotifications()
                 WindUI:Notify({ Title = "X5 Stopped", Duration = 2 })
             end
         end
@@ -1776,6 +1792,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
