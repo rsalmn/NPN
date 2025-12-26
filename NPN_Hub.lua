@@ -753,7 +753,20 @@ local function RunV3Pro()
         end
 
         -- complete catch
-        -- AUTO RECAST AFTER CATCH
+pcall(function()
+    RE_FishingCompleted:FireServer()
+end)
+
+-- cancel safely
+task.wait(v3proCancelDelay)
+
+pcall(function()
+    RF_CancelFishingInputs:InvokeServer()
+end)
+
+-------------------------------------------------
+-- 🔥 AUTO RECAST (NO WAIT MODE)
+-------------------------------------------------
 task.wait(0.05)
 
 pcall(function()
@@ -840,7 +853,7 @@ Reg("v3pro_toggle", v3ProSection:Toggle({
 
         else
             v3proActive = false
-
+RestoreGameNotifications()
             if v3proLoop then task.cancel(v3proLoop) v3proLoop=nil end
             if v3proEquipLoop then task.cancel(v3proEquipLoop) v3proEquipLoop=nil end
             if v3Watchdog then task.cancel(v3Watchdog) v3Watchdog=nil end
@@ -1040,7 +1053,7 @@ Reg("v3pro_toggle", v3ProSection:Toggle({
 
             else
                 v3Active = false
-
+RestoreGameNotifications()
                 if v3Loop then
                     task.cancel(v3Loop)
                     v3Loop = nil
@@ -1794,6 +1807,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
