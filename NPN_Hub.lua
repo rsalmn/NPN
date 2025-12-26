@@ -74,26 +74,67 @@ local function checkFishingRemotes()
     return true
 end
 
--- [GLOBAL ANIMATION VARIABLES]
-local originalAnimateScript = nil
+local isNoAnimationActive = false
 local originalAnimator = nil
+local originalAnimateScript = nil
+
+local function DisableAnimations()
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if not humanoid then return end
+
+    -- 1. Blokir script 'Animate' bawaan (yang memuat default anim)
+    local animateScript = character:FindFirstChild("Animate")
+    if animateScript and animateScript:IsA("LocalScript") and animateScript.Enabled then
+        originalAnimateScript = animateScript.Enabled
+        animateScript.Enabled = false
+    end
+
+    -- 2. Hapus Animator (menghalangi semua animasi dimainkan/dimuat)
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if animator then
+        -- Simpan referensi objek Animator aslinya
+        originalAnimator = animator 
+        animator:Destroy()
+    end
+end
 
 local function EnableAnimations()
-    local character = LocalPlayer.Character
-    if not character then return end
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     
-    local animScript = character:FindFirstChild("Animate")
-    if animScript then animScript.Enabled = true end
+    -- 1. Restore script 'Animate'
+    local animateScript = character:FindFirstChild("Animate")
+    if animateScript and originalAnimateScript ~= nil then
+        animateScript.Enabled = originalAnimateScript
+    end
     
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then return end
 
+    -- 2. Restore/Tambahkan Animator
     local existingAnimator = humanoid:FindFirstChildOfClass("Animator")
     if not existingAnimator then
-        if originalAnimator then originalAnimator.Parent = humanoid
-        else Instance.new("Animator", humanoid) end
+        -- Jika Animator tidak ada, dan kita memiliki objek aslinya, restore
+        if originalAnimator and not originalAnimator.Parent then
+            originalAnimator.Parent = humanoid
+        else
+            -- Jika objek asli hilang, buat yang baru
+            Instance.new("Animator").Parent = humanoid
+        end
+    end
+    originalAnimator = nil -- Bersihkan referensi lama
+end
+
+local function OnCharacterAdded(newCharacter)
+    if isNoAnimationActive then
+        task.wait(0.2) -- Tunggu sebentar agar LoadCharacter selesai
+        DisableAnimations()
     end
 end
+
+-- Hubungkan ke CharacterAdded agar tetap berfungsi saat respawn
+LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
 
 -- =================================================================
 -- 1. TAB PLAYER
@@ -870,7 +911,7 @@ do
     ------------------------------------------------------------
 
     local v4 = farm:Section({
-        Title = "Blatant V4 (Tester)",
+        Title = "5. Blatant V4 (Tester)",
         TextSize = 20
     })
 
@@ -1099,6 +1140,70 @@ do
 
 end
 
+-- FISHING SUPPORT
+
+do
+
+    fishSupport:Divider()
+    local fishingSupport = fishSupport:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
+
+    local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
+    local RunService = game:GetService("RunService")
+
+    local notif = Reg("togglenot",fishSupport:Toggle({
+        Title = "Remove Fish Notification Pop-up",
+        Value = false,
+        Icon = "slash",
+        Callback = function(state)
+            local PlayerGui = game:GetService("Players").LocalPlayer.PlayerGui
+            local SmallNotification = PlayerGui:FindFirstChild("Small Notification")
+            
+            if not SmallNotification then
+                SmallNotification = PlayerGui:WaitForChild("Small Notification", 5)
+                if not SmallNotification then
+                    WindUI:Notify({ Title = "Error", Duration = 3, Icon = "x" })
+                    return false
+                end
+            end
+
+            if state then
+                -- ON: Menggunakan RenderStepped untuk pemblokiran per-frame
+                DisableNotificationConnection = RunService.RenderStepped:Connect(function()
+                    -- Memastikan GUI selalu mati pada setiap frame render
+                    SmallNotification.Enabled = false
+                end)
+                
+                WindUI:Notify({ Title = "Pop-up Diblokir",Duration = 3, Icon = "check" })
+            else
+                -- OFF: Putuskan koneksi RenderStepped
+                if DisableNotificationConnection then
+                    DisableNotificationConnection:Disconnect()
+                    DisableNotificationConnection = nil
+                end
+
+                -- Kembalikan GUI ke status normal (aktif)
+                SmallNotification.Enabled = true
+                
+                WindUI:Notify({ Title = "Pop-up Diaktifkan", Content = "Notifikasi kembali normal.", Duration = 3, Icon = "x" })
+            end
+        end
+    }))
+
+    -- 2. ENABLE FISHING RADAR
+    local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
+    fishSupport:Toggle({
+        Title = "Enable Fishing Radar",
+        Value = false,
+        Icon = "radar",
+        Callback = function(state)
+            if RF_UpdateFishingRadar then
+                pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
+                WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
+            end
+        end
+    })
+end
+
 -- FISHING AREA SECTION
 do
     farm:Divider()
@@ -1197,29 +1302,24 @@ do
         Value = false,
         Icon = "activity",
         Callback = function(state)
-            local Char = LocalPlayer.Character
-            if not Char then return end
-            local Hum = Char:FindFirstChild("Humanoid")
-            if not Hum then return end
-
+            isNoAnimationActive = state
             if state then
-                local animScript = Char:FindFirstChild("Animate")
-                if animScript then
-                    originalAnimateScript = animScript.Enabled
-                    animScript.Enabled = false 
-                end
-                local animator = Hum:FindFirstChildOfClass("Animator")
-                if animator then
-                    originalAnimator = animator
-                    animator.Parent = nil 
-                end
-                WindUI:Notify({ Title = "No Anim ON", Duration = 2 })
+                DisableAnimations()
+                WindUI:Notify({ Title = "No Animation ON!", Duration = 3, Icon = "zap" })
             else
                 EnableAnimations()
-                WindUI:Notify({ Title = "No Anim OFF (Restored)", Duration = 2 })
+                WindUI:Notify({ Title = "No Animation OFF!", Duration = 3, Icon = "x" })
             end
         end
     })
+
+    -- Tambahkan di bagian atas blok 'utility'
+    local VFXControllerModule = require(game:GetService("ReplicatedStorage"):WaitForChild("Controllers").VFXController)
+    local originalVFXHandle = VFXControllerModule.Handle
+    local originalPlayVFX = VFXControllerModule.PlayVFX.Fire -- Asumsi PlayVFX adalah Signal/Event yang memiliki Fire
+
+    -- Variabel global untuk status VFX
+    local isVFXDisabled = false
 
     -- 2. REMOVE SKIN EFFECT
     local SkinCleanerConnection = nil
@@ -1228,16 +1328,29 @@ do
         Value = false,
         Icon = "sparkles",
         Callback = function(state)
+            isVFXDisabled = state
             if state then
-                SkinCleanerConnection = RunService.Stepped:Connect(function()
-                    local globalCosmetics = workspace:FindFirstChild("CosmeticFolder")
-                    if globalCosmetics then globalCosmetics:ClearAllChildren() end
-                end)
-                WindUI:Notify({ Title = "Skin Effect REMOVED", Duration = 2 })
+                -- 1. Blokir fungsi Handle (dipanggil oleh Handle Remote dan PlayVFX Signal)
+                VFXControllerModule.Handle = function(...) 
+                    -- Memastikan tidak ada kode efek yang berjalan 
+                end
+
+                -- 2. Blokir fungsi RenderAtPoint dan RenderInstance (untuk jaga-jaga)
+                VFXControllerModule.RenderAtPoint = function(...) end
+                VFXControllerModule.RenderInstance = function(...) end
+                
+                -- 3. Hapus semua efek yang sedang aktif (opsional, untuk membersihkan layar)
+                local cosmeticFolder = workspace:FindFirstChild("CosmeticFolder")
+                if cosmeticFolder then
+                    pcall(function() cosmeticFolder:ClearAllChildren() end)
+                end
+
+                WindUI:Notify({ Title = "No Skin Effect ON", Duration = 3, Icon = "eye-off" })
             else
-                if SkinCleanerConnection then SkinCleanerConnection:Disconnect() end
-                WindUI:Notify({ Title = "Skin Effect ALLOWED", Duration = 2 })
+                -- 1. Kembalikan fungsi Handle asli
+                VFXControllerModule.Handle = originalVFXHandle
             end
+
         end
     })
 
@@ -1247,7 +1360,76 @@ do
         Value = false,
         Icon = "monitor-off",
         Callback = function(state)
-            RunService:Set3dRenderingEnabled(not state)
+            local PlayerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+            local Camera = workspace.CurrentCamera
+            local LocalPlayer = game.Players.LocalPlayer
+            
+            if state then
+                -- 1. Buat GUI Hitam di PlayerGui (Bukan CoreGui)
+                if not _G.BlackScreenGUI then
+                    _G.BlackScreenGUI = Instance.new("ScreenGui")
+                    _G.BlackScreenGUI.Name = "RockHub_BlackBackground"
+                    _G.BlackScreenGUI.IgnoreGuiInset = true
+                    -- [-999] = Taruh di paling belakang (di bawah UI Game), tapi nutupin world 3D
+                    _G.BlackScreenGUI.DisplayOrder = -999 
+                    _G.BlackScreenGUI.Parent = PlayerGui
+                    
+                    local Frame = Instance.new("Frame")
+                    Frame.Size = UDim2.new(1, 0, 1, 0)
+                    Frame.BackgroundColor3 = Color3.new(0, 0, 0) -- Hitam Pekat
+                    Frame.BorderSizePixel = 0
+                    Frame.Parent = _G.BlackScreenGUI
+                    
+                    local Label = Instance.new("TextLabel")
+                    Label.Size = UDim2.new(1, 0, 0.1, 0)
+                    Label.Position = UDim2.new(0, 0, 0.1, 0) -- Taruh agak atas biar ga ganggu inventory
+                    Label.BackgroundTransparency = 1
+                    Label.Text = "Saver Mode Active"
+                    Label.TextColor3 = Color3.fromRGB(60, 60, 60) -- Abu gelap sekali biar ga ganggu
+                    Label.TextSize = 16
+                    Label.Font = Enum.Font.GothamBold
+                    Label.Parent = Frame
+                end
+                
+                _G.BlackScreenGUI.Enabled = true
+
+                -- 2. SIMPAN POSISI KAMERA ASLI
+                _G.OldCamType = Camera.CameraType
+
+                -- 3. PINDAHKAN KAMERA KE VOID
+                Camera.CameraType = Enum.CameraType.Scriptable
+                Camera.CFrame = CFrame.new(0, 100000, 0) 
+                
+                WindUI:Notify({
+                    Title = "Saver Mode ON",
+                    Duration = 3,
+                    Icon = "battery-charging",
+                })
+            else
+                -- 1. KEMBALIKAN TIPE KAMERA
+                if _G.OldCamType then
+                    Camera.CameraType = _G.OldCamType
+                else
+                    Camera.CameraType = Enum.CameraType.Custom
+                end
+                
+                -- 2. KEMBALIKAN FOKUS KE KARAKTER
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                    Camera.CameraSubject = LocalPlayer.Character.Humanoid
+                end
+
+                -- 3. MATIKAN LAYAR HITAM
+                if _G.BlackScreenGUI then
+                    _G.BlackScreenGUI.Enabled = false
+                end
+                
+                WindUI:Notify({
+                    Title = "Saver Mode OFF",
+                    Content = "Visual kembali normal.",
+                    Duration = 3,
+                    Icon = "eye",
+                })
+            end
         end
     })
 
