@@ -3,9 +3,9 @@ local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/rel
 local Window = WindUI:CreateWindow({
     Title = "NPN Hub Premium",
     Icon = "rbxassetid://116236936447443",
-    Author = "XYOURZONE | All Modes",
-    Folder = "RockHubCombined",
-    Size = UDim2.fromOffset(600, 450),
+    Author = "XYOURZONE",
+    Folder = "RockHubExtracted",
+    Size = UDim2.fromOffset(600, 360),
     Transparent = true,
     Theme = "Rose",
     Resizable = true,
@@ -19,9 +19,12 @@ local RunService = game:GetService("RunService")
 local RepStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
-local RockHubConfig = Window.ConfigManager:CreateConfig("rockhub_combined")
+-- Helper untuk Registry (Agar UI tidak error saat dipanggil Reg)
+local RockHubConfig = Window.ConfigManager:CreateConfig("rockhub_extracted")
+local ElementRegistry = {}
 local function Reg(id, element)
     RockHubConfig:Register(id, element)
+    ElementRegistry[id] = element
     return element
 end
 
@@ -47,7 +50,7 @@ local function TeleportToLookAt(position, lookVector)
     end
 end
 
--- Remote Handling
+-- Remote Handling (Untuk Fishing)
 local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
 local function GetRemote(remotePath, name, timeout)
     local currentInstance = RepStorage
@@ -58,69 +61,65 @@ local function GetRemote(remotePath, name, timeout)
     return currentInstance:FindFirstChild(name)
 end
 
--- Remotes Global (Digunakan oleh V3 & Fishing Area)
-local RE_EquipToolFromHotbar = GetRemote(RPath, "RE/EquipToolFromHotbar")
-local RF_ChargeFishingRod = GetRemote(RPath, "RF/ChargeFishingRod")
-local RF_RequestFishingMinigameStarted = GetRemote(RPath, "RF/RequestFishingMinigameStarted")
-local RE_FishingCompleted = GetRemote(RPath, "RE/FishingCompleted")
-local RF_CancelFishingInputs = GetRemote(RPath, "RF/CancelFishingInputs")
-local RF_UpdateAutoFishingState = GetRemote(RPath, "RF/UpdateAutoFishingState")
-
-local function checkFishingRemotes()
-    if not (RE_EquipToolFromHotbar and RF_ChargeFishingRod and RF_RequestFishingMinigameStarted and RE_FishingCompleted) then
-        WindUI:Notify({ Title = "Error", Content = "Fishing Remotes not found!", Duration = 5, Icon = "x" })
-        return false
-    end
-    return true
-end
-
--- [GLOBAL ANIMATION VARIABLES]
-local originalAnimateScript = nil
-local originalAnimator = nil
-
 local function EnableAnimations()
-    local character = LocalPlayer.Character
-    if not character then return end
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     
-    local animScript = character:FindFirstChild("Animate")
-    if animScript then animScript.Enabled = true end
+    -- 1. Restore script 'Animate'
+    local animateScript = character:FindFirstChild("Animate")
+    if animateScript and originalAnimateScript ~= nil then
+        animateScript.Enabled = originalAnimateScript
+    end
     
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then return end
 
+    -- 2. Restore/Tambahkan Animator
     local existingAnimator = humanoid:FindFirstChildOfClass("Animator")
     if not existingAnimator then
-        if originalAnimator then originalAnimator.Parent = humanoid
-        else Instance.new("Animator", humanoid) end
+        -- Jika Animator tidak ada, dan kita memiliki objek aslinya, restore
+        if originalAnimator and not originalAnimator.Parent then
+            originalAnimator.Parent = humanoid
+        else
+            -- Jika objek asli hilang, buat yang baru
+            Instance.new("Animator").Parent = humanoid
+        end
     end
+    originalAnimator = nil -- Bersihkan referensi lama
 end
 
 -- =================================================================
--- 1. TAB PLAYER
+-- 1. TAB PLAYER & LOGIC
 -- =================================================================
 do
     local player = Window:Tab({ Title = "Player", Icon = "user" })
     local movement = player:Section({ Title = "Movement", TextSize = 20 })
 
+    -- Variables
     local DEFAULT_SPEED = 16
     local DEFAULT_JUMP = 50
+    local InfinityJumpConnection = nil
     
-    Reg("Walkspeed", movement:Slider({
-        Title = "WalkSpeed", Step = 1, Value = { Min = 16, Max = 200, Default = 16 },
+    -- WalkSpeed
+    local SliderSpeed = Reg("Walkspeed", movement:Slider({
+        Title = "WalkSpeed", Step = 1,
+        Value = { Min = 16, Max = 200, Default = 16 },
         Callback = function(value)
             local hum = GetHumanoid()
             if hum then hum.WalkSpeed = tonumber(value) end
         end,
     }))
 
-    Reg("slidjump", movement:Slider({
-        Title = "JumpPower", Step = 1, Value = { Min = 50, Max = 200, Default = 50 },
+    -- JumpPower
+    local SliderJump = Reg("slidjump", movement:Slider({
+        Title = "JumpPower", Step = 1,
+        Value = { Min = 50, Max = 200, Default = 50 },
         Callback = function(value)
             local hum = GetHumanoid()
             if hum then hum.JumpPower = tonumber(value) end
         end,
     }))
 
+    -- Reset Movement
     movement:Button({
         Title = "Reset Movement", Icon = "rotate-ccw",
         Callback = function()
@@ -128,29 +127,184 @@ do
             if hum then
                 hum.WalkSpeed = DEFAULT_SPEED
                 hum.JumpPower = DEFAULT_JUMP
+                SliderSpeed:Set(DEFAULT_SPEED)
+                SliderJump:Set(DEFAULT_JUMP)
             end
         end
     })
 
+    -- Freeze Player
     Reg("frezee", movement:Toggle({
-        Title = "Freeze Player", Desc = "Anti-Push / Anchor Position", Value = false,
+        Title = "Freeze Player", Desc = "Anti-Push / Anchor Position",
+        Value = false,
         Callback = function(state)
             local hrp = GetHRP()
             if hrp then
                 hrp.Anchored = state
-                if state then hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
+                if state then
+                    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    hrp.Velocity = Vector3.new(0,0,0)
+                end
+            end
+        end
+    }))
+
+    -- ABILITIES SECTION
+    local ability = player:Section({ Title = "Abilities", TextSize = 20 })
+
+    -- Infinite Jump
+    Reg("infj", ability:Toggle({
+        Title = "Infinite Jump", Value = false,
+        Callback = function(state)
+            if state then
+                InfinityJumpConnection = UserInputService.JumpRequest:Connect(function()
+                    local hum = GetHumanoid()
+                    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                end)
+            else
+                if InfinityJumpConnection then InfinityJumpConnection:Disconnect() end
+            end
+        end
+    }))
+
+    -- No Clip
+    local noclipConnection = nil
+    Reg("nclip", ability:Toggle({
+        Title = "No Clip", Value = false,
+        Callback = function(state)
+            if state then
+                noclipConnection = RunService.Stepped:Connect(function()
+                    local char = LocalPlayer.Character
+                    if char then
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+                        end
+                    end
+                end)
+            else
+                if noclipConnection then noclipConnection:Disconnect() end
+            end
+        end
+    }))
+
+    -- Fly Mode
+    local flyConnection, bodyGyro, bodyVel
+    local isFlying = false
+    Reg("flym", ability:Toggle({
+        Title = "Fly Mode", Value = false,
+        Callback = function(state)
+            local hrp = GetHRP()
+            local hum = GetHumanoid()
+            local cam = workspace.CurrentCamera
+            
+            if state and hrp and hum then
+                isFlying = true
+                bodyGyro = Instance.new("BodyGyro", hrp)
+                bodyGyro.P = 9e4; bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+                bodyVel = Instance.new("BodyVelocity", hrp)
+                bodyVel.MaxForce = Vector3.new(9e9, 9e9, 9e9); bodyVel.Velocity = Vector3.zero
+                
+                flyConnection = RunService.RenderStepped:Connect(function()
+                    if not isFlying or not hrp then return end
+                    bodyGyro.CFrame = cam.CFrame
+                    local moveDir = hum.MoveDirection
+                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveDir = moveDir - Vector3.new(0,1,0) end
+                    bodyVel.Velocity = moveDir.Unit * 60
+                end)
+            else
+                isFlying = false
+                if flyConnection then flyConnection:Disconnect() end
+                if bodyGyro then bodyGyro:Destroy() end
+                if bodyVel then bodyVel:Destroy() end
+            end
+        end
+    }))
+
+    -- Walk on Water
+    local walkWaterConn, waterPlatform
+    Reg("walkwat", ability:Toggle({
+        Title = "Walk on Water", Value = false,
+        Callback = function(state)
+            if state then
+                walkWaterConn = RunService.RenderStepped:Connect(function()
+                    local hrp = GetHRP()
+                    if not hrp then return end
+                    
+                    if not waterPlatform or not waterPlatform.Parent then
+                        waterPlatform = Instance.new("Part", workspace)
+                        waterPlatform.Name = "WaterPlatform"; waterPlatform.Anchored = true
+                        waterPlatform.CanCollide = true; waterPlatform.Transparency = 1; waterPlatform.Size = Vector3.new(15, 1, 15)
+                    end
+                    
+                    local rayOrigin = hrp.Position + Vector3.new(0, 5, 0)
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = {workspace.Terrain}; rayParams.FilterType = Enum.RaycastFilterType.Include
+                    rayParams.IgnoreWater = false
+                    
+                    local result = workspace:Raycast(rayOrigin, Vector3.new(0, -500, 0), rayParams)
+                    if result and result.Material == Enum.Material.Water then
+                        waterPlatform.Position = Vector3.new(hrp.Position.X, result.Position.Y, hrp.Position.Z)
+                    else
+                        waterPlatform.Position = Vector3.new(hrp.Position.X, -500, hrp.Position.Z)
+                    end
+                end)
+            else
+                if walkWaterConn then walkWaterConn:Disconnect() end
+                if waterPlatform then waterPlatform:Destroy() end
+            end
+        end
+    }))
+
+    -- OTHER (ESP)
+    local other = player:Section({ Title = "Other", TextSize = 20 })
+    local espEnabled, espConnections = false, {}
+    
+    local function removeESP(plr)
+        if espConnections[plr] then
+            pcall(function() espConnections[plr].billboard:Destroy() end)
+            espConnections[plr] = nil
+        end
+    end
+
+    local function createESP(target)
+        if not target or not target.Character or target == LocalPlayer then return end
+        removeESP(target)
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        local bb = Instance.new("BillboardGui", target.Character)
+        bb.Size = UDim2.new(0, 100, 0, 40); bb.AlwaysOnTop = true; bb.StudsOffset = Vector3.new(0, 3, 0)
+        local txt = Instance.new("TextLabel", bb)
+        txt.Size = UDim2.new(1,0,1,0); txt.BackgroundTransparency = 1
+        txt.Text = target.DisplayName; txt.TextColor3 = Color3.new(1,0,0); txt.TextStrokeTransparency = 0
+        
+        espConnections[target] = {billboard = bb}
+    end
+
+    Reg("esp", other:Toggle({
+        Title = "Player ESP", Value = false,
+        Callback = function(state)
+            espEnabled = state
+            if state then
+                for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
+                espConnections.Added = Players.PlayerAdded:Connect(function(p) 
+                    p.CharacterAdded:Connect(function() task.wait(1) if espEnabled then createESP(p) end end)
+                end)
+            else
+                for p, _ in pairs(espConnections) do if typeof(p)=="Instance" then removeESP(p) end end
+                if espConnections.Added then espConnections.Added:Disconnect() end
             end
         end
     }))
 end
 
 -- =================================================================
--- 2. TAB FISHING
+-- 2. TAB FISHING & LOGIC
 -- =================================================================
-local farm = Window:Tab({ Title = "Fishing", Icon = "fish" })
-
--- [[ 1. X7 SPEED (BETA) ]] --
 do
+    local farm = Window:Tab({ Title = "Fishing", Icon = "fish" })
+    
     -- Variables for Fishing
     local legitAutoState = false
     local normalInstantState = false
@@ -489,80 +643,228 @@ do
             end
         end
     }))
-end
 
--- [[ 2. BLATANT V3 (RESTORED) ]] --
-do
-    local v3 = farm:Section({ Title = "2. Blatant V3 (Advanced Engine)", TextSize = 20 })
+    ------------------------------------------------------------
+    -- 🔥 BLATANT V3 (Engine V2 Enhanced)
+    ------------------------------------------------------------
+    local v3 = farm:Section({
+        Title = "Blatant V3 (Advanced Engine)",
+        TextSize = 20
+    })
 
     local v3proActive = false
     local v3Loop = nil
     local v3EquipLoop = nil
+
+    -- default values
     local v3proLoopDelay = 1.35
     local v3proCompleteDelay = 2.2
     local v3proCancelDelay = 0.22
 
-    -- UI Tuning V3
-    Reg("v3loopdelay", v3:Input({ Title = "V3 Loop Delay", Value = tostring(v3proLoopDelay), Placeholder = "1.35", Callback = function(v) local n = tonumber(v); if n and n >= 0.5 then v3proLoopDelay = n end end }))
-    Reg("v3compdelay", v3:Input({ Title = "Catch Delay", Value = tostring(v3proCompleteDelay), Placeholder = "2.2", Callback = function(v) local n = tonumber(v); if n and n >= 0.5 then v3proCompleteDelay = n end end }))
-    Reg("v3cancdelay", v3:Input({ Title = "Cancel Delay", Value = tostring(v3proCancelDelay), Placeholder = "0.22", Callback = function(v) local n = tonumber(v); if n and n >= 0.05 then v3proCancelDelay = n end end }))
+    -------------------------------------------------
+    -- UI
+    -------------------------------------------------
+    Reg("v3loopdelay", v3:Input({
+        Title = "V3 Loop Delay",
+        Value = tostring(v3proLoopDelay),
+        Placeholder = "1.35",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0.5 then
+                v3proLoopDelay = n
+            end
+        end
+    }))
 
-    local function safeFire(fn) task.spawn(function() pcall(fn) end) end
+    Reg("v3compdelay", v3:Input({
+        Title = "Catch Delay",
+        Value = tostring(v3proCompleteDelay),
+        Placeholder = "2.2",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0.5 then
+                v3proCompleteDelay = n
+            end
+        end
+    }))
 
+    Reg("v3cancdelay", v3:Input({
+        Title = "Completely Delay",
+        Value = tostring(v3proCancelDelay),
+        Placeholder = "0.22",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0.05 then
+                v3proCancelDelay = n
+            end
+        end
+    }))
+
+    -------------------------------------------------
+    -- SAFE WRAPPER
+    -------------------------------------------------
+    local function safeFire(fn)
+        task.spawn(function()
+            pcall(fn)
+        end)
+    end
+
+    -------------------------------------------------
+    -- MAIN ENGINE
+    -------------------------------------------------
     local function RunV3Pro()
         if not v3proActive then return end
-        if not checkFishingRemotes() then v3proActive = false return end
+        if not checkFishingRemotes() then
+            v3proActive = false
+            return
+        end
 
         task.spawn(function()
-            safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
+            --------------------------------
+            -- 1️⃣ RESET STATE
+            --------------------------------
+            safeFire(function()
+                RF_CancelFishingInputs:InvokeServer()
+            end)
+
             task.wait(0.05)
+
             local t = tick()
-            safeFire(function() RF_ChargeFishingRod:InvokeServer({[2] = t}) end)
+
+            --------------------------------
+            -- 2️⃣ CHARGE
+            --------------------------------
+            safeFire(function()
+                RF_ChargeFishingRod:InvokeServer({
+                    [2] = t
+                })
+            end)
+
             task.wait(0.01)
-            safeFire(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797, t) end)
+
+            --------------------------------
+            -- 3️⃣ START MINIGAME
+            --------------------------------
+            safeFire(function()
+                RF_RequestFishingMinigameStarted:InvokeServer(
+                    -139.6379699707,
+                    0.99647927980797,
+                    t
+                )
+            end)
+
+            --------------------------------
+            -- 4️⃣ DELAY → COMPLETE
+            --------------------------------
             task.wait(v3proCompleteDelay)
-            safeFire(function() RE_FishingCompleted:FireServer() end)
+
+            safeFire(function()
+                RE_FishingCompleted:FireServer()
+            end)
+
             task.wait(v3proCancelDelay)
-            safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
+
+            --------------------------------
+            -- 5️⃣ CLEAN EXIT
+            --------------------------------
+            safeFire(function()
+                RF_CancelFishingInputs:InvokeServer()
+            end)
+
+            --------------------------------
+            -- 6️⃣ FAST RECAST
+            --------------------------------
             task.wait(0.05)
-            safeFire(function() RF_ChargeFishingRod:InvokeServer({[2] = t}) end)
+
+            safeFire(function()
+                RF_ChargeFishingRod:InvokeServer({[2] = t})
+            end)
+
             task.wait(0.01)
-            safeFire(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797, t) end)
+
+            safeFire(function()
+                RF_RequestFishingMinigameStarted:InvokeServer(
+                    -139.6379699707,
+                    0.99647927980797,
+                    t
+                )
+            end)
         end)
     end
 
+    -------------------------------------------------
+    -- AUTO EQUIP
+    -------------------------------------------------
     local function StartV3Equip()
         v3EquipLoop = task.spawn(function()
-            while v3proActive do pcall(function() RE_EquipToolFromHotbar:FireServer(1) end) task.wait(0.08) end
+            while v3proActive do
+                pcall(function()
+                    RE_EquipToolFromHotbar:FireServer(1)
+                end)
+                task.wait(0.08)
+            end
         end)
     end
 
+    -------------------------------------------------
+    -- LOOP
+    -------------------------------------------------
     local function StartV3Loop()
         v3Loop = task.spawn(function()
-            while v3proActive do RunV3Pro() task.wait(v3proLoopDelay) end
+            while v3proActive do
+                RunV3Pro()
+                task.wait(v3proLoopDelay)
+            end
         end)
     end
 
+    -------------------------------------------------
+    -- TOGGLE
+    -------------------------------------------------
     Reg("v3toggle", v3:Toggle({
         Title = "Enable Blatant V3",
         Value = false,
         Callback = function(s)
-            if not checkFishingRemotes() then WindUI:Notify({Title="Missing Remotes", Duration=3}) return end
+
+            if not checkFishingRemotes() then
+                WindUI:Notify({
+                    Title="Missing Remotes",
+                    Duration=3
+                })
+                return
+            end
+
             v3proActive = s
+
             if s then
-                StartV3Equip(); StartV3Loop()
-                WindUI:Notify({ Title="V3 Enabled", Content="Advanced Engine Running", Duration=4, Icon="zap" })
+                -- Disable other modes if you have them
+                if normal ~= nil then normal=false end
+                if blatantInstantState ~= nil then blatantInstantState=false end
+                if hyperActive ~= nil then hyperActive=false end
+
+                StartV3Equip()
+                StartV3Loop()
+
+                WindUI:Notify({
+                    Title="V3 Enabled",
+                    Content="Advanced Engine Running",
+                    Duration=4,
+                    Icon="zap"
+                })
+
             else
                 v3proActive=false
                 if v3Loop then task.cancel(v3Loop) v3Loop=nil end
                 if v3EquipLoop then task.cancel(v3EquipLoop) v3EquipLoop=nil end
-                WindUI:Notify({ Title="V3 Stopped", Duration=2 })
+
+                WindUI:Notify({
+                    Title="V3 Stopped",
+                    Duration=2
+                })
             end
         end
     }))
-end
 
--- [[ 3. BLATANT V2 (NEW) - X5 LOGIC + REAL NOTIF STACK ]] --
 do
     local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
     
@@ -961,8 +1263,7 @@ do
     })
 end
 
--- FISHING AREA SECTION
-do
+    -- FISHING AREA SECTION
     farm:Divider()
     local areafish = farm:Section({ Title = "Fishing Area", TextSize = 20 })
     
@@ -1049,13 +1350,77 @@ do
 end
 
 do
-    local SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings", Locked = false })
-    local MiscSection = SettingsTab:Section({ Title = "Misc. Area", TextSize = 20 })
+    local SettingsTab = Window:Tab({
+        Title = "Settings",
+        Icon = "settings",
+        Locked = false,
+    })
 
-    -- 1. NO ANIMATION
+    -- [[ MISC SECTION UPDATE ]] --
+    local MiscSection = SettingsTab:Section({
+        Title = "Misc. Area",
+        TextSize = 20,
+    })
+
+    -- Dependencies
+    local RunService = game:GetService("RunService")
+    local LocalPlayer = game:GetService("Players").LocalPlayer
+    local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
+    local function GetRemote(remotePath, name, timeout)
+        local currentInstance = game:GetService("ReplicatedStorage")
+        for _, childName in ipairs(remotePath) do
+            currentInstance = currentInstance:WaitForChild(childName, timeout or 0.5)
+            if not currentInstance then return nil end
+        end
+        return currentInstance:FindFirstChild(name)
+    end
+
+    -- 1. REMOVE FISH NOTIFICATION POP-UP
+    local DisableNotificationConnection = nil
+    MiscSection:Toggle({
+        Title = "Remove Fish Notification Pop-up",
+        Desc = "Menghilangkan pop-up notifikasi saat menangkap ikan.",
+        Value = false,
+        Icon = "bell-off",
+        Callback = function(state)
+            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+            local SmallNotification = PlayerGui:FindFirstChild("Small Notification")
+            if not SmallNotification then SmallNotification = PlayerGui:WaitForChild("Small Notification", 5) end
+
+            if state then
+                DisableNotificationConnection = RunService.RenderStepped:Connect(function()
+                    if SmallNotification then SmallNotification.Enabled = false end
+                end)
+                WindUI:Notify({ Title = "Notif Diblokir", Duration = 2, Icon = "check" })
+            else
+                if DisableNotificationConnection then DisableNotificationConnection:Disconnect() end
+                if SmallNotification then SmallNotification.Enabled = true end
+                WindUI:Notify({ Title = "Notif Normal", Duration = 2, Icon = "check" })
+            end
+        end
+    })
+
+    -- 2. ENABLE FISHING RADAR
+    local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
+    MiscSection:Toggle({
+        Title = "Enable Fishing Radar",
+        Value = false,
+        Icon = "radar",
+        Callback = function(state)
+            if RF_UpdateFishingRadar then
+                pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
+                WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
+            end
+        end
+    })
+
+    -- 3. NO ANIMATION (LOGIC FIXED)
+    local originalAnimateParent = nil
+    local originalAnimateScript = nil
+    
     MiscSection:Toggle({
         Title = "No Animation",
-        Desc = "Mematikan animasi karakter.",
+        Desc = "Mematikan animasi karakter. (Memulihkan animasi saat dimatikan)",
         Value = false,
         Icon = "activity",
         Callback = function(state)
@@ -1065,16 +1430,18 @@ do
             if not Hum then return end
 
             if state then
+                -- SIMPAN & MATIKAN
                 local animScript = Char:FindFirstChild("Animate")
                 if animScript then
-                    originalAnimateScript = animScript.Enabled
-                    animScript.Enabled = false 
+                    originalAnimateScript = animScript
+                    animScript.Enabled = false -- Matikan scriptnya
                 end
+                
                 local animator = Hum:FindFirstChildOfClass("Animator")
                 if animator then
-                    originalAnimator = animator
-                    animator.Parent = nil 
+                    animator:Destroy() -- Hapus animator
                 end
+                
                 WindUI:Notify({ Title = "No Anim ON", Duration = 2 })
             else
                 EnableAnimations()
@@ -1083,51 +1450,144 @@ do
         end
     })
 
-    -- 2. REMOVE SKIN EFFECT
+    -- 4. REMOVE SKIN EFFECT (IMPROVED - BRUTE FORCE CLEANER)
     local SkinCleanerConnection = nil
+    
+    -- Load VFX Controller (Opsional, untuk hook)
+    local VFXControllerModule = nil
+    local originalVFXHandle = nil
+    pcall(function()
+        VFXControllerModule = require(game:GetService("ReplicatedStorage").Controllers.VFXController)
+        originalVFXHandle = VFXControllerModule.Handle
+    end)
+
     MiscSection:Toggle({
         Title = "Remove Skin Effect",
+        Desc = "Menghapus paksa semua partikel kosmetik.",
         Value = false,
         Icon = "sparkles",
         Callback = function(state)
             if state then
+                -- A. Hook Function (Cara Halus)
+                if VFXControllerModule then
+                    VFXControllerModule.Handle = function(...) return nil end
+                end
+
+                -- B. Brute Force Cleaner (Cara Kasar - Pasti Bersih)
+                -- Loop ini akan menghapus efek yang bandel setiap detik
                 SkinCleanerConnection = RunService.Stepped:Connect(function()
+                    -- 1. Bersihkan CosmeticFolder Global (Biasanya ada di Workspace)
                     local globalCosmetics = workspace:FindFirstChild("CosmeticFolder")
-                    if globalCosmetics then globalCosmetics:ClearAllChildren() end
+                    if globalCosmetics then
+                        globalCosmetics:ClearAllChildren()
+                    end
                 end)
-                WindUI:Notify({ Title = "Skin Effect REMOVED", Duration = 2 })
+                
+                WindUI:Notify({ Title = "Skin Effect REMOVED", Duration = 2, Icon = "trash" })
             else
-                if SkinCleanerConnection then SkinCleanerConnection:Disconnect() end
-                WindUI:Notify({ Title = "Skin Effect ALLOWED", Duration = 2 })
+                -- Restore Hook
+                if VFXControllerModule and originalVFXHandle then
+                    VFXControllerModule.Handle = originalVFXHandle
+                end
+                
+                -- Matikan Cleaner
+                if SkinCleanerConnection then
+                    SkinCleanerConnection:Disconnect()
+                    SkinCleanerConnection = nil
+                end
+                
+                WindUI:Notify({ Title = "Skin Effect ALLOWED", Duration = 2, Icon = "check" })
             end
         end
     })
 
-    -- 3. DISABLE 3D RENDERING
+    -- 5. NO CUTSCENE
+    local CutsceneController = nil
+    local OldPlayCutscene = nil
+    pcall(function()
+        CutsceneController = require(game:GetService("ReplicatedStorage").Controllers.CutsceneController)
+        OldPlayCutscene = CutsceneController.Play
+    end)
+    local isNoCutsceneActive = false
+
+    if CutsceneController then
+        CutsceneController.Play = function(self, ...)
+            if isNoCutsceneActive then return end 
+            return OldPlayCutscene(self, ...)
+        end
+    end
+
+    MiscSection:Toggle({
+        Title = "No Cutscene",
+        Value = false,
+        Icon = "film",
+        Callback = function(state)
+            isNoCutsceneActive = state
+            WindUI:Notify({ Title = state and "No Cutscene ON" or "No Cutscene OFF", Duration = 2 })
+        end
+    })
+
+    -- 6. DISABLE 3D RENDERING
     MiscSection:Toggle({
         Title = "Disable 3D Rendering",
         Value = false,
         Icon = "monitor-off",
         Callback = function(state)
-            RunService:Set3dRenderingEnabled(not state)
+            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+            local Camera = workspace.CurrentCamera
+            
+            if state then
+                if not _G.BlackScreenGUI then
+                    _G.BlackScreenGUI = Instance.new("ScreenGui")
+                    _G.BlackScreenGUI.Name = "RockHub_BlackScreen"
+                    _G.BlackScreenGUI.IgnoreGuiInset = true
+                    _G.BlackScreenGUI.DisplayOrder = 9999
+                    _G.BlackScreenGUI.Parent = PlayerGui
+                    
+                    local Frame = Instance.new("Frame", _G.BlackScreenGUI)
+                    Frame.Size = UDim2.new(1,0,1,0); Frame.BackgroundColor3 = Color3.new(0,0,0)
+                    local Label = Instance.new("TextLabel", Frame)
+                    Label.Size = UDim2.new(1,0,0.1,0); Label.BackgroundTransparency = 1
+                    Label.Text = "3D Rendering Disabled"; Label.TextColor3 = Color3.new(1,1,1); Label.TextSize = 20
+                end
+                _G.BlackScreenGUI.Enabled = true
+                Camera.CameraType = Enum.CameraType.Scriptable
+                Camera.CFrame = CFrame.new(0, -500, 0)
+                RunService:Set3dRenderingEnabled(false)
+            else
+                if _G.BlackScreenGUI then _G.BlackScreenGUI.Enabled = false end
+                Camera.CameraType = Enum.CameraType.Custom
+                if LocalPlayer.Character then Camera.CameraSubject = LocalPlayer.Character:FindFirstChild("Humanoid") end
+                RunService:Set3dRenderingEnabled(true)
+            end
         end
     })
 
-    -- 4. FPS BOOST
+    -- 7. FPS ULTRA BOOST
     MiscSection:Toggle({
         Title = "FPS Ultra Boost",
+        Desc = "Menghapus semua tekstur/efek.",
         Value = false,
         Icon = "zap",
         Callback = function(state)
+            local Lighting = game:GetService("Lighting")
+            local Terrain = workspace:FindFirstChildOfClass("Terrain")
+            
             if state then
-                game:GetService("Lighting").GlobalShadows = false
+                Lighting.GlobalShadows = false
+                Lighting.FogEnd = 9e9
                 for _, v in pairs(workspace:GetDescendants()) do
-                    if v:IsA("BasePart") then v.Material = Enum.Material.SmoothPlastic; v.Reflectance = 0 end
-                    if v:IsA("Texture") then v.Transparency = 1 end
+                    if v:IsA("BasePart") then v.Material = Enum.Material.SmoothPlastic v.Reflectance = 0 
+                    elseif v:IsA("Decal") or v:IsA("Texture") then v.Transparency = 1 
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then v.Enabled = false end
                 end
+                if Terrain then Terrain.WaterWaveSize = 0 Terrain.WaterTransparency = 1 end
+                WindUI:Notify({ Title = "FPS Boost ON", Duration = 2 })
+            else
+                WindUI:Notify({ Title = "FPS Boost OFF (Rejoin to fix textures)", Duration = 3, Icon = "alert-triangle" })
             end
         end
     })
 end
 
-WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
+WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
