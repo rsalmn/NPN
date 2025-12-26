@@ -380,18 +380,18 @@ do
     }))
 
     --============================================================
--- NOTIFICATION RESTORE FUNCTION
---============================================================
-function RestoreGameNotifications()
-    if NotifEvent and getconnections then
-        for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
-            pcall(function()
-                if c.Enable then
-                    c:Enable()
-                end
-            end)
+    -- NOTIFICATION RESTORE FUNCTION
+    --============================================================
+    function RestoreGameNotifications()
+        if NotifEvent and getconnections then
+            for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
+                pcall(function()
+                    if c.Enable then
+                        c:Enable()
+                    end
+                end)
+            end
         end
-    end
     end
 
     -- 2. NORMAL INSTANT MODE
@@ -1078,37 +1078,34 @@ RestoreGameNotifications()
 
 
 --============================================================
--- BLATANT V4 — REACTION MODE (EXCLAMATION TRIGGER)
+-- BLATANT V4 — REAL BITE LISTENER MODE
 --============================================================
 local v4Section = farm:Section({
-    Title = "Blatant V4 (Reaction Fishing)",
+    Title = "Blatant V4 (Real Bite Engine)",
     TextSize = 20
 })
 
 local v4Active = false
 local v4Loop = nil
 local v4EquipLoop = nil
-local v4Listen = nil
 
--- DEFAULT CONFIG
-local V4_DELAY = 1.2
-local V4_CATCH_DELAY = 0.12
-local V4_COMPLETE_DELAY = 0.18
+local FishingController
+pcall(function()
+    FishingController = require(game.ReplicatedStorage.Controllers.FishingController)
+end)
 
--- last signal time
-local lastBite = os.clock()
+local V4_DELAY = 1.1
+local V4_CATCH_DELAY = 0.08
+local V4_COMPLETE_DELAY = 0.15
 
----------------------------------------------------------
--- UI CONFIG
----------------------------------------------------------
 Reg("v4delay", v4Section:Input({
     Title = "Blatant V4 Delay",
     Value = tostring(V4_DELAY),
-    Placeholder = "1.2",
+    Placeholder = "1.1",
     Callback = function(v)
-        v = tonumber(v)
-        if v and v >= 0.3 then
-            V4_DELAY = v
+        local n = tonumber(v)
+        if n and n >= 0.2 then
+            V4_DELAY = n
         end
     end
 }))
@@ -1116,11 +1113,11 @@ Reg("v4delay", v4Section:Input({
 Reg("v4catch", v4Section:Input({
     Title = "Catch Delay",
     Value = tostring(V4_CATCH_DELAY),
-    Placeholder = "0.12",
+    Placeholder = "0.08",
     Callback = function(v)
-        v = tonumber(v)
-        if v and v >= 0.05 then
-            V4_CATCH_DELAY = v
+        local n = tonumber(v)
+        if n and n >= 0.02 then
+            V4_CATCH_DELAY = n
         end
     end
 }))
@@ -1128,46 +1125,32 @@ Reg("v4catch", v4Section:Input({
 Reg("v4comp", v4Section:Input({
     Title = "Completely Delay",
     Value = tostring(V4_COMPLETE_DELAY),
-    Placeholder = "0.18",
+    Placeholder = "0.15",
     Callback = function(v)
-        v = tonumber(v)
-        if v and v >= 0.05 then
-            V4_COMPLETE_DELAY = v
+        local n = tonumber(v)
+        if n and n >= 0.05 then
+            V4_COMPLETE_DELAY = n
         end
     end
 }))
 
----------------------------------------------------------
--- AUTO EQUIP ENABLE
----------------------------------------------------------
-local function v4AutoEquipStart()
-    v4EquipLoop = task.spawn(function()
-        while v4Active do
-            pcall(function()
-                RE_EquipToolFromHotbar:FireServer(1)
-            end)
-            task.wait(0.08)
-        end
-    end)
-end
-
----------------------------------------------------------
--- THROW ENGINE
----------------------------------------------------------
-local function V4Throw()
+-------------------------------------------------
+-- FORCE CAST PROPER
+-------------------------------------------------
+local function V4ThrowProper()
     pcall(function()
         RF_ChargeFishingRod:InvokeServer(os.clock())
     end)
-    task.wait(0.01)
+    task.wait(0.03)
     pcall(function()
-        RF_RequestFishingMinigameStarted:InvokeServer(-139.5, 0.99)
+        RF_RequestFishingMinigameStarted:InvokeServer(-139.4, 0.99)
     end)
 end
 
----------------------------------------------------------
--- COMPLETE ENGINE
----------------------------------------------------------
-local function V4Complete()
+-------------------------------------------------
+-- COMPLETE CATCH
+-------------------------------------------------
+local function V4Catch()
     task.wait(V4_CATCH_DELAY)
 
     pcall(function()
@@ -1180,126 +1163,118 @@ local function V4Complete()
         RF_CancelFishingInputs:InvokeServer()
     end)
 
-    -- langsung lempar lagi
     task.wait(0.05)
-    V4Throw()
+    V4ThrowProper()
 end
 
----------------------------------------------------------
--- EXCLAMATION LISTENER (TANDA SERU)
--- menggunakan NotifEvent sebagai trigger
----------------------------------------------------------
-local function StartV4Listener()
-    if not NotifEvent then return end
+-------------------------------------------------
+-- REAL BITE LISTENER
+-------------------------------------------------
+local biteConn
 
-    v4Listen = NotifEvent.OnClientEvent:Connect(function(...)
-        local args = {...}
-        local data = args[3]
-
-        if not data then return end
-        
-        -- BEBERAPA GAME MENGIRIMKAN TYPE / TEXT UNTUK BITE
-        local text = tostring(data.Text or ""):lower()
-
-        if text:find("!") or text:find("bite") or text:find("hook") then
-            lastBite = os.clock()
-            if v4Active then
-                V4Complete()
-            end
+local function StartBiteListener()
+    if biteConn then biteConn:Disconnect() end
+    if not FishingController then return end
+    
+    biteConn = FishingController.FishBite.Event:Connect(function()
+        if v4Active then
+            V4Catch()
         end
     end)
 end
 
----------------------------------------------------------
--- WATCHDOG (Jika tanda seru tidak terdeteksi / lag)
----------------------------------------------------------
-local function StartV4Loop()
+-------------------------------------------------
+-- AUTO EQUIP LOOP
+-------------------------------------------------
+local function StartEquip()
+    v4EquipLoop = task.spawn(function()
+        while v4Active do
+            pcall(function()
+                RE_EquipToolFromHotbar:FireServer(1)
+            end)
+            task.wait(0.07)
+        end
+    end)
+end
+
+-------------------------------------------------
+-- WATCHDOG (ANTI STUCK)
+-------------------------------------------------
+local lastAction = os.clock()
+
+local function StartLoop()
     v4Loop = task.spawn(function()
         while v4Active do
-            -- fallback: recast ulang jika 7 detik tanpa bite
-            if (os.clock() - lastBite) > 7 then
+            if (os.clock() - lastAction) > 7 then
                 pcall(function()
                     RF_CancelFishingInputs:InvokeServer()
                 end)
-                task.wait(0.1)
-                V4Throw()
-                lastBite = os.clock()
+                task.wait(0.2)
+                V4ThrowProper()
+                lastAction = os.clock()
             end
-
             task.wait(V4_DELAY)
         end
     end)
 end
 
----------------------------------------------------------
+-------------------------------------------------
 -- TOGGLE
----------------------------------------------------------
+-------------------------------------------------
 Reg("v4toggle", v4Section:Toggle({
     Title = "Enable Blatant V4",
     Value = false,
-    Callback = function(state)
+    Callback = function(s)
 
         if not checkFishingRemotes() then
-            WindUI:Notify({
-                Title = "Blatant V4 Failed",
-                Content = "Fishing Remotes Missing",
-                Duration = 3
-            })
+            WindUI:Notify({Title="V4 Failed",Content="Fishing Remotes Missing",Duration=3})
             return
         end
 
-        v4Active = state
+        v4Active = s
 
-        if state then
-            -------------------------------------------------
-            -- Disable other modes
-            -------------------------------------------------
-            if normal ~= nil then normal = false end
-            if blatantInstantState ~= nil then blatantInstantState = false end
-            if v3Active ~= nil then v3Active = false end
-            if v3proActive ~= nil then v3proActive = false end
-            if hyperActive ~= nil then hyperActive = false end
+        if s then
+            -- disable others
+            if normal ~= nil then normal=false end
+            if blatantInstantState ~= nil then blatantInstantState=false end
+            if v3Active ~= nil then v3Active=false end
+            if v3proActive ~= nil then v3proActive=false end
+            if hyperActive ~= nil then hyperActive=false end
             if SetBlatantState then SetBlatantState(false) end
 
-            -------------------------------------------------
-            -- Start Engines
-            -------------------------------------------------
-            v4AutoEquipStart()
+            StartEquip()
+            StartBiteListener()
+            StartLoop()
 
-            StartV4Listener()
-            StartV4Loop()
-
-            -- initial 2x spam throw (sesuai permintaanmu)
-            V4Throw()
-            task.wait(0.08)
-            V4Throw()
+            -- GUARANTEED DOUBLE CAST
+            V4ThrowProper()
+            task.wait(0.1)
+            V4ThrowProper()
 
             WindUI:Notify({
-                Title = "Blatant V4 ON",
-                Content = "Reaction Mode Active",
-                Duration = 4,
-                Icon = "zap"
+                Title="Blatant V4 ON",
+                Content="Real Bite Engine Active",
+                Duration=4,
+                Icon="zap"
             })
 
         else
-            v4Active = false
-
+            v4Active=false
             if v4Loop then task.cancel(v4Loop) v4Loop=nil end
             if v4EquipLoop then task.cancel(v4EquipLoop) v4EquipLoop=nil end
-            if v4Listen then v4Listen:Disconnect() v4Listen=nil end
+            if biteConn then biteConn:Disconnect() biteConn=nil end
 
             pcall(function()
                 RF_UpdateAutoFishingState:InvokeServer(false)
             end)
 
             WindUI:Notify({
-                Title = "Blatant V4 Stopped",
-                Duration = 2
+                Title="V4 Stopped",
+                Duration=2
             })
         end
     end
 }))
-
 
 do
     local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
@@ -1699,99 +1674,6 @@ do
     })
 end
 
-    local Services = {
-    Players = game:GetService("Players"),
-    RunService = game:GetService("RunService"),
-    HttpService = game:GetService("HttpService"),
-    ReplicatedStorage = game:GetService("ReplicatedStorage"),
-    UserInputService = game:GetService("UserInputService"),
-}
-
-
-local Kontol = {
-    Net = Services.ReplicatedStorage.Packages._Index["sleitnick_net@0.2.0"].net,
-    Replion = require(Services.ReplicatedStorage.Packages.Replion),
-}
--- Network Functions
-local NetworkFunctions = {
-    ChargeRod = Kontol.Net["RF/ChargeFishingRod"],
-    StartMini = Kontol.Net["RF/RequestFishingMinigameStarted"],
-    Cancel = Kontol.Net["RF/CancelFishingInputs"],
-    AutoEnabled = Kontol.Net["RF/UpdateAutoFishingState"],
-    RE_MinigameChanged = Kontol.Net["RE/FishingMinigameChanged"]
-}
--- Network Events
-local NetworkEvents = {
-    FishDone = Kontol.Net["RE/FishingCompleted"],
-}
--- Global Settings
-_G.Blatants = _G.Blatants or false
-local BlatantFishing = {
-    Enabled = false,
-    ReelDelay = 1.8,
-    FishingDelay = 0.9,
-}
-local function Notify(message, color)
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "Blatant Fishing",
-        Text = message,
-        Duration = 3,
-        Icon = "rbxassetid://6031068426"
-    })
-    print("[Blatant Fishing] " .. message)
-end
-
-local function safeFire(func)
-    task.spawn(function()
-        pcall(func)
-    end)
-end
-
--- ====== FUNGSI BLATANT FISHING
-local function FastestFishing()
-    task.spawn(function()
-        local currentTime = tick()
-        safeFire(function()
-            NetworkFunctions.Cancel:InvokeServer()
-        end)
-        -- Get server time and charge rod
-        local serverTime = workspace:GetServerTimeNow()
-        safeFire(function()
-            NetworkFunctions.ChargeRod:InvokeServer({[2] = currentTime})
-        end)
-        -- Start minigame with max values
-        safeFire(function()
-            NetworkFunctions.StartMini:InvokeServer(-1, 0.999, currentTime)
-        end)
-        -- Wait for fishing delay
-        task.wait(BlatantFishing.FishingDelay)
-        -- Complete fishing
-        safeFire(function()
-            NetworkEvents.FishDone:FireServer()
-        end)
-    end)
-end
-
-
--- ======= NYAKAIN BLATANT NYA
-local function ToggleBlatantFishing(enabled)
-    _G.Blatants = enabled
-    NetworkFunctions.AutoEnabled:InvokeServer(enabled)
-    if enabled then
-        LocalPlayer:SetAttribute("Loading", nil)
-        Notify("Blatant Fishing: ENABLED ✅", Color3.fromRGB(0, 255, 0))
-        task.spawn(function()
-            while _G.Blatants do
-                FastestFishing()
-                task.wait(BlatantFishing.ReelDelay)
-            end
-        end)
-    else
-        LocalPlayer:SetAttribute("Loading", false)
-        Notify("Blatant Fishing: DISABLED ❌", Color3.fromRGB(255, 0, 0))
-    end
-end
-
     -- FISHING AREA SECTION
     farm:Divider()
     local areafish = farm:Section({ Title = "Fishing Area", TextSize = 20 })
@@ -2120,6 +2002,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
