@@ -605,10 +605,11 @@ do
 
     -- [[ SECTION: BLATANT V2 (NEW) - X5 LOGIC ]] --
 -- Kode ini diambil persis dari request user (X5 Speed) dan diisolasi agar aman
+-- [[ SECTION: BLATANT V2 (NEW) - X5 LOGIC ]] --
 do
     local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
     
-    -- X5 Variables (Isolated)
+    -- X5 Variables
     local Modules_X5 = {}
     local featureState_X5 = {
         AutoFish = false,
@@ -790,26 +791,38 @@ do
         table.insert(fishingTrove_X5, autoFishThread_X5)
     end
 
-    -- 6. UI Elements X5
-    Reg("x5startdelay", BlatantV2:Slider({
-        Title = "Delay Recast", Desc = "(Default: 1.20)",
-        Value = { Min = 0.00, Max = 5.0, Default = featureState_X5.Instant_StartDelay },
-        Step = 0.01,
-        Callback = function(v) featureState_X5.Instant_StartDelay = tonumber(v) end
+    -- ==========================================================
+    -- X5 TUNING (DENGAN INPUT, BUKAN SLIDER)
+    -- ==========================================================
+    
+    Reg("x5startdelay", BlatantV2:Input({
+        Title = "Delay Recast",
+        Value = tostring(featureState_X5.Instant_StartDelay),
+        Placeholder = "1.20",
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then featureState_X5.Instant_StartDelay = num end
+        end
     }))
 
-    Reg("x5resetcount", BlatantV2:Slider({
-        Title = "Spam Finish", Desc = "Reset after X Casts (Default: 10)",
-        Value = { Min = 5, Max = 50, Default = featureState_X5.Instant_ResetCount },
-        Step = 1,
-        Callback = function(v) featureState_X5.Instant_ResetCount = math.floor(tonumber(v) or 10) end
+    Reg("x5resetcount", BlatantV2:Input({
+        Title = "Spam Finish (Reset Count)",
+        Value = tostring(featureState_X5.Instant_ResetCount),
+        Placeholder = "10",
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then featureState_X5.Instant_ResetCount = math.floor(num) end
+        end
     }))
 
-    Reg("x5resetpause", BlatantV2:Slider({
-        Title = "Cooldown Recast", Desc = "(Default: 0.01)",
-        Value = { Min = 0.01, Max = 5, Default = featureState_X5.Instant_ResetPause },
-        Step = 0.01,
-        Callback = function(v) featureState_X5.Instant_ResetPause = tonumber(v) end
+    Reg("x5resetpause", BlatantV2:Input({
+        Title = "Cooldown Recast",
+        Value = tostring(featureState_X5.Instant_ResetPause),
+        Placeholder = "0.01",
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then featureState_X5.Instant_ResetPause = num end
+        end
     }))
 
     Reg("x5toggle", BlatantV2:Toggle({
@@ -1180,3 +1193,5 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
+
