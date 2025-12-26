@@ -61,6 +61,32 @@ local function GetRemote(remotePath, name, timeout)
     return currentInstance:FindFirstChild(name)
 end
 
+local function EnableAnimations()
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    
+    -- 1. Restore script 'Animate'
+    local animateScript = character:FindFirstChild("Animate")
+    if animateScript and originalAnimateScript ~= nil then
+        animateScript.Enabled = originalAnimateScript
+    end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    -- 2. Restore/Tambahkan Animator
+    local existingAnimator = humanoid:FindFirstChildOfClass("Animator")
+    if not existingAnimator then
+        -- Jika Animator tidak ada, dan kita memiliki objek aslinya, restore
+        if originalAnimator and not originalAnimator.Parent then
+            originalAnimator.Parent = humanoid
+        else
+            -- Jika objek asli hilang, buat yang baru
+            Instance.new("Animator").Parent = humanoid
+        end
+    end
+    originalAnimator = nil -- Bersihkan referensi lama
+end
+
 -- =================================================================
 -- 1. TAB PLAYER & LOGIC
 -- =================================================================
@@ -865,10 +891,30 @@ end
     local areafish = farm:Section({ Title = "Fishing Area", TextSize = 20 })
     
     local FishingAreas = {
-        ["Classic Island"] = {Pos = Vector3.new(1440.8, 46.0, 2777.1), Look = Vector3.new(0.9, 0, 0.3)},
-        ["Coral Reef"] = {Pos = Vector3.new(-3207.5, 6.0, 2011.0), Look = Vector3.new(0.9, 0, 0.2)},
-        ["Ancient Jungle"] = {Pos = Vector3.new(1535.6, 3.1, -193.3), Look = Vector3.new(0.5, 0, 0.8)},
-        ["Roslit"] = {Pos = Vector3.new(-1518.5, 2.8, 1916.1), Look = Vector3.new(0.04, 0, 0.99)},
+        ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
+        ["Arrow Lever"] = {Pos = Vector3.new(898.296, 8.449, -361.856), Look = Vector3.new(0.023, -0.000, 1.000)},
+        ["Coral Reef"] = {Pos = Vector3.new(-3207.538, 6.087, 2011.079), Look = Vector3.new(0.973, 0.000, 0.229)},
+        ["Crater Island"] = {Pos = Vector3.new(1058.976, 2.330, 5032.878), Look = Vector3.new(-0.789, 0.000, 0.615)},
+        ["Cresent Lever"] = {Pos = Vector3.new(1419.750, 31.199, 78.570), Look = Vector3.new(0.000, -0.000, -1.000)},
+        ["Crystalline Passage"] = {Pos = Vector3.new(6051.567, -538.900, 4370.979), Look = Vector3.new(0.109, 0.000, 0.994)},
+        ["Ancient Ruin"] = {Pos = Vector3.new(6031.981, -585.924, 4713.157), Look = Vector3.new(0.316, -0.000, -0.949)},
+        ["Diamond Lever"] = {Pos = Vector3.new(1818.930, 8.449, -284.110), Look = Vector3.new(0.000, 0.000, -1.000)},
+        ["Enchant Room"] = {Pos = Vector3.new(3255.670, -1301.530, 1371.790), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Esoteric Island"] = {Pos = Vector3.new(2164.470, 3.220, 1242.390), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Fisherman Island"] = {Pos = Vector3.new(74.030, 9.530, 2705.230), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Hourglass Diamond Lever"] = {Pos = Vector3.new(1484.610, 8.450, -861.010), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Kohana"] = {Pos = Vector3.new(-668.732, 3.000, 681.580), Look = Vector3.new(0.889, -0.000, 0.458)},
+        ["Lost Isle"] = {Pos = Vector3.new(-3804.105, 2.344, -904.653), Look = Vector3.new(-0.901, -0.000, 0.433)},
+        --["Ocean (for element)"] = {Pos = Vector3.new(4675.870, 5.210, -554.690), Look = Vector3.new(-0.000, -0.000, -1.000)},
+        ["Sacred Temple"] = {Pos = Vector3.new(1461.815, -22.125, -670.234), Look = Vector3.new(-0.990, -0.000, 0.143)},
+        ["Second Enchant Altar"] = {Pos = Vector3.new(1479.587, 128.295, -604.224), Look = Vector3.new(-0.298, 0.000, -0.955)},
+        ["Sisyphus Statue"] = {Pos = Vector3.new(-3743.745, -135.074, -1007.554), Look = Vector3.new(0.310, 0.000, 0.951)},
+        ["Treasure Room"] = {Pos = Vector3.new(-3598.440, -281.274, -1645.855), Look = Vector3.new(-0.065, 0.000, -0.998)},
+        ["Tropical Island"] = {Pos = Vector3.new(-2162.920, 2.825, 3638.445), Look = Vector3.new(0.381, -0.000, 0.925)},
+        ["Underground Cellar"] = {Pos = Vector3.new(2118.417, -91.448, -733.800), Look = Vector3.new(0.854, 0.000, 0.521)},
+        ["Volcano"] = {Pos = Vector3.new(-605.121, 19.516, 160.010), Look = Vector3.new(0.854, 0.000, 0.520)},
+        ["Weather Machine"] = {Pos = Vector3.new(-1518.550, 2.875, 1916.148), Look = Vector3.new(0.042, 0.000, 0.999)},
+        ["Christmas Island"] = {Pos = Vector3.new(1136.833, 23.573, 1562.916), Look = Vector3.new(0.790, 0.000, -0.613)},
     }
     
     local AreaNames = {}
@@ -1021,21 +1067,7 @@ do
                 
                 WindUI:Notify({ Title = "No Anim ON", Duration = 2 })
             else
-                -- PULIHKAN (RESTORE)
-                -- 1. Buat Animator Baru jika hilang
-                local animator = Hum:FindFirstChildOfClass("Animator")
-                if not animator then
-                    animator = Instance.new("Animator", Hum)
-                end
-
-                -- 2. Restart Script Animate
-                local animScript = Char:FindFirstChild("Animate")
-                if animScript then
-                    animScript.Enabled = false
-                    task.wait(0.1)
-                    animScript.Enabled = true -- Trigger restart
-                end
-                
+                EnableAnimations()
                 WindUI:Notify({ Title = "No Anim OFF (Restored)", Duration = 2 })
             end
         end
@@ -1071,17 +1103,6 @@ do
                     local globalCosmetics = workspace:FindFirstChild("CosmeticFolder")
                     if globalCosmetics then
                         globalCosmetics:ClearAllChildren()
-                    end
-
-                    -- 2. Bersihkan Efek di Karakter & Tools
-                    local Char = LocalPlayer.Character
-                    if Char then
-                        for _, v in ipairs(Char:GetDescendants()) do
-                            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then
-                                v.Enabled = false
-                                v:Destroy() 
-                            end
-                        end
                     end
                 end)
                 
@@ -1193,5 +1214,3 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
-
-
