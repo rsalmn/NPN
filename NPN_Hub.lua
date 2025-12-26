@@ -7,71 +7,8 @@ local Window = WindUI:CreateWindow({
     Folder = "RockHubExtracted",
     Size = UDim2.fromOffset(600, 360),
     Transparent = true,
+    Theme = "Rose",
     Resizable = true,
-})
-
-WindUI:AddTheme({
-    Name = "My Theme", -- theme name
-    
-    
-    -- More Soon!
-    
-    Accent = Color3.fromHex("#18181b"),
-    Background = Color3.fromHex("#101010"), -- Accent
-    BackgroundTransparency = 0,
-    Outline = Color3.fromHex("#FFFFFF"),
-    Text = Color3.fromHex("#FFFFFF"),
-    Placeholder = Color3.fromHex("#7a7a7a"),
-    Button = Color3.fromHex("#52525b"),
-    Icon = Color3.fromHex("#a1a1aa"),
-    
-    Hover = Color3.fromHex("#FFFFFF"), -- Text
-    BackgroundTransparency = 0,
-    
-    WindowBackground = Color3.fromHex("101010"), -- Background
-    WindowShadow = Color3.fromHex("000000"),
-    
-    DialogBackground = Color3.fromHex("#101010"), -- Background
-    DialogBackgroundTransparency = 0, -- BackgroundTransparency
-    DialogTitle = Color3.fromHex("#FFFFFF"), -- Text
-    DialogContent = Color3.fromHex("#FFFFFF"), -- Text
-    DialogIcon = Color3.fromHex("#a1a1aa"), -- Icon
-    
-    WindowTopbarButtonIcon = Color3.fromHex("a1a1aa"), -- Icon
-    WindowTopbarTitle = Color3.fromHex("FFFFFF"), -- Text
-    WindowTopbarAuthor = Color3.fromHex("FFFFFF"), -- Text
-    WindowTopbarIcon = Color3.fromHex("FFFFFF"), -- Text
-    
-    TabBackground = Color3.fromHex("#FFFFFF"), -- Text
-    TabTitle = Color3.fromHex("#FFFFFF"), -- Text
-    TabIcon = Color3.fromHex("a1a1aa"), -- Icon
-    
-    ElementBackground = Color3.fromHex("#FFFFFF"), -- Text
-    ElementTitle = Color3.fromHex("#FFFFFF"), -- Text
-    ElementDesc = Color3.fromHex("#FFFFFF"), -- Text
-    ElementIcon = Color3.fromHex("#a1a1aa"), -- Icon
-    
-    PopupBackground = Color3.fromHex("#101010"), -- Background
-    PopupBackgroundTransparency = 0, -- BackgroundTransparency
-    PopupTitle = Color3.fromHex("#FFFFFF"), -- Text
-    PopupContent = Color3.fromHex("#FFFFFF"), -- Text
-    PopupIcon = Color3.fromHex("#a1a1aa"), -- Icon
-    
-    DialogBackground = Color3.fromHex("#101010"), -- Background
-    DialogBackgroundTransparency = 0, -- Transparency
-    DialogTitle = Color3.fromHex("#FFFFFF"), -- Text
-    DialogContent = Color3.fromHex("#FFFFFF"), -- Text
-    DialogIcon = Color3.fromHex("#a1a1aa"), -- Icon
-    
-    Toggle = Color3.fromHex("#52525b"), -- Button
-    ToggleBar = Color3.fromHex("#FFFFFF"), -- White
-    
-    Checkbox = Color3.fromHex("#52525b"), -- Button
-    CheckboxIcon = Color3.fromHex("#FFFFFF"), -- White
-    
-    Slider = Color3.fromHex("#52525b"), -- Button
-    SliderThumb = Color3.fromHex("#FFFFFF"), -- White
-    
 })
 
 -- [[ GLOBAL VARIABLES & SERVICES ]] --
@@ -452,99 +389,6 @@ do
         end
     }))
 
-    -- [[ BLATANT MODE V2 (STABLE LOOP) ]] --
-    -- Versi ini lebih ringan dan stabil untuk Ping tinggi/Event Farming
-    local blatantv2 = farm:Section({ Title = "Blatant Mode V2 (Stable)", TextSize = 20 })
-
-    local v2Delay = 2.5
-    local v2State = false
-    local v2Thread = nil
-    
-    -- Slider Kecepatan
-    Reg("blatantv2speed", blatantv2:Slider({
-        Title = "Catch Delay (Seconds)",
-        Desc = "Waktu tunggu sebelum menarik ikan. (Rendah = Cepat)",
-        Step = 0.1,
-        Value = { Min = 0.1, Max = 5.0, Default = 2.5 },
-        Callback = function(v)
-            v2Delay = tonumber(v)
-        end
-    }))
-
-    -- Toggle V2
-    Reg("blatantv2tog", blatantv2:Toggle({
-        Title = "Enable Blatant V2",
-        Desc = "Mode spam loop sederhana. Lebih stabil untuk AFK lama.",
-        Value = false,
-        Callback = function(state)
-            -- Cek Remote
-            if not checkFishingRemotes() then return end
-            
-            -- Matikan Mode Lain Manual (Supaya tidak bentrok)
-            if state then
-                -- Matikan Legit
-                local tLegit = farm:GetElementByTitle("Auto Fish (Legit)")
-                if tLegit and tLegit.Value then tLegit:Set(false) end
-                
-                -- Matikan Normal
-                local tNorm = farm:GetElementByTitle("Normal Instant Fish")
-                if tNorm and tNorm.Value then tNorm:Set(false) end
-                
-                -- Matikan Blatant Old
-                local tOld = farm:GetElementByTitle("Instant Fishing (Blatant Old)")
-                if tOld and tOld.Value then tOld:Set(false) end
-                
-                -- Matikan Blatant V5 (Bawaan)
-                local tV5 = farm:GetElementByTitle("Instant Fishing (Blatant)")
-                if tV5 and tV5.Value then tV5:Set(false) end
-            end
-
-            v2State = state
-            
-            if state then
-                -- Update Server State (Biar server tau kita mancing)
-                if RF_UpdateAutoFishingState then 
-                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) 
-                end
-
-                v2Thread = task.spawn(function()
-                    while v2State do
-                        -- 1. Charge & Cast (Simulasi Lempar)
-                        local timestamp = os.time() + os.clock()
-                        pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
-                        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99) end)
-                        
-                        -- 2. Tunggu (Delay Tangkap)
-                        task.wait(v2Delay)
-                        
-                        -- 3. Catch (Tangkap)
-                        pcall(function() RE_FishingCompleted:FireServer() end)
-                        
-                        -- 4. Cleanup & Re-Equip (Anti-Bug)
-                        task.wait(0.2)
-                        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
-                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                        
-                        -- Jeda dikit sebelum loop ulang
-                        task.wait(0.1)
-                    end
-                end)
-                
-                WindUI:Notify({ Title = "Blatant V2 ON", Content = "Running Stable Loop...", Duration = 3, Icon = "zap" })
-            else
-                -- Matikan Thread
-                if v2Thread then task.cancel(v2Thread) v2Thread = nil end
-                
-                -- Reset Server State
-                if RF_UpdateAutoFishingState then 
-                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) 
-                end
-                
-                WindUI:Notify({ Title = "Blatant V2 OFF", Duration = 3 })
-            end
-        end
-    }))
-
     -- [[ BLATANT MODE (OLD / KILLER LOGIC) ]] --
     local blatant = farm:Section({ Title = "Blatant Mode (Old)", TextSize = 20, })
 
@@ -759,49 +603,119 @@ do
         end
     }))
 
-    -- [[ BLATANT MODE V3 (SMART PING SYNC) ]] --
+    -- [[ BLATANT MODE V2 (STABLE LOOP - FIXED) ]] --
+    local blatantv2 = farm:Section({ Title = "Blatant Mode V2 (Stable)", TextSize = 20 })
+
+    local v2Delay = 2.5
+    local v2State = false
+    local v2Thread = nil
+    
+    Reg("blatantv2speed", blatantv2:Slider({
+        Title = "Catch Delay (Seconds)",
+        Desc = "Waktu tunggu sebelum menarik ikan.",
+        Step = 0.1,
+        Value = { Min = 0.1, Max = 5.0, Default = 2.5 },
+        Callback = function(v) v2Delay = tonumber(v) end
+    }))
+
+    Reg("blatantv2tog", blatantv2:Toggle({
+        Title = "Enable Blatant V2",
+        Desc = "Mode spam loop sederhana. (Fixed Rod Logic)",
+        Value = false,
+        Callback = function(state)
+            if not checkFishingRemotes() then return end
+            
+            -- Matikan mode lain
+            if state then
+                local modes = {"Auto Fish (Legit)", "Normal Instant Fish", "Instant Fishing (Blatant Old)", "Enable Blatant V3"}
+                for _, title in ipairs(modes) do
+                    local el = farm:GetElementByTitle(title)
+                    if el and el.Value then el:Set(false) end
+                end
+            end
+
+            v2State = state
+            
+            if state then
+                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) end
+
+                v2Thread = task.spawn(function()
+                    while v2State do
+                        local Char = LocalPlayer.Character
+                        local HRP = Char and Char:FindFirstChild("HumanoidRootPart")
+                        local Tool = Char and Char:FindFirstChildOfClass("Tool")
+
+                        -- 1. Cek Joran (Wajib Pegang Joran)
+                        if not Tool then
+                            pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                            task.wait(0.8) -- Tunggu animasi equip selesai (PENTING)
+                        else
+                            -- 2. Tentukan Posisi Lempar (Depan Karakter)
+                            -- Menggunakan posisi dinamis agar server tidak menolak koordinat
+                            local castPos = HRP.Position + (HRP.CFrame.LookVector * 15) - Vector3.new(0, 5, 0)
+                            local timestamp = os.time() + os.clock()
+
+                            -- 3. Action: Cast
+                            pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+                            pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(castPos, 100) end)
+                            
+                            -- 4. Tunggu
+                            task.wait(v2Delay)
+                            
+                            -- 5. Action: Catch & Reset
+                            pcall(function() RE_FishingCompleted:FireServer() end)
+                            task.wait(0.1)
+                            pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+                            
+                            -- Refresh Tool (Opsional: Hanya jika perlu reset animasi)
+                            -- task.wait(0.1)
+                            -- pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                            task.wait(0.2)
+                        end
+                    end
+                end)
+                WindUI:Notify({ Title = "Blatant V2 ON", Duration = 3, Icon = "zap" })
+            else
+                if v2Thread then task.cancel(v2Thread) v2Thread = nil end
+                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) end
+                WindUI:Notify({ Title = "Blatant V2 OFF", Duration = 3 })
+            end
+        end
+    }))
+
+    -- [[ BLATANT MODE V3 (SMART SYNC - FIXED) ]] --
     local blatantv3 = farm:Section({ Title = "Blatant V3 (Smart Sync)", TextSize = 20 })
 
     local v3State = false
     local v3Thread = nil
-    
-    -- Config V3
-    local v3BaseDelay = 1.8 -- Waktu dasar minimal (detik)
-    local v3Jitter = true   -- Randomizer on/off
+    local v3BaseDelay = 1.8
+    local v3Jitter = true
 
-    -- Helper: Get Player Ping
     local function GetPing()
         local stats = game:GetService("Stats")
         if stats and stats:FindFirstChild("Network") then
-             -- Mengembalikan ping dalam satuan detik (misal 100ms -> 0.1s)
             return stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
         end
-        return 0.1 -- Default fallback
+        return 0.1
     end
 
     Reg("blatantv3delay", blatantv3:Slider({
-        Title = "Base Delay",
-        Desc = "Waktu tunggu dasar (makin kecil makin berisiko).",
-        Step = 0.1,
-        Value = { Min = 1.0, Max = 4.0, Default = 1.8 },
+        Title = "Base Delay", Step = 0.1, Value = { Min = 1.0, Max = 4.0, Default = 1.8 },
         Callback = function(v) v3BaseDelay = tonumber(v) end
     }))
 
     Reg("blatantv3jitter", blatantv3:Toggle({
-        Title = "Enable Humanized Jitter",
-        Desc = "Menambah jeda acak agar tidak terdeteksi sebagai bot murni.",
-        Value = true,
+        Title = "Enable Humanized Jitter", Value = true,
         Callback = function(v) v3Jitter = v end
     }))
 
     Reg("blatantv3run", blatantv3:Toggle({
         Title = "Enable Blatant V3",
-        Desc = "Mode pintar yang menyesuaikan kecepatan dengan Ping internetmu.",
+        Desc = "Mode pintar ping-sync. (Fixed Logic)",
         Value = false,
         Callback = function(state)
             if not checkFishingRemotes() then return end
             
-            -- Matikan Mode Lain
             if state then
                 local modes = {"Auto Fish (Legit)", "Normal Instant Fish", "Instant Fishing (Blatant Old)", "Enable Blatant V2"}
                 for _, title in ipairs(modes) do
@@ -813,53 +727,54 @@ do
             v3State = state
             
             if state then
-                -- Update Server State
-                if RF_UpdateAutoFishingState then 
-                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) 
-                end
+                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) end
 
                 v3Thread = task.spawn(function()
                     while v3State do
-                        -- 1. Hitung Delay Cerdas
+                        local Char = LocalPlayer.Character
+                        local HRP = Char and Char:FindFirstChild("HumanoidRootPart")
+                        local Tool = Char and Char:FindFirstChildOfClass("Tool")
                         local currentPing = GetPing()
-                        -- Rumus: Delay Dasar + (Ping x 2) untuk kompensasi lag
-                        local safeDelay = v3BaseDelay + (currentPing * 1.5)
-                        
-                        -- Tambah Jitter (Acak)
-                        if v3Jitter then
-                            safeDelay = safeDelay + (math.random(10, 150) / 1000)
-                        end
 
-                        -- 2. Action: Cast
-                        local timestamp = os.time() + os.clock()
-                        pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
-                        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99) end)
-                        
-                        -- 3. Tunggu Waktu Aman
-                        task.wait(safeDelay)
-                        
-                        -- 4. Action: Catch
-                        pcall(function() RE_FishingCompleted:FireServer() end)
-                        
-                        -- 5. Quick Reset (Anim Cancel)
-                        -- Kita un-equip dan equip tool dengan sangat cepat untuk memotong animasi "mengangkat ikan"
-                        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
-                        
-                        -- Jeda ultra pendek sebelum re-equip (tergantung ping)
-                        task.wait(0.05 + currentPing) 
-                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                        
-                        -- Tunggu rod siap dipakai
-                        task.wait(0.15)
+                        -- 1. Safety Check: Rod Harus Ada
+                        if not Tool then
+                            pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                            task.wait(0.5 + currentPing) -- Beri waktu server memproses equip
+                        else
+                            -- 2. Cast Logic
+                            local castPos = HRP.Position + (HRP.CFrame.LookVector * 10)
+                            local timestamp = os.time() + os.clock()
+                            
+                            pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+                            pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(castPos, 100) end)
+                            
+                            -- 3. Wait Logic (Smart Delay)
+                            local safeDelay = v3BaseDelay + (currentPing * 1.5)
+                            if v3Jitter then safeDelay = safeDelay + (math.random(10, 150) / 1000) end
+                            task.wait(safeDelay)
+                            
+                            -- 4. Catch Logic
+                            pcall(function() RE_FishingCompleted:FireServer() end)
+                            
+                            -- 5. Anim Cancel (Reset Rod)
+                            -- Kita cancel input dulu, baru re-equip jika perlu
+                            pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+                            
+                            -- Teknik Re-equip Cepat (Hanya jika ping stabil < 200ms)
+                            if currentPing < 0.2 then
+                                pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                                task.wait(0.2) -- Jeda wajib agar rod siap dilempar lagi
+                            else
+                                task.wait(0.3) -- Jika lag, jangan spam equip, cukup tunggu
+                            end
+                        end
                     end
                 end)
-                WindUI:Notify({ Title = "Blatant V3 Active", Content = "Syncing with Ping...", Duration = 3, Icon = "wifi" })
+                WindUI:Notify({ Title = "Blatant V3 ON", Content = "Syncing...", Duration = 3, Icon = "wifi" })
             else
                 if v3Thread then task.cancel(v3Thread) v3Thread = nil end
-                if RF_UpdateAutoFishingState then 
-                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) 
-                end
-                WindUI:Notify({ Title = "Blatant V3 Stopped", Duration = 2 })
+                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) end
+                WindUI:Notify({ Title = "Blatant V3 OFF", Duration = 2 })
             end
         end
     }))
@@ -937,12 +852,15 @@ do
         Locked = false,
     })
 
+    -- [[ MISC SECTION UPDATE ]] --
     local MiscSection = SettingsTab:Section({
         Title = "Misc. Area",
         TextSize = 20,
     })
 
-    -- [[ DEPENDENCIES & VARIABLES ]] --
+    -- Dependencies
+    local RunService = game:GetService("RunService")
+    local LocalPlayer = game:GetService("Players").LocalPlayer
     local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
     local function GetRemote(remotePath, name, timeout)
         local currentInstance = game:GetService("ReplicatedStorage")
@@ -952,9 +870,6 @@ do
         end
         return currentInstance:FindFirstChild(name)
     end
-
-    local RunService = game:GetService("RunService")
-    local LocalPlayer = game:GetService("Players").LocalPlayer
 
     -- 1. REMOVE FISH NOTIFICATION POP-UP
     local DisableNotificationConnection = nil
@@ -966,29 +881,16 @@ do
         Callback = function(state)
             local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
             local SmallNotification = PlayerGui:FindFirstChild("Small Notification")
-            
-            if not SmallNotification then
-                -- Coba cari sebentar jika belum load
-                SmallNotification = PlayerGui:WaitForChild("Small Notification", 5)
-            end
-
-            if not SmallNotification then 
-                WindUI:Notify({ Title = "Error", Content = "GUI Notifikasi tidak ditemukan.", Duration = 3, Icon = "x" })
-                return 
-            end
+            if not SmallNotification then SmallNotification = PlayerGui:WaitForChild("Small Notification", 5) end
 
             if state then
-                -- Paksa disable setiap frame agar tidak muncul kembali
                 DisableNotificationConnection = RunService.RenderStepped:Connect(function()
                     if SmallNotification then SmallNotification.Enabled = false end
                 end)
                 WindUI:Notify({ Title = "Notif Diblokir", Duration = 2, Icon = "check" })
             else
-                if DisableNotificationConnection then
-                    DisableNotificationConnection:Disconnect()
-                    DisableNotificationConnection = nil
-                end
-                SmallNotification.Enabled = true
+                if DisableNotificationConnection then DisableNotificationConnection:Disconnect() end
+                if SmallNotification then SmallNotification.Enabled = true end
                 WindUI:Notify({ Title = "Notif Normal", Duration = 2, Icon = "check" })
             end
         end
@@ -998,87 +900,70 @@ do
     local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
     MiscSection:Toggle({
         Title = "Enable Fishing Radar",
-        Desc = "Menampilkan radar ikan di HUD.",
         Value = false,
         Icon = "radar",
         Callback = function(state)
-            if not RF_UpdateFishingRadar then
-                WindUI:Notify({ Title = "Error", Content = "Remote Radar tidak ditemukan.", Duration = 3, Icon = "x" })
-                return
-            end
-            pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
-            
-            if state then
-                WindUI:Notify({ Title = "Radar ON", Duration = 2, Icon = "check" })
-            else
-                WindUI:Notify({ Title = "Radar OFF", Duration = 2, Icon = "x" })
+            if RF_UpdateFishingRadar then
+                pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
+                WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
             end
         end
     })
 
-    -- 3. NO ANIMATION
-    local isNoAnimationActive = false
-    local originalAnimator = nil
+    -- 3. NO ANIMATION (LOGIC FIXED)
+    local originalAnimateParent = nil
     local originalAnimateScript = nil
-
-    local function ToggleAnimations(disable)
-        local character = LocalPlayer.Character
-        if not character then return end
-        local humanoid = character:FindFirstChild("Humanoid")
-        if not humanoid then return end
-
-        if disable then
-            -- Disable Animate Script
-            local animScript = character:FindFirstChild("Animate")
-            if animScript and animScript:IsA("LocalScript") and animScript.Enabled then
-                originalAnimateScript = animScript.Enabled
-                animScript.Enabled = false
-            end
-            -- Destroy Animator
-            local animator = humanoid:FindFirstChildOfClass("Animator")
-            if animator then
-                originalAnimator = animator
-                animator:Destroy()
-            end
-        else
-            -- Restore
-            local animScript = character:FindFirstChild("Animate")
-            if animScript and originalAnimateScript ~= nil then
-                animScript.Enabled = originalAnimateScript
-            end
-            local existingAnimator = humanoid:FindFirstChildOfClass("Animator")
-            if not existingAnimator then
-                Instance.new("Animator", humanoid)
-            end
-        end
-    end
-
+    
     MiscSection:Toggle({
         Title = "No Animation",
-        Desc = "Mematikan animasi karakter (mengurangi lag).",
+        Desc = "Mematikan animasi karakter. (Memulihkan animasi saat dimatikan)",
         Value = false,
         Icon = "activity",
         Callback = function(state)
-            isNoAnimationActive = state
-            ToggleAnimations(state)
+            local Char = LocalPlayer.Character
+            if not Char then return end
+            local Hum = Char:FindFirstChild("Humanoid")
+            if not Hum then return end
+
             if state then
-                WindUI:Notify({ Title = "No Anim ON", Duration = 2, Icon = "check" })
+                -- SIMPAN & MATIKAN
+                local animScript = Char:FindFirstChild("Animate")
+                if animScript then
+                    originalAnimateScript = animScript
+                    animScript.Enabled = false -- Matikan scriptnya
+                end
+                
+                local animator = Hum:FindFirstChildOfClass("Animator")
+                if animator then
+                    animator:Destroy() -- Hapus animator
+                end
+                
+                WindUI:Notify({ Title = "No Anim ON", Duration = 2 })
             else
-                WindUI:Notify({ Title = "No Anim OFF", Duration = 2, Icon = "x" })
+                -- PULIHKAN (RESTORE)
+                -- 1. Buat Animator Baru jika hilang
+                local animator = Hum:FindFirstChildOfClass("Animator")
+                if not animator then
+                    animator = Instance.new("Animator", Hum)
+                end
+
+                -- 2. Restart Script Animate
+                local animScript = Char:FindFirstChild("Animate")
+                if animScript then
+                    animScript.Enabled = false
+                    task.wait(0.1)
+                    animScript.Enabled = true -- Trigger restart
+                end
+                
+                WindUI:Notify({ Title = "No Anim OFF (Restored)", Duration = 2 })
             end
         end
     })
-    
-    -- Handle Respawn for No Animation
-    LocalPlayer.CharacterAdded:Connect(function()
-        if isNoAnimationActive then
-            task.wait(0.5)
-            ToggleAnimations(true)
-        end
-    end)
 
-    -- 4. REMOVE SKIN EFFECT
-    -- Load Controller (Safe Call)
+    -- 4. REMOVE SKIN EFFECT (IMPROVED - BRUTE FORCE CLEANER)
+    local SkinCleanerConnection = nil
+    
+    -- Load VFX Controller (Opsional, untuk hook)
     local VFXControllerModule = nil
     local originalVFXHandle = nil
     pcall(function()
@@ -1088,28 +973,51 @@ do
 
     MiscSection:Toggle({
         Title = "Remove Skin Effect",
-        Desc = "Menghilangkan efek partikel/aura skin rod.",
+        Desc = "Menghapus paksa semua partikel kosmetik.",
         Value = false,
         Icon = "sparkles",
         Callback = function(state)
-            if not VFXControllerModule then 
-                WindUI:Notify({ Title = "Error", Content = "VFX Controller tidak ditemukan.", Duration = 3, Icon = "x" })
-                return 
-            end
-
             if state then
-                -- Override Handle function to do nothing
-                VFXControllerModule.Handle = function(...) end
-                -- Optional: Clear existing effects
-                local cosmeticFolder = workspace:FindFirstChild("CosmeticFolder")
-                if cosmeticFolder then pcall(function() cosmeticFolder:ClearAllChildren() end) end
-                WindUI:Notify({ Title = "Skin FX OFF", Duration = 2 })
+                -- A. Hook Function (Cara Halus)
+                if VFXControllerModule then
+                    VFXControllerModule.Handle = function(...) return nil end
+                end
+
+                -- B. Brute Force Cleaner (Cara Kasar - Pasti Bersih)
+                -- Loop ini akan menghapus efek yang bandel setiap detik
+                SkinCleanerConnection = RunService.Stepped:Connect(function()
+                    -- 1. Bersihkan CosmeticFolder Global (Biasanya ada di Workspace)
+                    local globalCosmetics = workspace:FindFirstChild("CosmeticFolder")
+                    if globalCosmetics then
+                        globalCosmetics:ClearAllChildren()
+                    end
+
+                    -- 2. Bersihkan Efek di Karakter & Tools
+                    local Char = LocalPlayer.Character
+                    if Char then
+                        for _, v in ipairs(Char:GetDescendants()) do
+                            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then
+                                v.Enabled = false
+                                v:Destroy() 
+                            end
+                        end
+                    end
+                end)
+                
+                WindUI:Notify({ Title = "Skin Effect REMOVED", Duration = 2, Icon = "trash" })
             else
-                -- Restore original function
-                if originalVFXHandle then
+                -- Restore Hook
+                if VFXControllerModule and originalVFXHandle then
                     VFXControllerModule.Handle = originalVFXHandle
                 end
-                WindUI:Notify({ Title = "Skin FX ON", Duration = 2 })
+                
+                -- Matikan Cleaner
+                if SkinCleanerConnection then
+                    SkinCleanerConnection:Disconnect()
+                    SkinCleanerConnection = nil
+                end
+                
+                WindUI:Notify({ Title = "Skin Effect ALLOWED", Duration = 2, Icon = "check" })
             end
         end
     })
@@ -1124,32 +1032,25 @@ do
     local isNoCutsceneActive = false
 
     if CutsceneController then
-        -- Hook Function (Permanent Hook with Toggle Check)
         CutsceneController.Play = function(self, ...)
-            if isNoCutsceneActive then return end -- Block if active
+            if isNoCutsceneActive then return end 
             return OldPlayCutscene(self, ...)
         end
     end
 
     MiscSection:Toggle({
         Title = "No Cutscene",
-        Desc = "Melewati animasi sinematik saat menangkap ikan.",
         Value = false,
         Icon = "film",
         Callback = function(state)
             isNoCutsceneActive = state
-            if state then
-                WindUI:Notify({ Title = "No Cutscene ON", Duration = 2 })
-            else
-                WindUI:Notify({ Title = "No Cutscene OFF", Duration = 2 })
-            end
+            WindUI:Notify({ Title = state and "No Cutscene ON" or "No Cutscene OFF", Duration = 2 })
         end
     })
 
     -- 6. DISABLE 3D RENDERING
     MiscSection:Toggle({
         Title = "Disable 3D Rendering",
-        Desc = "Mematikan render dunia 3D (Layar Hitam) untuk hemat CPU/GPU.",
         Value = false,
         Icon = "monitor-off",
         Callback = function(state)
@@ -1161,93 +1062,55 @@ do
                     _G.BlackScreenGUI = Instance.new("ScreenGui")
                     _G.BlackScreenGUI.Name = "RockHub_BlackScreen"
                     _G.BlackScreenGUI.IgnoreGuiInset = true
-                    _G.BlackScreenGUI.DisplayOrder = -999
+                    _G.BlackScreenGUI.DisplayOrder = 9999
                     _G.BlackScreenGUI.Parent = PlayerGui
                     
                     local Frame = Instance.new("Frame", _G.BlackScreenGUI)
-                    Frame.Size = UDim2.new(1,0,1,0)
-                    Frame.BackgroundColor3 = Color3.new(0,0,0)
-                    
+                    Frame.Size = UDim2.new(1,0,1,0); Frame.BackgroundColor3 = Color3.new(0,0,0)
                     local Label = Instance.new("TextLabel", Frame)
-                    Label.Size = UDim2.new(1,0,0.1,0)
-                    Label.BackgroundTransparency = 1
-                    Label.Text = "3D Rendering Disabled (Saver Mode)"
-                    Label.TextColor3 = Color3.new(1,1,1)
-                    Label.TextSize = 20
+                    Label.Size = UDim2.new(1,0,0.1,0); Label.BackgroundTransparency = 1
+                    Label.Text = "3D Rendering Disabled"; Label.TextColor3 = Color3.new(1,1,1); Label.TextSize = 20
                 end
                 _G.BlackScreenGUI.Enabled = true
-                _G.OldCamType = Camera.CameraType
                 Camera.CameraType = Enum.CameraType.Scriptable
-                Camera.CFrame = CFrame.new(0, 100000, 0)
+                Camera.CFrame = CFrame.new(0, -500, 0)
+                RunService:Set3dRenderingEnabled(false)
             else
                 if _G.BlackScreenGUI then _G.BlackScreenGUI.Enabled = false end
-                if _G.OldCamType then Camera.CameraType = _G.OldCamType else Camera.CameraType = Enum.CameraType.Custom end
+                Camera.CameraType = Enum.CameraType.Custom
                 if LocalPlayer.Character then Camera.CameraSubject = LocalPlayer.Character:FindFirstChild("Humanoid") end
+                RunService:Set3dRenderingEnabled(true)
             end
         end
     })
 
     -- 7. FPS ULTRA BOOST
-    local originalLighting = {}
-    local function ToggleFPSBoost(enable)
-        local Lighting = game:GetService("Lighting")
-        local Terrain = workspace:FindFirstChildOfClass("Terrain")
-        
-        if enable then
-            -- Save Originals
-            if not next(originalLighting) then
-                originalLighting = {
-                    GlobalShadows = Lighting.GlobalShadows,
-                    FogEnd = Lighting.FogEnd,
-                    Brightness = Lighting.Brightness
-                }
-            end
-            
-            -- Apply Boost
-            Lighting.GlobalShadows = false
-            Lighting.FogEnd = 9e9
-            Lighting.Brightness = 0
-            
-            -- Disable Effects
-            for _, v in pairs(workspace:GetDescendants()) do
-                if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") then
-                    v.Enabled = false
-                elseif v:IsA("Texture") or v:IsA("Decal") then
-                    v.Transparency = 1
-                end
-            end
-            
-            if Terrain then
-                Terrain.WaterWaveSize = 0
-                Terrain.WaterTransparency = 1
-                Terrain.Decoration = false
-            end
-            
-            setfpscap(60) -- Stabilize
-        else
-            -- Restore
-            if originalLighting.GlobalShadows ~= nil then
-                Lighting.GlobalShadows = originalLighting.GlobalShadows
-                Lighting.FogEnd = originalLighting.FogEnd
-                Lighting.Brightness = originalLighting.Brightness
-            end
-        end
-    end
-
     MiscSection:Toggle({
         Title = "FPS Ultra Boost",
-        Desc = "Menurunkan kualitas grafik ekstrem untuk FPS maksimal.",
+        Desc = "Menghapus semua tekstur/efek.",
         Value = false,
         Icon = "zap",
         Callback = function(state)
-            ToggleFPSBoost(state)
+            local Lighting = game:GetService("Lighting")
+            local Terrain = workspace:FindFirstChildOfClass("Terrain")
+            
             if state then
-                WindUI:Notify({ Title = "FPS Boost ON", Duration = 2, Icon = "zap" })
+                Lighting.GlobalShadows = false
+                Lighting.FogEnd = 9e9
+                for _, v in pairs(workspace:GetDescendants()) do
+                    if v:IsA("BasePart") then v.Material = Enum.Material.SmoothPlastic v.Reflectance = 0 
+                    elseif v:IsA("Decal") or v:IsA("Texture") then v.Transparency = 1 
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then v.Enabled = false end
+                end
+                if Terrain then Terrain.WaterWaveSize = 0 Terrain.WaterTransparency = 1 end
+                WindUI:Notify({ Title = "FPS Boost ON", Duration = 2 })
             else
-                WindUI:Notify({ Title = "FPS Boost OFF", Duration = 2, Icon = "rotate-ccw" })
+                WindUI:Notify({ Title = "FPS Boost OFF (Rejoin to fix textures)", Duration = 3, Icon = "alert-triangle" })
             end
         end
     })
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
+
