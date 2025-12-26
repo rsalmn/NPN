@@ -759,6 +759,111 @@ do
         end
     }))
 
+    -- [[ BLATANT MODE V3 (SMART PING SYNC) ]] --
+    local blatantv3 = farm:Section({ Title = "Blatant V3 (Smart Sync)", TextSize = 20 })
+
+    local v3State = false
+    local v3Thread = nil
+    
+    -- Config V3
+    local v3BaseDelay = 1.8 -- Waktu dasar minimal (detik)
+    local v3Jitter = true   -- Randomizer on/off
+
+    -- Helper: Get Player Ping
+    local function GetPing()
+        local stats = game:GetService("Stats")
+        if stats and stats:FindFirstChild("Network") then
+             -- Mengembalikan ping dalam satuan detik (misal 100ms -> 0.1s)
+            return stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
+        end
+        return 0.1 -- Default fallback
+    end
+
+    Reg("blatantv3delay", blatantv3:Slider({
+        Title = "Base Delay",
+        Desc = "Waktu tunggu dasar (makin kecil makin berisiko).",
+        Step = 0.1,
+        Value = { Min = 1.0, Max = 4.0, Default = 1.8 },
+        Callback = function(v) v3BaseDelay = tonumber(v) end
+    }))
+
+    Reg("blatantv3jitter", blatantv3:Toggle({
+        Title = "Enable Humanized Jitter",
+        Desc = "Menambah jeda acak agar tidak terdeteksi sebagai bot murni.",
+        Value = true,
+        Callback = function(v) v3Jitter = v end
+    }))
+
+    Reg("blatantv3run", blatantv3:Toggle({
+        Title = "Enable Blatant V3",
+        Desc = "Mode pintar yang menyesuaikan kecepatan dengan Ping internetmu.",
+        Value = false,
+        Callback = function(state)
+            if not checkFishingRemotes() then return end
+            
+            -- Matikan Mode Lain
+            if state then
+                local modes = {"Auto Fish (Legit)", "Normal Instant Fish", "Instant Fishing (Blatant Old)", "Enable Blatant V2"}
+                for _, title in ipairs(modes) do
+                    local el = farm:GetElementByTitle(title)
+                    if el and el.Value then el:Set(false) end
+                end
+            end
+
+            v3State = state
+            
+            if state then
+                -- Update Server State
+                if RF_UpdateAutoFishingState then 
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) 
+                end
+
+                v3Thread = task.spawn(function()
+                    while v3State do
+                        -- 1. Hitung Delay Cerdas
+                        local currentPing = GetPing()
+                        -- Rumus: Delay Dasar + (Ping x 2) untuk kompensasi lag
+                        local safeDelay = v3BaseDelay + (currentPing * 1.5)
+                        
+                        -- Tambah Jitter (Acak)
+                        if v3Jitter then
+                            safeDelay = safeDelay + (math.random(10, 150) / 1000)
+                        end
+
+                        -- 2. Action: Cast
+                        local timestamp = os.time() + os.clock()
+                        pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+                        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99) end)
+                        
+                        -- 3. Tunggu Waktu Aman
+                        task.wait(safeDelay)
+                        
+                        -- 4. Action: Catch
+                        pcall(function() RE_FishingCompleted:FireServer() end)
+                        
+                        -- 5. Quick Reset (Anim Cancel)
+                        -- Kita un-equip dan equip tool dengan sangat cepat untuk memotong animasi "mengangkat ikan"
+                        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+                        
+                        -- Jeda ultra pendek sebelum re-equip (tergantung ping)
+                        task.wait(0.05 + currentPing) 
+                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                        
+                        -- Tunggu rod siap dipakai
+                        task.wait(0.15)
+                    end
+                end)
+                WindUI:Notify({ Title = "Blatant V3 Active", Content = "Syncing with Ping...", Duration = 3, Icon = "wifi" })
+            else
+                if v3Thread then task.cancel(v3Thread) v3Thread = nil end
+                if RF_UpdateAutoFishingState then 
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) 
+                end
+                WindUI:Notify({ Title = "Blatant V3 Stopped", Duration = 2 })
+            end
+        end
+    }))
+
     -- FISHING AREA SECTION
     farm:Divider()
     local areafish = farm:Section({ Title = "Fishing Area", TextSize = 20 })
@@ -1146,3 +1251,5 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
+
