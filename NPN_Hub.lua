@@ -922,12 +922,7 @@ function StartFishNotificationControl()
             return
         end
 
-        local clonedArgs = DeepCopy(args)
-        if clonedArgs[3] then
-            clonedArgs[3].CustomDuration = 15
-        end
-
-        table.insert(NotifQueue, clonedArgs)
+        table.insert(NotifQueue)
         ProcessQueue()
     end)
 end
@@ -1488,5 +1483,6 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
