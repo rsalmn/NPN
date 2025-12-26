@@ -11,6 +11,13 @@ local Window = WindUI:CreateWindow({
     Resizable = true,
 })
 
+Window:Tag({
+    Title = "v1.0",
+    Icon = "github",
+    Color = Color3.fromHex("#30ff6a"),
+    Radius = 0, -- from 0 to 13
+})
+
 -- [[ GLOBAL VARIABLES & SERVICES ]] --
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -603,178 +610,146 @@ do
         end
     }))
 
-    -- [[ BLATANT MODE V2 (STABLE LOOP - FIXED) ]] --
-    local blatantv2 = farm:Section({ Title = "Blatant Mode V2 (Stable)", TextSize = 20 })
+    -- [[ BLATANT MODE (REMASTERED OLD LOGIC) ]] --
+    -- Menggunakan basis 'Killer Logic' (mematikan script game) tapi dengan loop yang diperbaiki.
+    local blatant = farm:Section({ Title = "Blatant Mode (Pro)", TextSize = 20 })
 
-    local v2Delay = 2.5
-    local v2State = false
-    local v2Thread = nil
+    local loopDelay = 2.65 -- Delay standar yang aman tapi cepat
+    local isBlatantActive = false
+    local blatantThread = nil
     
-    Reg("blatantv2speed", blatantv2:Slider({
-        Title = "Catch Delay (Seconds)",
-        Desc = "Waktu tunggu sebelum menarik ikan.",
-        Step = 0.1,
-        Value = { Min = 0.1, Max = 5.0, Default = 2.5 },
-        Callback = function(v) v2Delay = tonumber(v) end
+    -- Variables untuk Hook
+    local Old_Charge = nil
+    local Old_Cast = nil
+    local FishingController = nil
+    
+    -- Coba dapatkan controller
+    pcall(function()
+        FishingController = require(game:GetService("ReplicatedStorage").Controllers.FishingController)
+        Old_Charge = FishingController.RequestChargeFishingRod
+        Old_Cast = FishingController.SendFishingRequestToServer
+    end)
+
+    -- [[ 1. CONFIGURATION ]]
+    Reg("blatant_speed", blatant:Slider({
+        Title = "Catch Delay",
+        Desc = "Waktu tunggu (2.6s - 3.0s rekomendasi).",
+        Step = 0.05,
+        Value = { Min = 0.1, Max = 5.0, Default = 2.65 },
+        Callback = function(v) loopDelay = tonumber(v) end
     }))
 
-    Reg("blatantv2tog", blatantv2:Toggle({
-        Title = "Enable Blatant V2",
-        Desc = "Mode spam loop sederhana. (Fixed Rod Logic)",
+    -- [[ 2. REMOTE KILLER (ANTI-DETECTION) ]]
+    -- Memblokir game mengirim sinyal mancing manual saat bot jalan
+    local mt = getrawmetatable(game)
+    local old_namecall = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if isBlatantActive and not checkcaller() then
+            -- Blokir remote mancing dari script game asli
+            if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod") then
+                return nil 
+            end
+            if method == "FireServer" and self.Name == "FishingCompleted" then
+                return nil
+            end
+        end
+        return old_namecall(self, ...)
+    end)
+    setreadonly(mt, true)
+
+    -- [[ 3. MAIN TOGGLE ]]
+    Reg("blatant_toggle", blatant:Toggle({
+        Title = "Enable Blatant Mode",
+        Desc = "Logic Old yang ditingkatkan (Auto Equip + Dynamic Pos).",
         Value = false,
         Callback = function(state)
             if not checkFishingRemotes() then return end
-            
-            -- Matikan mode lain
-            if state then
-                local modes = {"Auto Fish (Legit)", "Normal Instant Fish", "Instant Fishing (Blatant Old)", "Enable Blatant V3"}
-                for _, title in ipairs(modes) do
-                    local el = farm:GetElementByTitle(title)
-                    if el and el.Value then el:Set(false) end
+            isBlatantActive = state
+            _G.RockHub_BlatantActive = state
+
+            -- A. Handle Controller Hooking
+            if FishingController and Old_Charge and Old_Cast then
+                if state then
+                    -- Matikan fungsi game asli (supaya ga bentrok)
+                    FishingController.RequestChargeFishingRod = function() end
+                    FishingController.SendFishingRequestToServer = function() return false, "RockHub Active" end
+                else
+                    -- Kembalikan fungsi game asli
+                    FishingController.RequestChargeFishingRod = Old_Charge
+                    FishingController.SendFishingRequestToServer = Old_Cast
                 end
             end
 
-            v2State = state
-            
             if state then
-                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) end
-
-                v2Thread = task.spawn(function()
-                    while v2State do
+                -- B. Update Server State
+                if RF_UpdateAutoFishingState then 
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) 
+                end
+                
+                -- C. Start Loop (Improved)
+                blatantThread = task.spawn(function()
+                    while isBlatantActive do
                         local Char = LocalPlayer.Character
                         local HRP = Char and Char:FindFirstChild("HumanoidRootPart")
                         local Tool = Char and Char:FindFirstChildOfClass("Tool")
-
-                        -- 1. Cek Joran (Wajib Pegang Joran)
+                        
+                        -- Cek Tool Dulu
                         if not Tool then
                             pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                            task.wait(0.8) -- Tunggu animasi equip selesai (PENTING)
-                        else
-                            -- 2. Tentukan Posisi Lempar (Depan Karakter)
-                            -- Menggunakan posisi dinamis agar server tidak menolak koordinat
-                            local castPos = HRP.Position + (HRP.CFrame.LookVector * 15) - Vector3.new(0, 5, 0)
+                            task.wait(0.8) -- Tunggu animasi equip (Penting!)
+                        elseif HRP then
                             local timestamp = os.time() + os.clock()
-
-                            -- 3. Action: Cast
+                            -- Posisi Lempar Dinamis (Depan Muka Karakter)
+                            -- Ini perbaikan dari versi lama yang pakai angka statis -139.6
+                            local castPos = HRP.Position + (HRP.CFrame.LookVector * 15) - Vector3.new(0, 5, 0)
+                            
+                            -- 1. Charge Rod
                             pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+                            
+                            -- 2. Cast (Mulai Minigame)
+                            -- Mengirim CastPos (Vector3) dan Accuracy (100)
                             pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(castPos, 100) end)
                             
-                            -- 4. Tunggu
-                            task.wait(v2Delay)
+                            -- 3. Tunggu Ikan
+                            task.wait(loopDelay)
                             
-                            -- 5. Action: Catch & Reset
+                            -- 4. Catch (Selesai)
                             pcall(function() RE_FishingCompleted:FireServer() end)
+                            
+                            -- 5. Reset Input
                             task.wait(0.1)
                             pcall(function() RF_CancelFishingInputs:InvokeServer() end)
                             
-                            -- Refresh Tool (Opsional: Hanya jika perlu reset animasi)
-                            -- task.wait(0.1)
-                            -- pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                            task.wait(0.2)
+                            -- Jeda kecil sebelum loop ulang
+                            task.wait(0.15)
                         end
                     end
                 end)
-                WindUI:Notify({ Title = "Blatant V2 ON", Duration = 3, Icon = "zap" })
+
+                -- D. Visual Spoofing (Bikin Tombol Merah)
+                task.spawn(function()
+                    local InactiveColor = ColorSequence.new(Color3.fromHex("ff5d60"), Color3.fromHex("ff2256"))
+                    while isBlatantActive do
+                        for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
+                            if btn:FindFirstChild("UIGradient") then btn.UIGradient.Color = InactiveColor end
+                        end
+                        task.wait(0.5)
+                    end
+                end)
+
+                WindUI:Notify({ Title = "Blatant ON", Content = "Controller Halted, Custom Loop Running.", Duration = 3, Icon = "zap" })
             else
-                if v2Thread then task.cancel(v2Thread) v2Thread = nil end
-                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) end
-                WindUI:Notify({ Title = "Blatant V2 OFF", Duration = 3 })
-            end
-        end
-    }))
-
-    -- [[ BLATANT MODE V3 (SMART SYNC - FIXED) ]] --
-    local blatantv3 = farm:Section({ Title = "Blatant V3 (Smart Sync)", TextSize = 20 })
-
-    local v3State = false
-    local v3Thread = nil
-    local v3BaseDelay = 1.8
-    local v3Jitter = true
-
-    local function GetPing()
-        local stats = game:GetService("Stats")
-        if stats and stats:FindFirstChild("Network") then
-            return stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
-        end
-        return 0.1
-    end
-
-    Reg("blatantv3delay", blatantv3:Slider({
-        Title = "Base Delay", Step = 0.1, Value = { Min = 1.0, Max = 4.0, Default = 1.8 },
-        Callback = function(v) v3BaseDelay = tonumber(v) end
-    }))
-
-    Reg("blatantv3jitter", blatantv3:Toggle({
-        Title = "Enable Humanized Jitter", Value = true,
-        Callback = function(v) v3Jitter = v end
-    }))
-
-    Reg("blatantv3run", blatantv3:Toggle({
-        Title = "Enable Blatant V3",
-        Desc = "Mode pintar ping-sync. (Fixed Logic)",
-        Value = false,
-        Callback = function(state)
-            if not checkFishingRemotes() then return end
-            
-            if state then
-                local modes = {"Auto Fish (Legit)", "Normal Instant Fish", "Instant Fishing (Blatant Old)", "Enable Blatant V2"}
-                for _, title in ipairs(modes) do
-                    local el = farm:GetElementByTitle(title)
-                    if el and el.Value then el:Set(false) end
+                -- Matikan Loop
+                if blatantThread then task.cancel(blatantThread) blatantThread = nil end
+                
+                -- Reset Server State
+                if RF_UpdateAutoFishingState then 
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) 
                 end
-            end
-
-            v3State = state
-            
-            if state then
-                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) end
-
-                v3Thread = task.spawn(function()
-                    while v3State do
-                        local Char = LocalPlayer.Character
-                        local HRP = Char and Char:FindFirstChild("HumanoidRootPart")
-                        local Tool = Char and Char:FindFirstChildOfClass("Tool")
-                        local currentPing = GetPing()
-
-                        -- 1. Safety Check: Rod Harus Ada
-                        if not Tool then
-                            pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                            task.wait(0.5 + currentPing) -- Beri waktu server memproses equip
-                        else
-                            -- 2. Cast Logic
-                            local castPos = HRP.Position + (HRP.CFrame.LookVector * 10)
-                            local timestamp = os.time() + os.clock()
-                            
-                            pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
-                            pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(castPos, 100) end)
-                            
-                            -- 3. Wait Logic (Smart Delay)
-                            local safeDelay = v3BaseDelay + (currentPing * 1.5)
-                            if v3Jitter then safeDelay = safeDelay + (math.random(10, 150) / 1000) end
-                            task.wait(safeDelay)
-                            
-                            -- 4. Catch Logic
-                            pcall(function() RE_FishingCompleted:FireServer() end)
-                            
-                            -- 5. Anim Cancel (Reset Rod)
-                            -- Kita cancel input dulu, baru re-equip jika perlu
-                            pcall(function() RF_CancelFishingInputs:InvokeServer() end)
-                            
-                            -- Teknik Re-equip Cepat (Hanya jika ping stabil < 200ms)
-                            if currentPing < 0.2 then
-                                pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                                task.wait(0.2) -- Jeda wajib agar rod siap dilempar lagi
-                            else
-                                task.wait(0.3) -- Jika lag, jangan spam equip, cukup tunggu
-                            end
-                        end
-                    end
-                end)
-                WindUI:Notify({ Title = "Blatant V3 ON", Content = "Syncing...", Duration = 3, Icon = "wifi" })
-            else
-                if v3Thread then task.cancel(v3Thread) v3Thread = nil end
-                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) end
-                WindUI:Notify({ Title = "Blatant V3 OFF", Duration = 2 })
+                
+                WindUI:Notify({ Title = "Blatant OFF", Duration = 2 })
             end
         end
     }))
