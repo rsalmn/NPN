@@ -628,7 +628,7 @@ do
                         task.wait(0.1) 
                     end
                 end)
-                
+                StopNotifListener()
                 WindUI:Notify({ Title = "Blatant Mode ON", Duration = 3, Icon = "zap" })
             else
                 -- 4. Server State: OFF
@@ -1258,7 +1258,7 @@ Reg("v4toggle", v4Section:Toggle({
     Title = "Enable Blatant V4",
     Value = false,
     Callback = function(state)
-
+        StopNotifListener()
         if not checkFishingRemotes() then
             WindUI:Notify({
                 Title = "V4 Failed",
@@ -1690,7 +1690,7 @@ do
                 WindUI:Notify({ Title = "X5 Started", Duration = 2 })
             else
                 stopAutoFishProcesses_X5()
-                RestoreGameNotifications()
+                StopNotifListener()
                 WindUI:Notify({ Title = "X5 Stopped", Duration = 2 })
             end
         end
