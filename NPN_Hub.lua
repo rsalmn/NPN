@@ -629,6 +629,216 @@ do
         end
     }))
 
+    --============================================================
+-- BLATANT V3 — ADVANCED TURBO ENGINE
+--============================================================
+local v3ProSection = farm:Section({
+    Title = "Blatant V3 (Advanced Engine)",
+    TextSize = 20
+})
+
+local v3proActive = false
+local v3proLoop = nil
+local v3proEquipLoop = nil
+local v3Watchdog = nil
+
+-- Default racing settings
+local v3proInterval = 1.15
+local v3proCompleteDelay = 2.05
+local v3proCancelDelay = 0.22
+
+local lastCatchTime = os.clock()
+
+---------------------------------------------------------
+-- UI CONFIG
+---------------------------------------------------------
+Reg("v3pro_int", v3ProSection:Input({
+    Title = "Loop Interval",
+    Value = tostring(v3proInterval),
+    Icon = "repeat",
+    Placeholder = "1.15",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.35 then
+            v3proInterval = n
+        end
+    end
+}))
+
+Reg("v3pro_com", v3ProSection:Input({
+    Title = "Complete Delay",
+    Value = tostring(v3proCompleteDelay),
+    Icon = "clock",
+    Placeholder = "2.05",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.4 then
+            v3proCompleteDelay = n
+        end
+    end
+}))
+
+Reg("v3pro_canc", v3ProSection:Input({
+    Title = "Cancel Delay",
+    Value = tostring(v3proCancelDelay),
+    Icon = "timer",
+    Placeholder = "0.22",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.08 then
+            v3proCancelDelay = n
+        end
+    end
+}))
+
+---------------------------------------------------------
+-- DISABLE OTHER MODES
+---------------------------------------------------------
+local function disableOtherModesV3Pro()
+    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+
+    if normal ~= nil then normal = false end
+    if blatantInstantState ~= nil then blatantInstantState = false end
+    if ghostActive ~= nil then ghostActive = false end
+    if v3Active ~= nil then v3Active = false end
+    if hyperActive ~= nil then hyperActive = false end
+    if SetBlatantState then SetBlatantState(false) end
+end
+
+---------------------------------------------------------
+-- ADVANCED ENGINE (Based on open-source + V2)
+---------------------------------------------------------
+local function RunV3Pro()
+    if not v3proActive then return end
+    if not checkFishingRemotes() then
+        v3proActive = false
+        return
+    end
+
+    task.spawn(function()
+        lastCatchTime = os.clock()
+
+        -- charge rod legit style
+        pcall(function()
+            RF_ChargeFishingRod:InvokeServer(os.clock())
+        end)
+
+        task.wait(0.01)
+
+        -- request start
+        pcall(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(-139.4, 0.98)
+        end)
+
+        -- wait like a “real minigame”
+        local waited = os.clock() - lastCatchTime
+        local remain = v3proCompleteDelay - waited
+        if remain > 0 then
+            task.wait(remain)
+        end
+
+        -- complete catch
+        pcall(function()
+            RE_FishingCompleted:FireServer()
+        end)
+
+        -- cancel safely
+        task.wait(v3proCancelDelay)
+
+        pcall(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
+    end)
+end
+
+---------------------------------------------------------
+-- WATCHDOG (ANTI STUCK)
+---------------------------------------------------------
+local function StartWatchdog()
+    if v3Watchdog then return end
+    v3Watchdog = task.spawn(function()
+        while v3proActive do
+            local now = os.clock()
+            if (now - lastCatchTime) > 10 then
+                -- refresh state hard reset
+                pcall(function()
+                    RF_CancelFishingInputs:InvokeServer()
+                end)
+                task.wait(0.25)
+                lastCatchTime = os.clock()
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+---------------------------------------------------------
+-- TOGGLE
+---------------------------------------------------------
+Reg("v3pro_toggle", v3ProSection:Toggle({
+    Title = "Enable Blatant V3 (Advanced)",
+    Value = false,
+    Callback = function(state)
+
+        if not checkFishingRemotes() then
+            WindUI:Notify({
+                Title = "Blatant V3 Failed",
+                Content = "Fishing Remotes Missing",
+                Duration = 3
+            })
+            return
+        end
+
+        v3proActive = state
+
+        if state then
+            disableOtherModesV3Pro()
+
+            -- main loop
+            v3proLoop = task.spawn(function()
+                while v3proActive do
+                    RunV3Pro()
+                    task.wait(v3proInterval)
+                end
+            end)
+
+            -- equip protector
+            v3proEquipLoop = task.spawn(function()
+                while v3proActive do
+                    pcall(function()
+                        RE_EquipToolFromHotbar:FireServer(1)
+                    end)
+                    task.wait(0.09)
+                end
+            end)
+
+            StartWatchdog()
+
+            WindUI:Notify({
+                Title = "Blatant V3 ON",
+                Content = "Advanced Turbo Engine Active",
+                Duration = 3,
+                Icon = "zap"
+            })
+
+        else
+            v3proActive = false
+
+            if v3proLoop then task.cancel(v3proLoop) v3proLoop=nil end
+            if v3proEquipLoop then task.cancel(v3proEquipLoop) v3proEquipLoop=nil end
+            if v3Watchdog then task.cancel(v3Watchdog) v3Watchdog=nil end
+
+            pcall(function()
+                RF_UpdateAutoFishingState:InvokeServer(false)
+            end)
+
+            WindUI:Notify({
+                Title = "Blatant V3 Stopped",
+                Duration = 2
+            })
+        end
+    end
+}))
 
     --============================================================
     -- BLATANT V3 (TURBO MODE)
@@ -916,7 +1126,7 @@ do
                     end)
                 end
                 
-                task.wait(1.1) -- delay tampil satu per satu
+                task.wait(1.25) -- delay tampil satu per satu
             end
 
             NotifProcessRunning = false
@@ -945,7 +1155,7 @@ do
             -------------------------------------------------
             -- Stop jika ini notifikasi buatan (loop protector)
             -------------------------------------------------
-            if itemData.CustomDuration == 3 then
+            if itemData.CustomDuration == 13 then
                 return
             end
 
@@ -971,7 +1181,7 @@ do
             -- Push to Queue
             -------------------------------------------------
             local newArgs = deepCopy(args)
-            newArgs[3].CustomDuration = 3 -- Durasi panjang
+            newArgs[3].CustomDuration = 13 -- Durasi panjang
 
             table.insert(NotifQueue, newArgs)
             ProcessNotifQueue()
@@ -1566,5 +1776,6 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
