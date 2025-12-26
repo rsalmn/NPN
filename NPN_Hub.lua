@@ -379,6 +379,21 @@ do
         end
     }))
 
+    --============================================================
+    -- NOTIFICATION RESTORE FUNCTION
+    --============================================================
+    function RestoreGameNotifications()
+        if NotifEvent and getconnections then
+            for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
+                pcall(function()
+                    if c.Enable then
+                        c:Enable()
+                    end
+                end)
+            end
+        end
+    end
+
     -- 2. NORMAL INSTANT MODE
     local normalDelay = 1.5
     Reg("tognorm", autofish:Toggle({
@@ -629,6 +644,676 @@ do
         end
     }))
 
+    --============================================================
+-- BLATANT V3 — ADVANCED TURBO ENGINE
+--============================================================
+local v3ProSection = farm:Section({
+    Title = "Blatant V3 (Advanced Engine)",
+    TextSize = 20
+})
+
+local v3proActive = false
+local v3proLoop = nil
+local v3proEquipLoop = nil
+local v3Watchdog = nil
+
+-- Default racing settings
+local v3proInterval = 1.15
+local v3proCompleteDelay = 2.05
+local v3proCancelDelay = 0.22
+
+local lastCatchTime = os.clock()
+
+---------------------------------------------------------
+-- UI CONFIG
+---------------------------------------------------------
+Reg("v3pro_int", v3ProSection:Input({
+    Title = "Loop Interval",
+    Value = tostring(v3proInterval),
+    Icon = "repeat",
+    Placeholder = "1.15",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.35 then
+            v3proInterval = n
+        end
+    end
+}))
+
+Reg("v3pro_com", v3ProSection:Input({
+    Title = "Complete Delay",
+    Value = tostring(v3proCompleteDelay),
+    Icon = "clock",
+    Placeholder = "2.05",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.4 then
+            v3proCompleteDelay = n
+        end
+    end
+}))
+
+Reg("v3pro_canc", v3ProSection:Input({
+    Title = "Cancel Delay",
+    Value = tostring(v3proCancelDelay),
+    Icon = "timer",
+    Placeholder = "0.22",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.08 then
+            v3proCancelDelay = n
+        end
+    end
+}))
+
+---------------------------------------------------------
+-- DISABLE OTHER MODES
+---------------------------------------------------------
+local function disableOtherModesV3Pro()
+    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+
+    if normal ~= nil then normal = false end
+    if blatantInstantState ~= nil then blatantInstantState = false end
+    if ghostActive ~= nil then ghostActive = false end
+    if v3Active ~= nil then v3Active = false end
+    if hyperActive ~= nil then hyperActive = false end
+    if SetBlatantState then SetBlatantState(false) end
+end
+
+---------------------------------------------------------
+-- ADVANCED ENGINE (Based on open-source + V2)
+---------------------------------------------------------
+local function RunV3Pro()
+    if not v3proActive then return end
+    if not checkFishingRemotes() then
+        v3proActive = false
+        return
+    end
+    
+    task.spawn(function()
+        lastCatchTime = os.clock()
+
+        ---------------------------------------------
+        -- 1️⃣ HARD RESET STATE (DIAMBIL DARI TEMANMU)
+        ---------------------------------------------
+        safeFire(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
+
+        task.wait(0.05)
+
+        ---------------------------------------------
+        -- 2️⃣ TIMESTAMP SINKRON (COMBO V2 + FRIEND)
+        ---------------------------------------------
+        local serverTime = workspace:GetServerTimeNow()
+        local tickNow = tick()
+        local timestamp = os.time() + os.clock()
+
+        ---------------------------------------------
+        -- 3️⃣ CHARGE (VERSI PALING STABLE)
+        ---------------------------------------------
+        safeFire(function()
+            RF_ChargeFishingRod:InvokeServer({
+                [2] = tickNow
+            })
+        end)
+
+        task.wait(0.01)
+
+        ---------------------------------------------
+        -- 4️⃣ START MINIGAME (ENGINE V2 → TERBUKTI WORK)
+        ---------------------------------------------
+        safeFire(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(
+                -139.6379699707,
+                0.99647927980797,
+                tickNow
+            )
+        end)
+
+        ---------------------------------------------
+        -- 5️⃣ DELAY (MASIH RESPECT KE V3 CONFIG KAMU)
+        ---------------------------------------------
+        local waited = os.clock() - lastCatchTime
+        local remain = v3proCompleteDelay - waited
+        if remain > 0 then
+            task.wait(remain)
+        end
+
+        ---------------------------------------------
+        -- 6️⃣ COMPLETE (SUPER FAST)
+        ---------------------------------------------
+        safeFire(function()
+            RE_FishingCompleted:FireServer()
+        end)
+
+        task.wait(v3proCancelDelay)
+
+        ---------------------------------------------
+        -- 7️⃣ CLEAN EXIT
+        ---------------------------------------------
+        safeFire(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
+
+        ---------------------------------------------
+        -- 8️⃣ AUTO RECAST CEPAT (SIGNATURE V3 MU)
+        ---------------------------------------------
+        task.wait(0.05)
+
+        safeFire(function()
+            RF_ChargeFishingRod:InvokeServer({[2] = tickNow})
+        end)
+
+        task.wait(0.01)
+
+        safeFire(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(
+                -139.6379699707,
+                0.99647927980797,
+                tickNow
+            )
+        end)
+
+    end)
+end
+
+
+---------------------------------------------------------
+-- WATCHDOG (ANTI STUCK)
+---------------------------------------------------------
+local function StartWatchdog()
+    if v3Watchdog then return end
+    v3Watchdog = task.spawn(function()
+        while v3proActive do
+            local now = os.clock()
+            if (now - lastCatchTime) > 10 then
+                -- refresh state hard reset
+                pcall(function()
+                    RF_CancelFishingInputs:InvokeServer()
+                end)
+                task.wait(0.25)
+                lastCatchTime = os.clock()
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+---------------------------------------------------------
+-- TOGGLE
+---------------------------------------------------------
+Reg("v3pro_toggle", v3ProSection:Toggle({
+    Title = "Enable Blatant V3 (Advanced)",
+    Value = false,
+    Callback = function(state)
+
+        if not checkFishingRemotes() then
+            WindUI:Notify({
+                Title = "Blatant V3 Failed",
+                Content = "Fishing Remotes Missing",
+                Duration = 3
+            })
+            return
+        end
+
+        v3proActive = state
+
+        if state then
+            disableOtherModesV3Pro()
+
+            -- main loop
+            v3proLoop = task.spawn(function()
+                while v3proActive do
+                    RunV3Pro()
+                    task.wait(v3proInterval)
+                end
+            end)
+
+            -- equip protector
+            v3proEquipLoop = task.spawn(function()
+                while v3proActive do
+                    pcall(function()
+                        RE_EquipToolFromHotbar:FireServer(1)
+                    end)
+                    task.wait(0.09)
+                end
+            end)
+
+            StartWatchdog()
+
+            WindUI:Notify({
+                Title = "Blatant V3 ON",
+                Content = "Advanced Turbo Engine Active",
+                Duration = 3,
+                Icon = "zap"
+            })
+
+        else
+            v3proActive = false
+RestoreGameNotifications()
+            if v3proLoop then task.cancel(v3proLoop) v3proLoop=nil end
+            if v3proEquipLoop then task.cancel(v3proEquipLoop) v3proEquipLoop=nil end
+            if v3Watchdog then task.cancel(v3Watchdog) v3Watchdog=nil end
+
+            pcall(function()
+                RF_UpdateAutoFishingState:InvokeServer(false)
+            end)
+
+            WindUI:Notify({
+                Title = "Blatant V3 Stopped",
+                Duration = 2
+            })
+        end
+    end
+}))
+
+    --============================================================
+    -- BLATANT V3 (TURBO MODE)
+    --============================================================
+    local v3Section = farm:Section({
+        Title = "Blatant V3 (Turbo)",
+        TextSize = 20
+    })
+
+    local v3Active = false
+    local v3Loop = nil
+    local v3EquipLoop = nil
+
+    -- DEFAULT SUPER FAST SETTING (kamu bisa edit nanti)
+    local v3Interval = 1.25
+    local v3CompleteDelay = 2.25
+    local v3CancelDelay = 0.25
+
+    ---------------------------------------------------------
+    -- UI CONFIG INPUT
+    ---------------------------------------------------------
+    Reg("v3int", v3Section:Input({
+        Title = "Loop Interval",
+        Value = tostring(v3Interval),
+        Icon = "repeat",
+        Placeholder = "1.25",
+        Callback = function(i)
+            local v = tonumber(i)
+            if v and v >= 0.4 then
+                v3Interval = v
+            end
+        end
+    }))
+
+    Reg("v3com", v3Section:Input({
+        Title = "Complete Delay",
+        Value = tostring(v3CompleteDelay),
+        Icon = "clock",
+        Placeholder = "2.25",
+        Callback = function(i)
+            local v = tonumber(i)
+            if v and v >= 0.5 then
+                v3CompleteDelay = v
+            end
+        end
+    }))
+
+    Reg("v3canc", v3Section:Input({
+        Title = "Cancel Delay",
+        Value = tostring(v3CancelDelay),
+        Icon = "timer",
+        Placeholder = "0.25",
+        Callback = function(i)
+            local v = tonumber(i)
+            if v and v >= 0.1 then
+                v3CancelDelay = v
+            end
+        end
+    }))
+
+    ---------------------------------------------------------
+    -- DISABLE OTHER MODES
+    ---------------------------------------------------------
+    local function disableOtherModesV3()
+        -- Legit OFF
+        pcall(function()
+            RF_UpdateAutoFishingState:InvokeServer(false)
+        end)
+
+        -- Normal Instant OFF
+        if normal ~= nil then
+            normal = false
+        end
+
+        -- Blatant Old OFF
+        if blatantInstantState ~= nil then
+            blatantInstantState = false
+        end
+
+        -- Ghost OFF
+        if ghostActive ~= nil then
+            ghostActive = false
+        end
+
+        -- Improved Blatant OFF
+        if SetBlatantState then
+            SetBlatantState(false)
+        end
+    end
+
+    ---------------------------------------------------------
+    -- CORE ENGINE
+    ---------------------------------------------------------
+    local function RunV3()
+        if not v3Active then return end
+        if not checkFishingRemotes() then
+            v3Active = false
+            return
+        end
+
+        task.spawn(function()
+            local start = os.clock()
+
+            -- Charge rod
+            pcall(function()
+                RF_ChargeFishingRod:InvokeServer(os.time())
+            end)
+
+            task.wait(0.01)
+
+            -- Force Start Minigame
+            pcall(function()
+                RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.98)
+            end)
+
+            local waited = os.clock() - start
+            local remain = v3CompleteDelay - waited
+            if remain > 0 then
+                task.wait(remain)
+            end
+
+            -- Complete catch
+            pcall(function()
+                RE_FishingCompleted:FireServer()
+            end)
+
+            -- Fast cancel
+            task.wait(v3CancelDelay)
+
+            pcall(function()
+                RF_CancelFishingInputs:InvokeServer()
+            end)
+        end)
+    end
+
+    ---------------------------------------------------------
+    -- TOGGLE
+    ---------------------------------------------------------
+    Reg("v3toggle", v3Section:Toggle({
+        Title = "Enable Blatant V3 (Turbo)",
+        Value = false,
+        Callback = function(state)
+
+            if not checkFishingRemotes() then
+                WindUI:Notify({
+                    Title = "Blatant V3 Failed",
+                    Content = "Fishing Remotes Missing",
+                    Duration = 3
+                })
+                return
+            end
+
+            v3Active = state
+
+            if state then
+                disableOtherModesV3()
+
+                -- Main Loop
+                v3Loop = task.spawn(function()
+                    while v3Active do
+                        RunV3()
+                        task.wait(v3Interval)
+                    end
+                end)
+
+                -- Auto Equip
+                v3EquipLoop = task.spawn(function()
+                    while v3Active do
+                        pcall(function()
+                            RE_EquipToolFromHotbar:FireServer(1)
+                        end)
+                        task.wait(0.12)
+                    end
+                end)
+
+                WindUI:Notify({
+                    Title = "Blatant V3 ON",
+                    Content = "Turbo Fishing Activated",
+                    Duration = 3,
+                    Icon = "zap"
+                })
+
+            else
+                v3Active = false
+RestoreGameNotifications()
+                if v3Loop then
+                    task.cancel(v3Loop)
+                    v3Loop = nil
+                end
+
+                if v3EquipLoop then
+                    task.cancel(v3EquipLoop)
+                    v3EquipLoop = nil
+                end
+
+                pcall(function()
+                    RF_UpdateAutoFishingState:InvokeServer(false)
+                end)
+
+                WindUI:Notify({
+                    Title = "Blatant V3 Stopped",
+                    Duration = 2
+                })
+            end
+        end
+    }))
+
+
+--============================================================
+-- BLATANT V4 — PERFECT ENGINE BASED ON V2 (GUARANTEED WORK)
+--============================================================
+local v4Section = farm:Section({
+    Title = "Blatant V4 (Stable Advanced)",
+    TextSize = 20
+})
+
+local v4Active = false
+local v4Loop = nil
+local v4EquipLoop = nil
+
+-- DEFAULT SETTINGS
+local V4_DELAY = 1.25
+local V4_CATCH_DELAY = 2.2
+local V4_COMPLETE_DELAY = 0.22
+
+
+---------------------------------------------------------
+-- UI
+---------------------------------------------------------
+Reg("v4delay", v4Section:Input({
+    Title = "Blatant V4 Delay",
+    Value = tostring(V4_DELAY),
+    Placeholder = "1.25",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.3 then
+            V4_DELAY = n
+        end
+    end
+}))
+
+Reg("v4catch", v4Section:Input({
+    Title = "Catch Delay",
+    Value = tostring(V4_CATCH_DELAY),
+    Placeholder = "2.2",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.5 then
+            V4_CATCH_DELAY = n
+        end
+    end
+}))
+
+Reg("v4comp", v4Section:Input({
+    Title = "Completely Delay",
+    Value = tostring(V4_COMPLETE_DELAY),
+    Placeholder = "0.22",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0.05 then
+            V4_COMPLETE_DELAY = n
+        end
+    end
+}))
+
+
+---------------------------------------------------------
+-- AUTO EQUIP
+---------------------------------------------------------
+local function StartV4Equip()
+    v4EquipLoop = task.spawn(function()
+        while v4Active do
+            pcall(function()
+                RE_EquipToolFromHotbar:FireServer(1)
+            end)
+            task.wait(0.08)
+        end
+    end)
+end
+
+
+---------------------------------------------------------
+-- THROW ENGINE (COPY STYLE V2 — 100% VALID)
+---------------------------------------------------------
+local function V4Throw()
+    task.spawn(function()
+        local timestamp = os.time() + os.clock()
+
+        -- charge
+        pcall(function()
+            RF_ChargeFishingRod:InvokeServer(timestamp)
+        end)
+
+        task.wait(0.01)
+
+        -- start mini-game (PERSIS DARI KODE KAMU SENDIRI)
+        pcall(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797)
+        end)
+    end)
+end
+
+
+---------------------------------------------------------
+-- FULL FISHING CYCLE (ENGINE V2)
+---------------------------------------------------------
+local function V4Cycle()
+    task.spawn(function()
+
+        -- tunggu seolah sedang mempermainkan minigame agar server percaya
+        task.wait(V4_CATCH_DELAY)
+
+        -- fishing complete
+        pcall(function()
+            RE_FishingCompleted:FireServer()
+        end)
+
+        task.wait(V4_COMPLETE_DELAY)
+
+        -- cancel inputs
+        pcall(function()
+            RF_CancelFishingInputs:InvokeServer()
+        end)
+
+        -- langsung lempar ulang cepat
+        task.wait(0.05)
+        V4Throw()
+    end)
+end
+
+
+---------------------------------------------------------
+-- MAIN LOOP
+---------------------------------------------------------
+local function StartV4Loop()
+    v4Loop = task.spawn(function()
+        while v4Active do
+            V4Cycle()
+            task.wait(V4_DELAY)
+        end
+    end)
+end
+
+
+---------------------------------------------------------
+-- TOGGLE
+---------------------------------------------------------
+Reg("v4toggle", v4Section:Toggle({
+    Title = "Enable Blatant V4",
+    Value = false,
+    Callback = function(state)
+
+        if not checkFishingRemotes() then
+            WindUI:Notify({
+                Title = "V4 Failed",
+                Content = "Fishing Remotes Missing",
+                Duration = 3
+            })
+            return
+        end
+
+        v4Active = state
+
+        if state then
+            
+            ------------- MATIKAN MODE LAIN -------------
+            if normal ~= nil then normal=false end
+            if blatantInstantState ~= nil then blatantInstantState=false end
+            if v3Active ~= nil then v3Active=false end
+            if v3proActive ~= nil then v3proActive=false end
+            if hyperActive ~= nil then hyperActive=false end
+            if SetBlatantState then SetBlatantState(false) end
+
+
+            ------------- START ENGINE -------------
+            StartV4Equip()
+            StartV4Loop()
+
+            ---------- DOUBLE CAST REAL ----------
+            V4Throw()
+            task.wait(0.1)
+            V4Throw()
+
+            WindUI:Notify({
+                Title="Blatant V4 ON",
+                Content="Stable Advanced Engine Running",
+                Duration=4,
+                Icon="zap"
+            })
+
+        else
+            v4Active = false
+
+            if v4Loop then task.cancel(v4Loop) v4Loop=nil end
+            if v4EquipLoop then task.cancel(v4EquipLoop) v4EquipLoop=nil end
+
+            pcall(function()
+                RF_UpdateAutoFishingState:InvokeServer(false)
+            end)
+
+            WindUI:Notify({
+                Title="V4 Stopped",
+                Duration=2
+            })
+        end
+    end
+}))
 
 do
     local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
@@ -650,40 +1335,22 @@ do
     local autoFishThread_X5 = nil
     local fishCaughtBindable_X5 = Instance.new("BindableEvent")
 
-    -- [[ NOTIFICATION SYSTEM (REAL STACK) ]] --
+    --============================================================
+    -- [[ NOTIFICATION SYSTEM (REAL STACK FIX) ]]
+    --============================================================
+
     local NotifQueue = {}
     local NotifListener = nil
     local NotifProcessRunning = false
-    local NotifEvent = nil
+    local NotifEvent = NotifEvent or nil -- pastikan variabel tetap konsisten
+    local LastNotifTime = {}
 
-    -- Fungsi untuk memproses antrian notifikasi
-    local function ProcessNotifQueue()
-        if NotifProcessRunning then return end
-        NotifProcessRunning = true
-        
-        task.spawn(function()
-            while #NotifQueue > 0 do
-                -- Ambil data ikan paling lama (FIFO)
-                local data = table.remove(NotifQueue, 1)
-                
-                -- Kirim ulang notifikasi dengan durasi lama
-                if firesignal and NotifEvent then
-                    pcall(function()
-                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
-                    end)
-                end
-                
-                -- Jeda agar notifikasi muncul satu per satu (Menumpuk)
-                task.wait(1.2) -- Delay Fixed
-            end
-            NotifProcessRunning = false
-        end)
-    end
-
-    -- Fungsi untuk Clone Table (Agar tidak merubah data asli secara referensi)
+    ---------------------------------------------------------
+    -- Deep Copy (Avoid reference mutation)
+    ---------------------------------------------------------
     local function deepCopy(original)
         local copy = {}
-        for k, v in pairs(original) do
+        for k,v in pairs(original) do
             if type(v) == "table" then
                 v = deepCopy(v)
             end
@@ -691,43 +1358,120 @@ do
         end
         return copy
     end
-    
-    -- Listener Notifikasi Asli
-    local function StartNotifListener()
-        if NotifListener then NotifListener:Disconnect() end
-        
-        if NotifEvent then
-            NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
-                local args = {...}
-                local itemData = args[3] -- Argumen ke-3 biasanya data item di Fisch
-                
-                -- Cek apakah ini notifikasi buatan kita (Flagging)
-                if itemData and itemData.CustomDuration == 15 then 
-                    return -- Jangan proses notifikasi buatan sendiri (Infinite Loop Protection)
-                end
-                
-                -- Modifikasi Data (Hanya Durasi)
-                if itemData then
-                    -- Copy argumen agar aman
-                    local newArgs = deepCopy(args)
-                    
-                    -- Ubah durasi menjadi 15 detik (Lama)
-                    newArgs[3].CustomDuration = 15 
-                    
-                    -- Masukkan ke antrian
-                    table.insert(NotifQueue, newArgs)
-                    
-                    -- Jalankan prosesor antrian
-                    ProcessNotifQueue()
-                end
-            end)
+
+    ---------------------------------------------------------
+    -- Disable Default Game Notification Listeners
+    ---------------------------------------------------------
+    local function DisableGameNotifListeners()
+        if NotifEvent and getconnections then
+            for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
+                pcall(function()
+                    if c.Disable then
+                        c:Disable()
+                    end
+                end)
+            end
         end
     end
 
-    local function StopNotifListener()
-        if NotifListener then NotifListener:Disconnect() NotifListener = nil end
-        NotifQueue = {} -- Bersihkan antrian
+    ---------------------------------------------------------
+    -- Notification Queue Processor
+    ---------------------------------------------------------
+    local function ProcessNotifQueue()
+        if NotifProcessRunning then return end
+        NotifProcessRunning = true
+
+        task.spawn(function()
+            while #NotifQueue > 0 do
+                local data = table.remove(NotifQueue, 1)
+
+                if firesignal and NotifEvent then
+                    pcall(function()
+                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
+                    end)
+                end
+                
+                task.wait(1.2) -- delay tampil satu per satu
+            end
+
+            NotifProcessRunning = false
+        end)
     end
+
+    ---------------------------------------------------------
+    -- Start Notification Listener
+    ---------------------------------------------------------
+    local function StartNotifListener()
+        if NotifListener then
+            NotifListener:Disconnect()
+            NotifListener = nil
+        end
+
+        if not NotifEvent then return end
+
+        DisableGameNotifListeners()
+
+        NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
+            local args = {...}
+            local itemData = args[3]
+
+            if not itemData then return end
+
+            -------------------------------------------------
+            -- Stop jika ini notifikasi buatan (loop protector)
+            -------------------------------------------------
+            if itemData.CustomDuration == 8 then
+                return
+            end
+
+            -------------------------------------------------
+            -- Anti Duplicate Same Fish Spam
+            -------------------------------------------------
+            local itemId =
+                itemData.Id
+                or itemData.Identifier
+                or itemData.Name
+                or "UnknownFish"
+
+            local now = os.clock()
+
+            if LastNotifTime[itemId]
+            and (now - LastNotifTime[itemId]) < 0.5 then
+                return
+            end
+
+            LastNotifTime[itemId] = now
+
+            -------------------------------------------------
+            -- Push to Queue
+            -------------------------------------------------
+            local newArgs = deepCopy(args)
+            newArgs[3].CustomDuration = 8 -- Durasi panjang
+
+            table.insert(NotifQueue, newArgs)
+            ProcessNotifQueue()
+        end)
+    end
+
+    ---------------------------------------------------------
+    -- Stop Listener
+    ---------------------------------------------------------
+    local function StopNotifListener()
+        if NotifListener then
+            NotifListener:Disconnect()
+            NotifListener = nil
+        end
+
+        NotifQueue = {}
+    end
+
+    ---------------------------------------------------------
+    -- AUTO START SYSTEM
+    ---------------------------------------------------------
+    task.delay(1,function()
+        StartNotifListener()
+    end)
+
 
     -- 1. Custom Require X5
     local function customRequire_X5(module)
@@ -946,6 +1690,7 @@ do
                 WindUI:Notify({ Title = "X5 Started", Duration = 2 })
             else
                 stopAutoFishProcesses_X5()
+                StopNotifListener()
                 WindUI:Notify({ Title = "X5 Stopped", Duration = 2 })
             end
         end
@@ -967,7 +1712,6 @@ do
         end
     })
 end
-
 
     -- FISHING AREA SECTION
     farm:Divider()
@@ -1297,5 +2041,3 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
-
-
