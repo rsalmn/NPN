@@ -650,40 +650,22 @@ do
     local autoFishThread_X5 = nil
     local fishCaughtBindable_X5 = Instance.new("BindableEvent")
 
-    -- [[ NOTIFICATION SYSTEM (REAL STACK) ]] --
+    --============================================================
+    -- [[ NOTIFICATION SYSTEM (REAL STACK FIX) ]]
+    --============================================================
+
     local NotifQueue = {}
     local NotifListener = nil
     local NotifProcessRunning = false
-    local NotifEvent = nil
+    local NotifEvent = NotifEvent or nil -- pastikan variabel tetap konsisten
+    local LastNotifTime = {}
 
-    -- Fungsi untuk memproses antrian notifikasi
-    local function ProcessNotifQueue()
-        if NotifProcessRunning then return end
-        NotifProcessRunning = true
-        
-        task.spawn(function()
-            while #NotifQueue > 0 do
-                -- Ambil data ikan paling lama (FIFO)
-                local data = table.remove(NotifQueue, 1)
-                
-                -- Kirim ulang notifikasi dengan durasi lama
-                if firesignal and NotifEvent then
-                    pcall(function()
-                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
-                    end)
-                end
-                
-                -- Jeda agar notifikasi muncul satu per satu (Menumpuk)
-                task.wait(1.2) -- Delay Fixed
-            end
-            NotifProcessRunning = false
-        end)
-    end
-
-    -- Fungsi untuk Clone Table (Agar tidak merubah data asli secara referensi)
+    ---------------------------------------------------------
+    -- Deep Copy (Avoid reference mutation)
+    ---------------------------------------------------------
     local function deepCopy(original)
         local copy = {}
-        for k, v in pairs(original) do
+        for k,v in pairs(original) do
             if type(v) == "table" then
                 v = deepCopy(v)
             end
@@ -692,42 +674,119 @@ do
         return copy
     end
 
-    -- Listener Notifikasi Asli
-    local function StartNotifListener()
-        if NotifListener then NotifListener:Disconnect() end
-        
-        if NotifEvent then
-            NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
-                local args = {...}
-                local itemData = args[3] -- Argumen ke-3 biasanya data item di Fisch
-                
-                -- Cek apakah ini notifikasi buatan kita (Flagging)
-                if itemData and itemData.CustomDuration == 15 then 
-                    return -- Jangan proses notifikasi buatan sendiri (Infinite Loop Protection)
-                end
-                
-                -- Modifikasi Data (Hanya Durasi)
-                if itemData then
-                    -- Copy argumen agar aman
-                    local newArgs = deepCopy(args)
-                    
-                    -- Ubah durasi menjadi 15 detik (Lama)
-                    newArgs[3].CustomDuration = 15 
-                    
-                    -- Masukkan ke antrian
-                    table.insert(NotifQueue, newArgs)
-                    
-                    -- Jalankan prosesor antrian
-                    ProcessNotifQueue()
-                end
-            end)
+    ---------------------------------------------------------
+    -- Disable Default Game Notification Listeners
+    ---------------------------------------------------------
+    local function DisableGameNotifListeners()
+        if NotifEvent and getconnections then
+            for _, c in ipairs(getconnections(NotifEvent.OnClientEvent)) do
+                pcall(function()
+                    if c.Disable then
+                        c:Disable()
+                    end
+                end)
+            end
         end
     end
 
-    local function StopNotifListener()
-        if NotifListener then NotifListener:Disconnect() NotifListener = nil end
-        NotifQueue = {} -- Bersihkan antrian
+    ---------------------------------------------------------
+    -- Notification Queue Processor
+    ---------------------------------------------------------
+    local function ProcessNotifQueue()
+        if NotifProcessRunning then return end
+        NotifProcessRunning = true
+
+        task.spawn(function()
+            while #NotifQueue > 0 do
+                local data = table.remove(NotifQueue, 1)
+
+                if firesignal and NotifEvent then
+                    pcall(function()
+                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
+                    end)
+                end
+                
+                task.wait(1.2) -- delay tampil satu per satu
+            end
+
+            NotifProcessRunning = false
+        end)
     end
+
+    ---------------------------------------------------------
+    -- Start Notification Listener
+    ---------------------------------------------------------
+    local function StartNotifListener()
+        if NotifListener then
+            NotifListener:Disconnect()
+            NotifListener = nil
+        end
+
+        if not NotifEvent then return end
+
+        DisableGameNotifListeners()
+
+        NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
+            local args = {...}
+            local itemData = args[3]
+
+            if not itemData then return end
+
+            -------------------------------------------------
+            -- Stop jika ini notifikasi buatan (loop protector)
+            -------------------------------------------------
+            if itemData.CustomDuration == 15 then
+                return
+            end
+
+            -------------------------------------------------
+            -- Anti Duplicate Same Fish Spam
+            -------------------------------------------------
+            local itemId =
+                itemData.Id
+                or itemData.Identifier
+                or itemData.Name
+                or "UnknownFish"
+
+            local now = os.clock()
+
+            if LastNotifTime[itemId]
+            and (now - LastNotifTime[itemId]) < 0.5 then
+                return
+            end
+
+            LastNotifTime[itemId] = now
+
+            -------------------------------------------------
+            -- Push to Queue
+            -------------------------------------------------
+            local newArgs = deepCopy(args)
+            newArgs[3].CustomDuration = 15 -- Durasi panjang
+
+            table.insert(NotifQueue, newArgs)
+            ProcessNotifQueue()
+        end)
+    end
+
+    ---------------------------------------------------------
+    -- Stop Listener
+    ---------------------------------------------------------
+    local function StopNotifListener()
+        if NotifListener then
+            NotifListener:Disconnect()
+            NotifListener = nil
+        end
+
+        NotifQueue = {}
+    end
+
+    ---------------------------------------------------------
+    -- AUTO START SYSTEM
+    ---------------------------------------------------------
+    task.delay(1,function()
+        StartNotifListener()
+    end)
+
 
     -- 1. Custom Require X5
     local function customRequire_X5(module)
@@ -935,7 +994,7 @@ do
     }))
 
     Reg("x5toggle", BlatantV2:Toggle({
-        Title = "Enable X5 Speed", Desc = "Old Blatant + Stacked Notif", Value = false,
+        Title = "Enable Blatant V2", Desc = "Blatant V2 New", Value = false,
         Callback = function(v)
             if v then
                 stopAutoFishProcesses_X5()
@@ -967,195 +1026,6 @@ do
         end
     })
 end
-
---============================================================
--- BLATANT GHOST MODE V3
---============================================================
-local ghostTab = Window:Tab({Title="Blatant (Ghost V3)", Icon="ghost"})
-
-local ghostSection = ghostTab:Section({
-    Title = "Ghost Mode V3 (Stealth Instant)",
-    TextSize = 20
-})
-
--- CONFIG
-local ghostActive = false
-local ghostLoop = nil
-
-local ghostInterval = 1.65
-local ghostCompleteDelay = 2.85
-local ghostCancelDelay = 0.35
-
----------------------------------------------------------
--- UI CONFIG
----------------------------------------------------------
-Reg("ghostint", ghostSection:Input({
-    Title = "Loop Interval",
-    Value = tostring(ghostInterval),
-    Icon = "repeat",
-    Type = "Input",
-    Placeholder = "1.6",
-    Callback = function(input)
-        local v = tonumber(input)
-        if v and v >= 0.6 then
-            ghostInterval = v
-        end
-    end
-}))
-
-Reg("ghostcom", ghostSection:Input({
-    Title = "Complete Delay",
-    Value = tostring(ghostCompleteDelay),
-    Icon = "clock",
-    Placeholder = "2.8",
-    Callback = function(input)
-        local v = tonumber(input)
-        if v and v >= 0.5 then
-            ghostCompleteDelay = v
-        end
-    end
-}))
-
-Reg("ghostcanc", ghostSection:Input({
-    Title = "Cancel Delay",
-    Value = tostring(ghostCancelDelay),
-    Icon = "timer",
-    Placeholder = "0.3",
-    Callback = function(input)
-        local v = tonumber(input)
-        if v and v >= 0.1 then
-            ghostCancelDelay = v
-        end
-    end
-}))
-
----------------------------------------------------------
--- SOFT SPOOF VISUAL
----------------------------------------------------------
-local function GhostVisualSpoof(state)
-    local Succ, TextController = pcall(function()
-        return require(game.ReplicatedStorage.Controllers.TextNotificationController)
-    end)
-
-    if Succ and TextController then
-        if state then
-            if not TextController._OldDeliver then
-                TextController._OldDeliver = TextController.DeliverNotification
-            end
-            TextController.DeliverNotification = function(self, data)
-                if data and data.Text and (string.find(tostring(data.Text),"Auto Fishing")) then
-                    return
-                end
-                return TextController._OldDeliver(self, data)
-            end
-        elseif TextController._OldDeliver then
-            TextController.DeliverNotification = TextController._OldDeliver
-            TextController._OldDeliver = nil
-        end
-    end
-end
-
----------------------------------------------------------
--- GHOST ENGINE
----------------------------------------------------------
-local function GhostRunInstant()
-    if not ghostActive then return end
-    if not checkFishingRemotes() then ghostActive=false return end
-
-    task.spawn(function()
-        local start = os.clock()
-
-        -- Fake legit behaviour
-        pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
-        task.wait(0.1)
-
-        -- Fake "starting minigame"
-        pcall(function()
-            RF_RequestFishingMinigameStarted:InvokeServer(-139.63, 0.99)
-        end)
-
-        -- Make it look like we stayed inside minigame
-        local waited = os.clock() - start
-        local remain = ghostCompleteDelay - waited
-        if remain > 0 then task.wait(remain) end
-
-        -- Win silently
-        pcall(function() RE_FishingCompleted:FireServer() end)
-
-        -- Soft cancel
-        task.wait(ghostCancelDelay)
-        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
-
-        -- Keep server happy
-        pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
-    end)
-end
-
----------------------------------------------------------
--- PROTECTION: Disable Other Modes
----------------------------------------------------------
-local function disableAllOtherModes()
-    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
-
-    if normal ~= nil then normal = false end
-    if blatantInstantState ~= nil then blatantInstantState = false end
-    if SetBlatantState then SetBlatantState(false) end
-end
-
----------------------------------------------------------
--- TOGGLE
----------------------------------------------------------
-Reg("ghosttoggle", ghostSection:Toggle({
-    Title = "Activate Ghost Mode V3",
-    Value = false,
-    Callback = function(state)
-
-        if not checkFishingRemotes() then
-            WindUI:Notify({
-                Title="Ghost Failed",
-                Content="Fishing Remotes Missing",
-                Duration=3
-            })
-            return
-        end
-
-        ghostActive = state
-        GhostVisualSpoof(state)
-
-        if state then
-            disableAllOtherModes()
-
-            ghostLoop = task.spawn(function()
-                while ghostActive do
-                    GhostRunInstant()
-                    task.wait(ghostInterval)
-                end
-            end)
-
-            WindUI:Notify({
-                Title="Ghost Mode V3 ON",
-                Content="Stealth Fishing Activated",
-                Duration=3,
-                Icon="ghost"
-            })
-
-        else
-            ghostActive = false
-            
-            if ghostLoop then
-                task.cancel(ghostLoop)
-                ghostLoop=nil
-            end
-
-            pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
-
-            WindUI:Notify({
-                Title="Ghost Mode OFF",
-                Duration=2
-            })
-        end
-    end
-}))
 
 
     -- FISHING AREA SECTION
