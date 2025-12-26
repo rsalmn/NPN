@@ -1143,14 +1143,13 @@ end
 -- FISHING SUPPORT
 
 do
-
-    fishSupport:Divider()
-    local fishingSupport = fishSupport:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
+    farm:Divider()
+    local fishingSupport = farm:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
 
     local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
     local RunService = game:GetService("RunService")
 
-    local notif = Reg("togglenot",fishSupport:Toggle({
+    local notif = Reg("togglenot",farm:Toggle({
         Title = "Remove Fish Notification Pop-up",
         Value = false,
         Icon = "slash",
@@ -1191,7 +1190,7 @@ do
 
     -- 2. ENABLE FISHING RADAR
     local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
-    fishSupport:Toggle({
+    farm:Toggle({
         Title = "Enable Fishing Radar",
         Value = false,
         Icon = "radar",
