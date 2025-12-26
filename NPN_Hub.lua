@@ -1699,6 +1699,98 @@ do
     })
 end
 
+    local Services = {
+    Players = game:GetService("Players"),
+    RunService = game:GetService("RunService"),
+    HttpService = game:GetService("HttpService"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    UserInputService = game:GetService("UserInputService"),
+}
+
+
+local Kontol = {
+    Net = Services.ReplicatedStorage.Packages._Index["sleitnick_net@0.2.0"].net,
+    Replion = require(Services.ReplicatedStorage.Packages.Replion),
+}
+-- Network Functions
+local NetworkFunctions = {
+    ChargeRod = Kontol.Net["RF/ChargeFishingRod"],
+    StartMini = Kontol.Net["RF/RequestFishingMinigameStarted"],
+    Cancel = Kontol.Net["RF/CancelFishingInputs"],
+    AutoEnabled = Kontol.Net["RF/UpdateAutoFishingState"],
+    RE_MinigameChanged = Kontol.Net["RE/FishingMinigameChanged"]
+}
+-- Network Events
+local NetworkEvents = {
+    FishDone = Kontol.Net["RE/FishingCompleted"],
+}
+-- Global Settings
+_G.Blatants = _G.Blatants or false
+local BlatantFishing = {
+    Enabled = false,
+    ReelDelay = 1.8,
+    FishingDelay = 0.9,
+}
+local function Notify(message, color)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Blatant Fishing",
+        Text = message,
+        Duration = 3,
+        Icon = "rbxassetid://6031068426"
+    })
+    print("[Blatant Fishing] " .. message)
+end
+
+local function safeFire(func)
+    task.spawn(function()
+        pcall(func)
+    end)
+end
+
+-- ====== FUNGSI BLATANT FISHING
+local function FastestFishing()
+    task.spawn(function()
+        local currentTime = tick()
+        safeFire(function()
+            NetworkFunctions.Cancel:InvokeServer()
+        end)
+        -- Get server time and charge rod
+        local serverTime = workspace:GetServerTimeNow()
+        safeFire(function()
+            NetworkFunctions.ChargeRod:InvokeServer({[2] = currentTime})
+        end)
+        -- Start minigame with max values
+        safeFire(function()
+            NetworkFunctions.StartMini:InvokeServer(-1, 0.999, currentTime)
+        end)
+        -- Wait for fishing delay
+        task.wait(BlatantFishing.FishingDelay)
+        -- Complete fishing
+        safeFire(function()
+            NetworkEvents.FishDone:FireServer()
+        end)
+    end)
+end
+
+
+-- ======= NYAKAIN BLATANT NYA
+local function ToggleBlatantFishing(enabled)
+    _G.Blatants = enabled
+    NetworkFunctions.AutoEnabled:InvokeServer(enabled)
+    if enabled then
+        LocalPlayer:SetAttribute("Loading", nil)
+        Notify("Blatant Fishing: ENABLED ✅", Color3.fromRGB(0, 255, 0))
+        task.spawn(function()
+            while _G.Blatants do
+                FastestFishing()
+                task.wait(BlatantFishing.ReelDelay)
+            end
+        end)
+    else
+        LocalPlayer:SetAttribute("Loading", false)
+        Notify("Blatant Fishing: DISABLED ❌", Color3.fromRGB(255, 0, 0))
+    end
+end
 
     -- FISHING AREA SECTION
     farm:Divider()
@@ -2028,6 +2120,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
