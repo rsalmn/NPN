@@ -433,6 +433,220 @@ do
         end
     }))
 
+    -- [[ BLATANT MODE (OLD / KILLER LOGIC) ]] --
+    local blatant = farm:Section({ Title = "Blatant Mode (Old)", TextSize = 20, })
+
+    local completeDelay = 3.055
+    local cancelDelay = 0.3
+    local loopInterval = 1.715
+    
+    _G.RockHub_BlatantActive = false
+
+    -- [[ 1. LOGIC KILLER: LUMPUHKAN CONTROLLER ]]
+    task.spawn(function()
+        local S1, FishingController = pcall(function() return require(game:GetService("ReplicatedStorage").Controllers.FishingController) end)
+        if S1 and FishingController then
+            local Old_Charge = FishingController.RequestChargeFishingRod
+            local Old_Cast = FishingController.SendFishingRequestToServer
+            
+            -- Matikan fungsi charge & cast game asli saat Blatant ON
+            FishingController.RequestChargeFishingRod = function(...)
+                if _G.RockHub_BlatantActive then return end 
+                return Old_Charge(...)
+            end
+            FishingController.SendFishingRequestToServer = function(...)
+                if _G.RockHub_BlatantActive then return false, "Blocked by RockHub" end
+                return Old_Cast(...)
+            end
+        end
+    end)
+
+    -- [[ 2. REMOTE KILLER: BLOKIR KOMUNIKASI ]]
+    local mt = getrawmetatable(game)
+    local old_namecall = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if _G.RockHub_BlatantActive and not checkcaller() then
+            -- Cegah game mengirim request mancing atau request update state
+            if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod" or self.Name == "UpdateAutoFishingState") then
+                return nil 
+            end
+            if method == "FireServer" and self.Name == "FishingCompleted" then
+                return nil
+            end
+        end
+        return old_namecall(self, ...)
+    end)
+    setreadonly(mt, true)
+
+    -- [[ 3. UI & NOTIF KILLER (VISUAL SPOOFING) ]]
+    -- Ini yang bikin UI tetep kelihatan mati padahal server taunya idup
+    local function SuppressGameVisuals(active)
+        -- A. Hook Notifikasi biar ga spam "Auto Fishing: Enabled"
+        local Succ, TextController = pcall(function() return require(game.ReplicatedStorage.Controllers.TextNotificationController) end)
+        if Succ and TextController then
+            if active then
+                if not TextController._OldDeliver then TextController._OldDeliver = TextController.DeliverNotification end
+                TextController.DeliverNotification = function(self, data)
+                    -- Filter pesan Auto Fishing
+                    if data and data.Text and (string.find(tostring(data.Text), "Auto Fishing") or string.find(tostring(data.Text), "Reach Level")) then
+                        return 
+                    end
+                    return TextController._OldDeliver(self, data)
+                end
+            elseif TextController._OldDeliver then
+                TextController.DeliverNotification = TextController._OldDeliver
+                TextController._OldDeliver = nil
+            end
+        end
+
+        -- B. Paksa Tombol Jadi Merah (Inactive) Setiap Frame
+        if active then
+            task.spawn(function()
+                local RunService = game:GetService("RunService")
+                local CollectionService = game:GetService("CollectionService")
+                local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+                
+                -- Warna Merah (Inactive) dari kode game yang kamu kasih
+                local InactiveColor = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromHex("ff5d60")), 
+                    ColorSequenceKeypoint.new(1, Color3.fromHex("ff2256"))
+                })
+
+                while _G.RockHub_BlatantActive do
+                    -- Cari tombol Auto Fishing (Bisa di Backpack atau tagged)
+                    local targets = {}
+                    
+                    -- Cek Tag (Cara paling akurat sesuai script game)
+                    for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
+                        table.insert(targets, btn)
+                    end
+                    
+                    -- Fallback cek path manual
+                    if #targets == 0 then
+                        local btn = PlayerGui:FindFirstChild("Backpack") and PlayerGui.Backpack:FindFirstChild("AutoFishingButton")
+                        if btn then table.insert(targets, btn) end
+                    end
+
+                    -- Paksa Gradientnya jadi Merah
+                    for _, btn in ipairs(targets) do
+                        local grad = btn:FindFirstChild("UIGradient")
+                        if grad then
+                            grad.Color = InactiveColor -- Timpa animasi spr game
+                        end
+                    end
+                    
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+        end
+    end
+
+    -- [[ UI CONFIG ]]
+    local LoopIntervalInput = Reg("blatantint_old", blatant:Input({
+        Title = "Blatant Interval", Value = tostring(loopInterval), Icon = "fast-forward", Type = "Input", Placeholder = "1.58",
+        Callback = function(input)
+            local newInterval = tonumber(input)
+            if newInterval and newInterval >= 0.5 then loopInterval = newInterval end
+        end
+    }))
+
+    local CompleteDelayInput = Reg("blatantcom_old", blatant:Input({
+        Title = "Complete Delay", Value = tostring(completeDelay), Icon = "loader", Type = "Input", Placeholder = "2.75",
+        Callback = function(input)
+            local newDelay = tonumber(input)
+            if newDelay and newDelay >= 0.5 then completeDelay = newDelay end
+        end
+    }))
+
+    local CancelDelayInput = Reg("blatantcanc_old",blatant:Input({
+        Title = "Cancel Delay", Value = tostring(cancelDelay), Icon = "clock", Type = "Input", Placeholder = "0.3", Flag = "canlay",
+        Callback = function(input)
+            local newDelay = tonumber(input)
+            if newDelay and newDelay >= 0.1 then cancelDelay = newDelay end
+        end
+    }))
+
+    local function runBlatantInstant()
+        if not blatantInstantState then return end
+        if not checkFishingRemotes(true) then blatantInstantState = false return end
+
+        task.spawn(function()
+            local startTime = os.clock()
+            local timestamp = os.time() + os.clock()
+            
+            -- Bypass: Panggil remote langsung (Script kita lolos hook checkcaller)
+            pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+            task.wait(0.001)
+            pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
+            
+            local completeWaitTime = completeDelay - (os.clock() - startTime)
+            if completeWaitTime > 0 then task.wait(completeWaitTime) end
+            
+            pcall(function() RE_FishingCompleted:FireServer() end)
+            task.wait(cancelDelay)
+            pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+        end)
+    end
+
+    local togblat = Reg("blatantt_old",blatant:Toggle({
+        Title = "Instant Fishing (Blatant Old)",
+        Value = false,
+        Callback = function(state)
+            if not checkFishingRemotes() then return end
+            disableOtherModes("blatant")
+            blatantInstantState = state
+            _G.RockHub_BlatantActive = state
+            
+            -- Jalankan Visual Killer
+            SuppressGameVisuals(state)
+            
+            if state then
+                -- 1. Server State: ON (Perfection)
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                end
+                task.wait(0.5)
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                end
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                end
+
+                -- 2. Loop Kita
+                blatantLoopThread = task.spawn(function()
+                    while blatantInstantState do
+                        runBlatantInstant()
+                        task.wait(loopInterval)
+                    end
+                end)
+
+                -- 3. Auto Equip
+                if blatantEquipThread then task.cancel(blatantEquipThread) end
+                blatantEquipThread = task.spawn(function()
+                    while blatantInstantState do
+                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                        task.wait(0.1) 
+                    end
+                end)
+                
+                WindUI:Notify({ Title = "Blatant Mode ON", Duration = 3, Icon = "zap" })
+            else
+                -- 4. Server State: OFF
+                if RF_UpdateAutoFishingState then
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
+                end
+
+                if blatantLoopThread then task.cancel(blatantLoopThread) blatantLoopThread = nil end
+                if blatantEquipThread then task.cancel(blatantEquipThread) blatantEquipThread = nil end
+                
+                WindUI:Notify({ Title = "Stopped", Duration = 2 })
+            end
+        end
+    }))
+
     -- FISHING AREA SECTION
     farm:Divider()
     local areafish = farm:Section({ Title = "Fishing Area", TextSize = 20 })
@@ -500,3 +714,4 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
