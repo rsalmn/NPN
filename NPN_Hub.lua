@@ -914,21 +914,6 @@ do
         end
     end
 
-    local function ProcessNotifQueue()
-        if NotifProcessRunning then return end
-        NotifProcessRunning = true
-        task.spawn(function()
-            while #NotifQueue > 0 do
-                local data = table.remove(NotifQueue, 1)
-                SetGameNotifState(true)
-                if firesignal and NotifEvent then pcall(function() firesignal(NotifEvent.OnClientEvent, table.unpack(data)) end) end
-                SetGameNotifState(false)
-                task.wait(1.2) 
-            end
-            NotifProcessRunning = false
-        end)
-    end
-
     ---------------------------------------------------------
     -- Notification Queue Processor
     ---------------------------------------------------------
@@ -964,7 +949,7 @@ do
 
         if not NotifEvent then return end
 
-        SetGameNotifState(false)
+        StopNotifListener()
 
         NotifListener = NotifEvent.OnClientEvent:Connect(function(...)
             local args = {...}
@@ -1006,6 +991,18 @@ do
             table.insert(NotifQueue, newArgs)
             ProcessNotifQueue()
         end)
+    end
+
+    ---------------------------------------------------------
+    -- Stop Listener
+    ---------------------------------------------------------
+    local function StopNotifListener()
+        if NotifListener then
+            NotifListener:Disconnect()
+            NotifListener = nil
+        end
+
+        NotifQueue = {}
     end
 
     local function StartInterceptor()
@@ -1058,7 +1055,7 @@ do
 
     local function stopAutoFishProcesses_X5()
         featureState_X5.AutoFish = false
-        StopInterceptor()
+        StopNotifListener()
         for i, item in ipairs(fishingTrove_X5) do
             if typeof(item) == "RBXScriptConnection" then item:Disconnect()
             elseif typeof(item) == "thread" then task.cancel(item) end
@@ -1074,7 +1071,7 @@ do
     local function startAutoFishMethod_Instant_X5()
         if not (Modules_X5.ChargeRodFunc and Modules_X5.StartMinigameFunc and Modules_X5.CompleteFishingEvent) then return end
         featureState_X5.AutoFish = true
-        StartNotifListener()
+        StartInterceptor()
         local chargeCount = 0
         local isCurrentlyResetting = false
         local counterLock = false
