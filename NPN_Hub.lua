@@ -58,6 +58,137 @@ local function GetRemote(remotePath, name, timeout)
     return currentInstance:FindFirstChild(name)
 end
 
+pcall(function()
+    local player = game:GetService("Players").LocalPlayer
+    
+    -- Cek semua koneksi yang terhubung ke event Idled pemain lokal
+    for i, v in pairs(getconnections(player.Idled)) do
+        if v.Disable then
+            v:Disable() -- Menonaktifkan koneksi event
+            print("[RockHub Anti-AFK] ON")
+        end
+    end
+end)
+
+local eventsList = { 
+    "Shark Hunt", "Ghost Shark Hunt", "Worm Hunt", "Black Hole", "Shocked", 
+    "Ghost Worm", "Meteor Rain", "Megalodon Hunt", "Treasure Event"
+}
+
+local autoEventTargetName = nil 
+local autoEventTeleportState = false
+local autoEventTeleportThread = nil
+
+
+local function FindAndTeleportToTargetEvent()
+    local targetName = autoEventTargetName
+    if not targetName or targetName == "" then return false end
+    
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    local eventModel = nil
+    
+    if targetName == "Treasure Event" then
+        local sunkenFolder = workspace:FindFirstChild("Sunken Wreckage")
+        if sunkenFolder then
+            eventModel = sunkenFolder:FindFirstChild("Treasure")
+        end
+    
+    elseif targetName == "Worm Hunt" then
+        local menuRingsFolder = workspace:FindFirstChild("!!! MENU RINGS")
+        if menuRingsFolder then
+            for _, child in ipairs(menuRingsFolder:GetChildren()) do
+                if child.Name == "Props" then
+                    local specificModel = child:FindFirstChild("Model")
+                    if specificModel then
+                        eventModel = specificModel
+                        break
+                    end
+                end
+            end
+        end
+
+    else
+        local menuRingsFolder = workspace:FindFirstChild("!!! MENU RINGS") 
+        if menuRingsFolder then
+            for _, container in ipairs(menuRingsFolder:GetChildren()) do
+                if container:FindFirstChild(targetName) then
+                    eventModel = container:FindFirstChild(targetName)
+                    break
+                end
+            end
+        end
+    end
+    
+    if not eventModel then return false end 
+
+    local targetPart = nil
+    local positionOffset = Vector3.new(0, 15, 0) 
+    
+    if targetName == "Megalodon Hunt" then
+        targetPart = eventModel:FindFirstChild("Top") 
+        if targetPart then positionOffset = Vector3.new(0, 3, 0) end
+    elseif targetName == "Treasure Event" then
+        targetPart = eventModel
+        positionOffset = Vector3.new(0, 5, 0)
+    else
+        targetPart = eventModel:FindFirstChild("Fishing Boat")
+        if not targetPart then targetPart = eventModel end
+        positionOffset = Vector3.new(0, 15, 0)
+    end
+
+    if not targetPart then return false end
+
+    local targetCFrame = nil
+    
+    local success = pcall(function()
+        if targetPart:IsA("Model") then
+             targetCFrame = targetPart:GetPivot()
+        elseif targetPart:IsA("BasePart") then
+             targetCFrame = targetPart.CFrame
+        end
+    end)
+
+    if success and targetCFrame and typeof(targetCFrame) == "CFrame" then
+        local position = targetCFrame.p + positionOffset
+        local lookVector = targetCFrame.LookVector
+        
+        TeleportToLookAt(position, lookVector)
+        
+        WindUI:Notify({
+            Title = "Event Found!",
+            Content = "Teleported to: " .. targetName,
+            Icon = "map-pin",
+            Duration = 3
+        })
+        return true
+    end
+    
+    return false
+end
+
+local function RunAutoEventTeleportLoop()
+    if autoEventTeleportThread then task.cancel(autoEventTeleportThread) end
+
+    autoEventTeleportThread = task.spawn(function()
+        WindUI:Notify({ Title = "Auto Event TP ON", Content = "Mulai memindai event terpilih.", Duration = 3, Icon = "search" })
+        
+        while autoEventTeleportState do
+            
+            if FindAndTeleportToTargetEvent() then
+                
+                task.wait(900) 
+            else
+                
+                task.wait(10)
+            end
+        end
+        
+        WindUI:Notify({ Title = "Auto Event TP OFF", Duration = 3, Icon = "x" })
+    end)
+end
+
 -- Remotes Global (Digunakan oleh V3 & Fishing Area)
 local RE_EquipToolFromHotbar = GetRemote(RPath, "RE/EquipToolFromHotbar")
 local RF_ChargeFishingRod = GetRemote(RPath, "RF/ChargeFishingRod")
@@ -1408,7 +1539,7 @@ end
 -- FISHING AREA SECTION
 do
     farm:Divider()
-    local areafish = farm:Section({ Title = "Fishing Area", TextSize = 20 })
+    local areafish = farm:Section({ Title = "Teleport Area", TextSize = 20 })
     
     local FishingAreas = {
         ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
@@ -1487,6 +1618,150 @@ do
                 if state then hrp.Anchored = true end
             else
                 hrp.Anchored = false
+            end
+        end
+    })
+
+    local selectedTargetPlayer = nil -- Nama pemain yang dipilih
+    local selectedTargetArea = nil -- Nama area yang dipilih
+
+    -- Helper: Mengambil daftar pemain yang sedang di server (diambil dari kode Automatic)
+    local function GetPlayerListOptions()
+        local options = {}
+        for _, player in ipairs(game.Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                table.insert(options, player.Name)
+            end
+        end
+        return options
+    end
+
+    -- Helper: Mendapatkan HRP target
+    local function GetTargetHRP(playerName)
+        local targetPlayer = game.Players:FindFirstChild(playerName)
+        local character = targetPlayer and targetPlayer.Character
+        if character then
+            return character:FindFirstChild("HumanoidRootPart")
+        end
+        return nil
+    end
+
+    -- =================================================================
+    -- A. TELEPORT KE PEMAIN (Button)
+    -- =================================================================
+    local teleplay = farm:Section({
+        Title = "Teleport to Player",
+        TextSize = 20,
+    })
+
+    local PlayerDropdown = farm:Dropdown({
+        Title = "Select Target Player",
+        Values = GetPlayerListOptions(),
+        AllowNone = true,
+        Callback = function(name)
+            selectedTargetPlayer = name
+        end
+    })
+
+    local listplaytel = farm:Button({
+        Title = "Refresh Player List",
+        Icon = "refresh-ccw",
+        Callback = function()
+            local newOptions = GetPlayerListOptions()
+            pcall(function() PlayerDropdown:Refresh(newOptions) end)
+            task.wait(0.1)
+            pcall(function() PlayerDropdown:Set(false) end)
+            selectedTargetPlayer = nil
+            WindUI:Notify({ Title = "List Diperbarui", Content = string.format("%d pemain ditemukan.", #newOptions), Duration = 2, Icon = "check" })
+        end
+    })
+
+    local teletoplay = farm:Button({
+        Title = "Teleport to Player (One-Time)",
+        Content = "Teleport satu kali ke lokasi pemain yang dipilih.",
+        Icon = "corner-down-right",
+        Callback = function()
+            local hrp = GetHRP()
+            local targetHRP = GetTargetHRP(selectedTargetPlayer)
+            
+            if not selectedTargetPlayer then
+                WindUI:Notify({ Title = "Error", Content = "Pilih pemain target terlebih dahulu.", Duration = 3, Icon = "alert-triangle" })
+                return
+            end
+
+            if hrp and targetHRP then
+                -- Teleport 5 unit di atas target
+                local targetPos = targetHRP.Position + Vector3.new(0, 5, 0)
+                local lookVector = (targetHRP.Position - hrp.Position).Unit 
+                
+                hrp.CFrame = CFrame.new(targetPos, targetPos + lookVector)
+                
+                WindUI:Notify({ Title = "Teleport Sukses", Content = "Teleported ke " .. selectedTargetPlayer, Duration = 3, Icon = "user-check" })
+            else
+                 WindUI:Notify({ Title = "Error", Content = "Gagal menemukan target atau karakter Anda.", Duration = 3, Icon = "x" })
+            end
+        end
+    })
+
+
+end
+
+do
+    farm:Divider()
+    local televent = farm:Section({ Title = "Event Teleport", TextSize = 20 })
+
+    local dropvent = farm:Dropdown({
+        Title = "Select Target Event",
+        Content = "Pilih event yang ingin di-monitor secara otomatis.",
+        Values = eventsList,
+        AllowNone = true,
+        Value = false,
+        Callback = function(option)
+            autoEventTargetName = option -- Simpan nama event sebagai target
+            if autoEventTeleportState then
+                 -- Force stop auto-teleport jika target diubah saat sedang aktif
+                 autoEventTeleportState = false
+                 if autoEventTeleportThread then task.cancel(autoEventTeleportThread) autoEventTeleportThread = nil end
+                 Window:GetElementByTitle("Enable Auto Event Teleport"):Set(false)
+            end
+        end
+    })
+
+    local tovent = farm:Button({
+        Title = "Teleport to Chosen Event (Once)",
+        Icon = "corner-down-right",
+        Callback = function()
+            if not autoEventTargetName then
+                WindUI:Notify({ Title = "Error", Content = "Pilih event dulu di dropdown!", Duration = 3, Icon = "alert-triangle" })
+                return
+            end
+            
+            WindUI:Notify({ Title = "Searching...", Content = "Mencari keberadaan event...", Duration = 2, Icon = "search" })
+            
+            local found = FindAndTeleportToTargetEvent()
+            if not found then
+                WindUI:Notify({ Title = "Gagal", Content = "Event tidak ditemukan / belum spawn.", Duration = 3, Icon = "x" })
+            end
+        end
+    })
+
+
+    local togventel = farm:Toggle({
+        Title = "Enable Auto Event Teleport",
+        Content = "Secara otomatis mencari dan teleport ke event yang dipilih.",
+        Value = false,
+        Callback = function(state)
+            if not autoEventTargetName then
+                 WindUI:Notify({ Title = "Error", Content = "Pilih Event Target terlebih dahulu di dropdown.", Duration = 3, Icon = "alert-triangle" })
+                 return false
+            end
+            
+            autoEventTeleportState = state
+            if state then
+                RunAutoEventTeleportLoop()
+            else
+                if autoEventTeleportThread then task.cancel(autoEventTeleportThread) autoEventTeleportThread = nil end
+                WindUI:Notify({ Title = "Auto Event TP OFF", Duration = 3, Icon = "x" })
             end
         end
     })
@@ -1652,5 +1927,3 @@ do
 end
 
 WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
-
-
