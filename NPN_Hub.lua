@@ -564,8 +564,9 @@ end
 
 -- [[ 3. BLATANT V2 (NEW) - X5 LOGIC + REAL NOTIF STACK ]] --
 do
-    local BlatantV2 = farm:Section({ Title = "3. Blatant V2 (New)", TextSize = 20 })
+    local BlatantV2 = farm:Section({ Title = "Blatant V2 (New)", TextSize = 20 })
     
+    -- X5 Variables
     local Modules_X5 = {}
     local featureState_X5 = {
         AutoFish = false,
@@ -719,6 +720,19 @@ do
         StartNotifListener()
     end)
 
+
+    -- 1. Custom Require X5
+    local function customRequire_X5(module)
+        if not module then return nil end
+        local success, result = pcall(require, module)
+        if success then return result end
+        local clone = module:Clone()
+        clone.Parent = nil
+        local s, r = pcall(require, clone)
+        return s and r or nil
+    end
+
+    -- 2. Load Modules X5
     pcall(function()
         local Controllers = RepStorage:WaitForChild("Controllers", 20)
         local NetFolder = RepStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net", 20)
@@ -737,13 +751,43 @@ do
         NotifEvent = NetFolder:FindFirstChild("RE/ObtainedNewFishNotification")
     end)
 
+    -- 3. UI Detection Loop (Detection Logic from X5)
+    task.spawn(function()
+        local lastFishName = ""
+        while task.wait(0.25) do
+            local playerGui = LocalPlayer:findFirstChild("PlayerGui")
+            if playerGui then
+                local notificationGui = playerGui:FindFirstChild("Small Notification")
+                if notificationGui and notificationGui.Enabled then
+                    local container = notificationGui:FindFirstChild("Display", true) and notificationGui.Display:FindFirstChild("Container", true)
+                    if container then
+                        local itemNameLabel = container:FindFirstChild("ItemName")
+                        if itemNameLabel and itemNameLabel.Text ~= "" and itemNameLabel.Text ~= lastFishName then
+                            lastFishName = itemNameLabel.Text
+                            -- Trigger Bindable only if X5 is running
+                            if featureState_X5.AutoFish then
+                                fishCaughtBindable_X5:Fire()
+                            end
+                        end
+                    end
+                else
+                    lastFishName = ""
+                end
+            end
+        end
+    end)
+
+    -- 4. Helper Functions X5
     local function equipFishingRod_X5()
-        if Modules_X5.EquipToolEvent then pcall(Modules_X5.EquipToolEvent.FireServer, Modules_X5.EquipToolEvent, 1) end
+        if Modules_X5.EquipToolEvent then
+            pcall(Modules_X5.EquipToolEvent.FireServer, Modules_X5.EquipToolEvent, 1)
+        end
     end
 
     local function stopAutoFishProcesses_X5()
         featureState_X5.AutoFish = false
-        StopNotifListener()
+        StopNotifListener() -- Stop listener saat fitur mati
+        
         for i, item in ipairs(fishingTrove_X5) do
             if typeof(item) == "RBXScriptConnection" then item:Disconnect()
             elseif typeof(item) == "thread" then task.cancel(item) end
@@ -756,6 +800,7 @@ do
         end)
     end
 
+    -- 5. Main Logic X5 (Worker System)
     local function startAutoFishMethod_Instant_X5()
         if not (Modules_X5.ChargeRodFunc and Modules_X5.StartMinigameFunc and Modules_X5.CompleteFishingEvent) then return end
         featureState_X5.AutoFish = true
@@ -769,22 +814,28 @@ do
             while featureState_X5.AutoFish and LocalPlayer do
                 local currentResetTarget = featureState_X5.Instant_ResetCount or 10
                 if isCurrentlyResetting or chargeCount >= currentResetTarget then break end
+
                 local success, err = pcall(function()
                     while counterLock do task.wait() end
                     counterLock = true
                     if chargeCount < currentResetTarget then chargeCount = chargeCount + 1 else counterLock = false; return end
                     counterLock = false
+
                     Modules_X5.ChargeRodFunc:InvokeServer(nil, nil, nil, workspace:GetServerTimeNow())
                     task.wait(featureState_X5.Instant_ChargeDelay)
                     Modules_X5.StartMinigameFunc:InvokeServer(-139, 1, workspace:GetServerTimeNow())
                     task.wait(featureState_X5.Instant_StartDelay)
+
                     if not featureState_X5.AutoFish or isCurrentlyResetting then return end
+
                     for _ = 1, featureState_X5.Instant_SpamCount do
                         if not featureState_X5.AutoFish or isCurrentlyResetting then break end
                         Modules_X5.CompleteFishingEvent:FireServer()
                         task.wait(0.05)
                     end
+                    
                     if not featureState_X5.AutoFish or isCurrentlyResetting then return end
+
                     local gotFishSignal = false
                     local connection
                     local timeoutThread = task.delay(featureState_X5.Instant_CatchTimeout, function()
@@ -796,11 +847,13 @@ do
                         if timeoutThread then task.cancel(timeoutThread) end
                         if connection then connection:Disconnect() end
                     end)
+
                     while not gotFishSignal and task.wait() do
                         if not featureState_X5.AutoFish or isCurrentlyResetting then break end
                         if timeoutThread and coroutine.status(timeoutThread) == "dead" then break end
                     end
                     if connection then connection:Disconnect() end
+
                     if Modules_X5.FishingController then
                         pcall(Modules_X5.FishingController.RequestClientStopFishing, Modules_X5.FishingController, true)
                     end
@@ -812,17 +865,20 @@ do
             end
         end
 
+        -- Worker Manager X5
         autoFishThread_X5 = task.spawn(function()
             while featureState_X5.AutoFish do
                 local currentResetTarget = featureState_X5.Instant_ResetCount or 10
                 local currentPauseTime = featureState_X5.Instant_ResetPause or 0.01
                 chargeCount = 0; isCurrentlyResetting = false
                 local batchTrove = {}
+
                 for i = 1, featureState_X5.Instant_WorkerCount do
                     if not featureState_X5.AutoFish then break end
                     local t = task.spawn(worker)
                     table.insert(batchTrove, t); table.insert(fishingTrove_X5, t)
                 end
+
                 while featureState_X5.AutoFish and chargeCount < currentResetTarget do task.wait() end
                 isCurrentlyResetting = true
                 if featureState_X5.AutoFish then
@@ -836,12 +892,42 @@ do
         table.insert(fishingTrove_X5, autoFishThread_X5)
     end
 
-    Reg("x5startdelay", BlatantV2:Input({ Title = "Delay Recast", Value = tostring(featureState_X5.Instant_StartDelay), Placeholder = "1.20", Callback = function(text) local num = tonumber(text); if num then featureState_X5.Instant_StartDelay = num end end }))
-    Reg("x5resetcount", BlatantV2:Input({ Title = "Spam Finish", Value = tostring(featureState_X5.Instant_ResetCount), Placeholder = "10", Callback = function(text) local num = tonumber(text); if num then featureState_X5.Instant_ResetCount = math.floor(num) end end }))
-    Reg("x5resetpause", BlatantV2:Input({ Title = "Cooldown Recast", Value = tostring(featureState_X5.Instant_ResetPause), Placeholder = "0.01", Callback = function(text) local num = tonumber(text); if num then featureState_X5.Instant_ResetPause = num end end }))
+    -- ==========================================================
+    -- X5 TUNING (UI)
+    -- ==========================================================
+    
+    Reg("x5startdelay", BlatantV2:Input({
+        Title = "Delay Recast",
+        Value = tostring(featureState_X5.Instant_StartDelay),
+        Placeholder = "1.20",
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then featureState_X5.Instant_StartDelay = num end
+        end
+    }))
+    
+    Reg("x5resetcount", BlatantV2:Input({
+        Title = "Spam Finish (Reset Count)",
+        Value = tostring(featureState_X5.Instant_ResetCount),
+        Placeholder = "10",
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then featureState_X5.Instant_ResetCount = math.floor(num) end
+        end
+    }))
+
+    Reg("x5resetpause", BlatantV2:Input({
+        Title = "Cooldown Recast",
+        Value = tostring(featureState_X5.Instant_ResetPause),
+        Placeholder = "0.01",
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then featureState_X5.Instant_ResetPause = num end
+        end
+    }))
 
     Reg("x5toggle", BlatantV2:Toggle({
-        Title = "Enable Blatant V2", Desc = "Old Blatant + Stacked Notif", Value = false,
+        Title = "Enable Blatant V2", Desc = "Blatant V2 New", Value = false,
         Callback = function(v)
             if v then
                 stopAutoFishProcesses_X5()
@@ -852,6 +938,7 @@ do
                 WindUI:Notify({ Title = "X5 Started", Duration = 2 })
             else
                 stopAutoFishProcesses_X5()
+                StopNotifListener()
                 WindUI:Notify({ Title = "X5 Stopped", Duration = 2 })
             end
         end
@@ -865,7 +952,9 @@ do
                 local hum = char:FindFirstChild("Humanoid")
                 if hum then
                      local animator = hum:FindFirstChild("Animator")
-                     if animator then for _, t in pairs(animator:GetPlayingAnimationTracks()) do t:Stop() end end
+                     if animator then
+                        for _, t in pairs(animator:GetPlayingAnimationTracks()) do t:Stop() end
+                     end
                 end
             end
         end
