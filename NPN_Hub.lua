@@ -498,19 +498,21 @@ do
         return new
     end
 
-    local function ProcessQueue()
+    local function ProcessNotifQueue()
         if NotifProcessing then return end
         NotifProcessing = true
 
         task.spawn(function()
-            while NotificationEnabled and #NotifQueue > 0 do
-                local args = table.remove(NotifQueue,1)
+            while #NotifQueue > 0 do
+                local data = table.remove(NotifQueue, 1)
 
-                pcall(function()
-                    firesignal(ObtainedNotifEvent.OnClientEvent, unpack(args))
-                end)
-
-                task.wait(1.2)
+                if firesignal and NotifEvent then
+                    pcall(function()
+                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
+                    end)
+                end
+                
+                task.wait(1.2) -- delay tampil satu per satu
             end
 
             NotifProcessing = false
@@ -559,7 +561,7 @@ do
     -- 🔥 BLATANT V2 (ULTIMATE FIX VERSION)
     ------------------------------------------------------------
     local v2 = farm:Section({
-        Title = "Blatant V2 (Ultimate Stable Edition)",
+        Title = "3. Blatant V2 (Ultimate Stable Edition)",
         TextSize = 20
     })
 
@@ -859,6 +861,242 @@ do
             end
         end
     }))
+end
+
+do
+
+    ------------------------------------------------------------
+    -- BLATANT V4 (TESTER) - Ultra Blatant Integration
+    ------------------------------------------------------------
+
+    local v4 = farm:Section({
+        Title = "Blatant V4 (Tester)",
+        TextSize = 20
+    })
+
+    local UltraBlatant_Active = false
+
+    -- DEFAULT DELAYS
+    local V4_CompleteDelay = 0.73
+    local V4_CancelDelay = 0.30
+    local V4_RecastDelay = 0.001
+
+
+    ------------------------------------------------------------
+    -- REMOTE SETUP (auto sync ke remotes kamu)
+    ------------------------------------------------------------
+    local RepStorage = game:GetService("ReplicatedStorage")
+    local NetFolder = RepStorage
+        :WaitForChild("Packages")
+        :WaitForChild("_Index")
+        :WaitForChild("sleitnick_net@0.2.0")
+        :WaitForChild("net")
+
+    local RF_ChargeFishingRod = NetFolder["RF/ChargeFishingRod"]
+    local RF_RequestFishingMinigameStarted = NetFolder["RF/RequestFishingMinigameStarted"]
+    local RF_CancelFishingInputs = NetFolder["RF/CancelFishingInputs"]
+    local RF_UpdateAutoFishingState = NetFolder["RF/UpdateAutoFishingState"]
+    local RE_FishingCompleted = NetFolder["RE/FishingCompleted"]
+    local RE_MinigameChanged = NetFolder["RE/FishingMinigameChanged"]
+
+
+    ------------------------------------------------------------
+    -- ULTRA BLATANT CORE ENGINE
+    ------------------------------------------------------------
+    local V4_State = {
+        lastComplete = 0,
+        cooldown = 0.4,
+        running = false
+    }
+
+    local function safe(fn)
+        task.spawn(function()
+            pcall(fn)
+        end)
+    end
+
+    local function ProtectedComplete()
+        local now = tick()
+        if now - V4_State.lastComplete < V4_State.cooldown then
+            return false
+        end
+        V4_State.lastComplete = now
+
+        safe(function()
+            RE_FishingCompleted:FireServer()
+        end)
+
+        return true
+    end
+
+    local function PerformCast()
+        local now = tick()
+
+        safe(function()
+            RF_ChargeFishingRod:InvokeServer({[1] = now})
+        end)
+
+        safe(function()
+            RF_RequestFishingMinigameStarted:InvokeServer(
+                1,
+                0,
+                now
+            )
+        end)
+    end
+
+
+    local function V4_Loop()
+        while UltraBlatant_Active do
+            V4_State.running = true
+
+            -- CAST
+            PerformCast()
+
+            -- WAIT COMPLETE DELAY
+            task.wait(V4_CompleteDelay)
+
+            if UltraBlatant_Active then
+                ProtectedComplete()
+            end
+
+            -- CANCEL
+            task.wait(V4_CancelDelay)
+
+            if UltraBlatant_Active then
+                safe(function()
+                    RF_CancelFishingInputs:InvokeServer()
+                end)
+            end
+
+            V4_State.running = false
+
+            task.wait(V4_RecastDelay)
+        end
+
+        V4_State.running = false
+    end
+
+
+    ------------------------------------------------------------
+    -- BACKUP FAILSAFE LISTENER (ANTI STUCK)
+    ------------------------------------------------------------
+    local lastEventTime = 0
+
+    RE_MinigameChanged.OnClientEvent:Connect(function()
+        if not UltraBlatant_Active then return end
+
+        local now = tick()
+        if now - lastEventTime < 0.2 then return end
+        lastEventTime = now
+
+        if now - V4_State.lastComplete < 0.3 then return end
+
+        task.spawn(function()
+            task.wait(V4_CompleteDelay)
+
+            if ProtectedComplete() then
+                task.wait(V4_CancelDelay)
+                safe(function()
+                    RF_CancelFishingInputs:InvokeServer()
+                end)
+            end
+        end)
+    end)
+
+
+    ------------------------------------------------------------
+    -- UI INPUTS
+    ------------------------------------------------------------
+    Reg("v4_complete", v4:Input({
+        Title = "Complete Delay",
+        Value = tostring(V4_CompleteDelay),
+        Placeholder = "0.73",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0.1 then
+                V4_CompleteDelay = n
+            end
+        end
+    }))
+
+    Reg("v4_cancel", v4:Input({
+        Title = "Cancel Delay",
+        Value = tostring(V4_CancelDelay),
+        Placeholder = "0.30",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0.1 then
+                V4_CancelDelay = n
+            end
+        end
+    }))
+
+    Reg("v4_recast", v4:Input({
+        Title = "Recast Delay",
+        Value = tostring(V4_RecastDelay),
+        Placeholder = "0.001",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0 then
+                V4_RecastDelay = n
+            end
+        end
+    }))
+
+
+    ------------------------------------------------------------
+    -- TOGGLE
+    ------------------------------------------------------------
+    Reg("v4toggle", v4:Toggle({
+        Title = "Enable Blatant V4 (Tester)",
+        Value = false,
+        Callback = function(state)
+
+            if not checkFishingRemotes() then
+                WindUI:Notify({
+                    Title = "Missing Remotes",
+                    Content = "Fishing remotes not detected",
+                    Duration = 3
+                })
+                return
+            end
+
+            UltraBlatant_Active = state
+
+            if state then
+                -- disable other modes
+                if v2Active ~= nil then v2Active = false end
+                if blatantInstantState ~= nil then blatantInstantState = false end
+
+                safe(function()
+                    RF_UpdateAutoFishingState:InvokeServer(true)
+                end)
+
+                task.spawn(V4_Loop)
+
+                WindUI:Notify({
+                    Title = "Blatant V4 Enabled",
+                    Content = "Tester Mode Activated",
+                    Duration = 4,
+                    Icon = "zap"
+                })
+
+            else
+                UltraBlatant_Active = false
+
+                safe(function()
+                    RF_CancelFishingInputs:InvokeServer()
+                end)
+
+                WindUI:Notify({
+                    Title = "Blatant V4 Stopped",
+                    Duration = 3
+                })
+            end
+        end
+    }))
+
 end
 
 -- FISHING AREA SECTION
