@@ -1,14 +1,77 @@
 -- [[ WIND UI LIBRARY ]] --
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 local Window = WindUI:CreateWindow({
-    Title = "RockHub (Extracted)",
+    Title = "NPN Hub Premium",
     Icon = "rbxassetid://116236936447443",
-    Author = "Player & Fishing Only",
+    Author = "XYOURZONE",
     Folder = "RockHubExtracted",
     Size = UDim2.fromOffset(600, 360),
     Transparent = true,
-    Theme = "Rose",
     Resizable = true,
+})
+
+WindUI:AddTheme({
+    Name = "My Theme", -- theme name
+    
+    
+    -- More Soon!
+    
+    Accent = Color3.fromHex("#18181b"),
+    Background = Color3.fromHex("#101010"), -- Accent
+    BackgroundTransparency = 0,
+    Outline = Color3.fromHex("#FFFFFF"),
+    Text = Color3.fromHex("#FFFFFF"),
+    Placeholder = Color3.fromHex("#7a7a7a"),
+    Button = Color3.fromHex("#52525b"),
+    Icon = Color3.fromHex("#a1a1aa"),
+    
+    Hover = Color3.fromHex("#FFFFFF"), -- Text
+    BackgroundTransparency = 0,
+    
+    WindowBackground = Color3.fromHex("101010"), -- Background
+    WindowShadow = Color3.fromHex("000000"),
+    
+    DialogBackground = Color3.fromHex("#101010"), -- Background
+    DialogBackgroundTransparency = 0, -- BackgroundTransparency
+    DialogTitle = Color3.fromHex("#FFFFFF"), -- Text
+    DialogContent = Color3.fromHex("#FFFFFF"), -- Text
+    DialogIcon = Color3.fromHex("#a1a1aa"), -- Icon
+    
+    WindowTopbarButtonIcon = Color3.fromHex("a1a1aa"), -- Icon
+    WindowTopbarTitle = Color3.fromHex("FFFFFF"), -- Text
+    WindowTopbarAuthor = Color3.fromHex("FFFFFF"), -- Text
+    WindowTopbarIcon = Color3.fromHex("FFFFFF"), -- Text
+    
+    TabBackground = Color3.fromHex("#FFFFFF"), -- Text
+    TabTitle = Color3.fromHex("#FFFFFF"), -- Text
+    TabIcon = Color3.fromHex("a1a1aa"), -- Icon
+    
+    ElementBackground = Color3.fromHex("#FFFFFF"), -- Text
+    ElementTitle = Color3.fromHex("#FFFFFF"), -- Text
+    ElementDesc = Color3.fromHex("#FFFFFF"), -- Text
+    ElementIcon = Color3.fromHex("#a1a1aa"), -- Icon
+    
+    PopupBackground = Color3.fromHex("#101010"), -- Background
+    PopupBackgroundTransparency = 0, -- BackgroundTransparency
+    PopupTitle = Color3.fromHex("#FFFFFF"), -- Text
+    PopupContent = Color3.fromHex("#FFFFFF"), -- Text
+    PopupIcon = Color3.fromHex("#a1a1aa"), -- Icon
+    
+    DialogBackground = Color3.fromHex("#101010"), -- Background
+    DialogBackgroundTransparency = 0, -- Transparency
+    DialogTitle = Color3.fromHex("#FFFFFF"), -- Text
+    DialogContent = Color3.fromHex("#FFFFFF"), -- Text
+    DialogIcon = Color3.fromHex("#a1a1aa"), -- Icon
+    
+    Toggle = Color3.fromHex("#52525b"), -- Button
+    ToggleBar = Color3.fromHex("#FFFFFF"), -- White
+    
+    Checkbox = Color3.fromHex("#52525b"), -- Button
+    CheckboxIcon = Color3.fromHex("#FFFFFF"), -- White
+    
+    Slider = Color3.fromHex("#52525b"), -- Button
+    SliderThumb = Color3.fromHex("#FFFFFF"), -- White
+    
 })
 
 -- [[ GLOBAL VARIABLES & SERVICES ]] --
@@ -389,46 +452,95 @@ do
         end
     }))
 
-    -- 3. BLATANT MODE (Visual Killer)
-    local blatant = farm:Section({ Title = "Blatant Mode", TextSize = 20 })
-    Reg("blatantt", blatant:Toggle({
-        Title = "Instant Fishing (Blatant)", Desc = "Risky but fast.", Value = false,
+    -- [[ BLATANT MODE V2 (STABLE LOOP) ]] --
+    -- Versi ini lebih ringan dan stabil untuk Ping tinggi/Event Farming
+    local blatantv2 = farm:Section({ Title = "Blatant Mode V2 (Stable)", TextSize = 20 })
+
+    local v2Delay = 2.5
+    local v2State = false
+    local v2Thread = nil
+    
+    -- Slider Kecepatan
+    Reg("blatantv2speed", blatantv2:Slider({
+        Title = "Catch Delay (Seconds)",
+        Desc = "Waktu tunggu sebelum menarik ikan. (Rendah = Cepat)",
+        Step = 0.1,
+        Value = { Min = 0.1, Max = 5.0, Default = 2.5 },
+        Callback = function(v)
+            v2Delay = tonumber(v)
+        end
+    }))
+
+    -- Toggle V2
+    Reg("blatantv2tog", blatantv2:Toggle({
+        Title = "Enable Blatant V2",
+        Desc = "Mode spam loop sederhana. Lebih stabil untuk AFK lama.",
+        Value = false,
         Callback = function(state)
+            -- Cek Remote
             if not checkFishingRemotes() then return end
-            disableOtherModes()
-            blatantInstantState = state
-            _G.RockHub_BlatantActive = state
+            
+            -- Matikan Mode Lain Manual (Supaya tidak bentrok)
+            if state then
+                -- Matikan Legit
+                local tLegit = farm:GetElementByTitle("Auto Fish (Legit)")
+                if tLegit and tLegit.Value then tLegit:Set(false) end
+                
+                -- Matikan Normal
+                local tNorm = farm:GetElementByTitle("Normal Instant Fish")
+                if tNorm and tNorm.Value then tNorm:Set(false) end
+                
+                -- Matikan Blatant Old
+                local tOld = farm:GetElementByTitle("Instant Fishing (Blatant Old)")
+                if tOld and tOld.Value then tOld:Set(false) end
+                
+                -- Matikan Blatant V5 (Bawaan)
+                local tV5 = farm:GetElementByTitle("Instant Fishing (Blatant)")
+                if tV5 and tV5.Value then tV5:Set(false) end
+            end
+
+            v2State = state
             
             if state then
-                -- Bypass remote checks
-                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) end
-                
-                blatantLoopThread = task.spawn(function()
-                    while blatantInstantState do
-                        local ts = os.time() + os.clock()
-                        pcall(function() RF_ChargeFishingRod:InvokeServer(ts) end)
-                        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99) end)
-                        -- Minimal delay for blatant
-                        task.wait(1.7) 
-                        pcall(function() RE_FishingCompleted:FireServer() end)
-                        task.wait(0.3)
-                        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
-                    end
-                end)
+                -- Update Server State (Biar server tau kita mancing)
+                if RF_UpdateAutoFishingState then 
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) 
+                end
 
-                -- Visual Spoofing (Bikin tombol merah biar dikira mati)
-                task.spawn(function()
-                    local InactiveColor = ColorSequence.new(Color3.fromHex("ff5d60"), Color3.fromHex("ff2256"))
-                    while _G.RockHub_BlatantActive do
-                        for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
-                            if btn:FindFirstChild("UIGradient") then btn.UIGradient.Color = InactiveColor end
-                        end
+                v2Thread = task.spawn(function()
+                    while v2State do
+                        -- 1. Charge & Cast (Simulasi Lempar)
+                        local timestamp = os.time() + os.clock()
+                        pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
+                        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99) end)
+                        
+                        -- 2. Tunggu (Delay Tangkap)
+                        task.wait(v2Delay)
+                        
+                        -- 3. Catch (Tangkap)
+                        pcall(function() RE_FishingCompleted:FireServer() end)
+                        
+                        -- 4. Cleanup & Re-Equip (Anti-Bug)
+                        task.wait(0.2)
+                        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
+                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
+                        
+                        -- Jeda dikit sebelum loop ulang
                         task.wait(0.1)
                     end
                 end)
+                
+                WindUI:Notify({ Title = "Blatant V2 ON", Content = "Running Stable Loop...", Duration = 3, Icon = "zap" })
             else
-                if RF_UpdateAutoFishingState then pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) end
-                if blatantLoopThread then task.cancel(blatantLoopThread) end
+                -- Matikan Thread
+                if v2Thread then task.cancel(v2Thread) v2Thread = nil end
+                
+                -- Reset Server State
+                if RF_UpdateAutoFishingState then 
+                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) 
+                end
+                
+                WindUI:Notify({ Title = "Blatant V2 OFF", Duration = 3 })
             end
         end
     }))
@@ -714,4 +826,5 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
