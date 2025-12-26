@@ -11,13 +11,6 @@ local Window = WindUI:CreateWindow({
     Resizable = true,
 })
 
-Window:Tag({
-    Title = "v1.0",
-    Icon = "github",
-    Color = Color3.fromHex("#30ff6a"),
-    Radius = 0, -- from 0 to 13
-})
-
 -- [[ GLOBAL VARIABLES & SERVICES ]] --
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -610,149 +603,412 @@ do
         end
     }))
 
-    -- [[ BLATANT MODE (REMASTERED OLD LOGIC) ]] --
-    -- Menggunakan basis 'Killer Logic' (mematikan script game) tapi dengan loop yang diperbaiki.
-    local blatant = farm:Section({ Title = "Blatant Mode (Pro)", TextSize = 20 })
+    -- [[ WIND UI LIBRARY ]] --
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local Window = WindUI:CreateWindow({
+    Title = "RockHub: X7 Speed Edition",
+    Icon = "rbxassetid://116236936447443",
+    Author = "User Request",
+    Folder = "RockHubX7",
+    Size = UDim2.fromOffset(600, 360),
+    Transparent = true,
+    Resizable = true,
+})
 
-    local loopDelay = 2.65 -- Delay standar yang aman tapi cepat
-    local isBlatantActive = false
-    local blatantThread = nil
+-- [[ GLOBAL VARIABLES ]] --
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RepStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+-- [[ SETUP MODULES & STATE (PENTING AGAR KODE ANDA JALAN) ]] --
+local Modules = {}
+local featureState = {
+    AutoFish = false,
+    AutoSellMode = "Disabled",
+    AutoFishHighQuality = false,
+    -- Config X7 Speed
+    Instant_WorkerCount = 1,      -- Jumlah thread (Hati-hati, lebih dari 1 bisa kick)
+    Instant_ChargeDelay = 0.5,
+    Instant_StartDelay = 0.5,
+    Instant_SpamCount = 3,
+    Instant_ResetCount = 12,      -- Reset setelah berapa kali lempar
+    Instant_ResetPause = 1.0,     -- Jeda saat reset
+    Instant_CatchTimeout = 5,
+    Instant_CycleDelay = 0.1
+}
+local fishingTrove = {} -- Penampung thread
+local fishCaughtBindable = Instance.new("BindableEvent")
+local lastEventTime = tick()
+local lastSellTime = tick()
+
+-- [[ REMOTE HANDLING ]] --
+-- Mencari remote di folder aneh-aneh (sleitnick_net)
+local function GetRemote(pathTable, name)
+    local cur = RepStorage
+    for _, child in ipairs(pathTable) do
+        cur = cur:WaitForChild(child, 2)
+        if not cur then return nil end
+    end
+    return cur:FindFirstChild(name)
+end
+
+local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
+
+-- Assign Modules
+task.spawn(function()
+    Modules.ChargeRodFunc = GetRemote(RPath, "RF/ChargeFishingRod")
+    Modules.StartMinigameFunc = GetRemote(RPath, "RF/RequestFishingMinigameStarted")
+    Modules.CompleteFishingEvent = GetRemote(RPath, "RE/FishingCompleted")
+    Modules.CancelFishing = GetRemote(RPath, "RF/CancelFishingInputs")
+    Modules.EquipTool = GetRemote(RPath, "RE/EquipToolFromHotbar")
     
-    -- Variables untuk Hook
-    local Old_Charge = nil
-    local Old_Cast = nil
-    local FishingController = nil
-    
-    -- Coba dapatkan controller
+    -- Mencoba mengambil Controller Game
     pcall(function()
-        FishingController = require(game:GetService("ReplicatedStorage").Controllers.FishingController)
-        Old_Charge = FishingController.RequestChargeFishingRod
-        Old_Cast = FishingController.SendFishingRequestToServer
+        Modules.FishingController = require(RepStorage.Controllers.FishingController)
     end)
+    
+    -- Mencoba mencari Remote Efek Teks (Untuk deteksi High Quality)
+    -- Biasanya ada di path ini, tapi bisa berubah
+    Modules.ReplicateTextEffect = RepStorage:FindFirstChild("ReplicateTextEffect", true) 
+end)
 
-    -- [[ 1. CONFIGURATION ]]
-    Reg("blatant_speed", blatant:Slider({
-        Title = "Catch Delay",
-        Desc = "Waktu tunggu (2.6s - 3.0s rekomendasi).",
-        Step = 0.05,
-        Value = { Min = 0.1, Max = 5.0, Default = 2.65 },
-        Callback = function(v) loopDelay = tonumber(v) end
-    }))
+-- [[ HELPER FUNCTIONS ]] --
+local function stopAutoFishProcesses()
+    featureState.AutoFish = false
+    -- Cancel semua thread
+    for _, t in pairs(fishingTrove) do
+        if typeof(t) == "thread" then task.cancel(t) end
+        if typeof(t) == "RBXScriptConnection" then t:Disconnect() end
+    end
+    fishingTrove = {}
+    
+    -- Reset State Server
+    local RF_State = GetRemote(RPath, "RF/UpdateAutoFishingState")
+    if RF_State then pcall(function() RF_State:InvokeServer(false) end) end
+end
 
-    -- [[ 2. REMOTE KILLER (ANTI-DETECTION) ]]
-    -- Memblokir game mengirim sinyal mancing manual saat bot jalan
-    local mt = getrawmetatable(game)
-    local old_namecall = mt.__namecall
-    setreadonly(mt, false)
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if isBlatantActive and not checkcaller() then
-            -- Blokir remote mancing dari script game asli
-            if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod") then
-                return nil 
-            end
-            if method == "FireServer" and self.Name == "FishingCompleted" then
-                return nil
+local function equipFishingRod()
+    local Char = LocalPlayer.Character
+    if not Char then return end
+    local Tool = Char:FindFirstChildOfClass("Tool")
+    if not Tool then
+        if Modules.EquipTool then 
+            Modules.EquipTool:FireServer(1) 
+            task.wait(0.5)
+        end
+    end
+end
+
+local function sellAllItems()
+    -- Placeholder: Tambahkan logika jual di sini jika perlu
+    -- print("Auto Sell Triggered")
+end
+
+local function isLowQualityFish(color)
+    -- Logika sederhana deteksi warna rarity
+    -- Putih/Abu biasanya Common/Sad
+    if color == Color3.fromRGB(255, 255, 255) or color == Color3.fromRGB(150, 150, 150) then
+        return true
+    end
+    return false
+end
+
+local function safeConnect(signal, func)
+    local conn = signal:Connect(func)
+    table.insert(fishingTrove, conn)
+    return conn
+end
+
+
+-- =================================================================
+-- 1. TAB PLAYER (Standard)
+-- =================================================================
+do
+    local playerTab = Window:Tab({ Title = "Player", Icon = "user" })
+    local movement = playerTab:Section({ Title = "Movement", TextSize = 20 })
+    
+    movement:Slider({
+        Title = "WalkSpeed", Step = 1, Value = {Min=16, Max=200, Default=16},
+        Callback = function(v) 
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.WalkSpeed = v 
             end
         end
-        return old_namecall(self, ...)
-    end)
-    setreadonly(mt, true)
+    })
+    
+    movement:Button({
+        Title = "Fix Character (Reset)",
+        Callback = function() LocalPlayer.Character:BreakJoints() end
+    })
+end
 
-    -- [[ 3. MAIN TOGGLE ]]
-    Reg("blatant_toggle", blatant:Toggle({
-        Title = "Enable Blatant Mode",
-        Desc = "Logic Old yang ditingkatkan (Auto Equip + Dynamic Pos).",
-        Value = false,
-        Callback = function(state)
-            if not checkFishingRemotes() then return end
-            isBlatantActive = state
-            _G.RockHub_BlatantActive = state
+-- =================================================================
+-- 2. TAB FISHING (KODE ANDA BERADA DISINI)
+-- =================================================================
+do
+    local FishingTab = Window:Tab({ Title = "X7 Fishing", Icon = "zap" })
+    local MainSection = FishingTab:Section({ Title = "Logic X7 Speed", TextSize = 20 })
 
-            -- A. Handle Controller Hooking
-            if FishingController and Old_Charge and Old_Cast then
-                if state then
-                    -- Matikan fungsi game asli (supaya ga bentrok)
-                    FishingController.RequestChargeFishingRod = function() end
-                    FishingController.SendFishingRequestToServer = function() return false, "RockHub Active" end
-                else
-                    -- Kembalikan fungsi game asli
-                    FishingController.RequestChargeFishingRod = Old_Charge
-                    FishingController.SendFishingRequestToServer = Old_Cast
-                end
-            end
+    -- [[ CORE LOGIC DARI USER ]] --
+    local function startAutoFishMethod_Instant()
+        if not (Modules.ChargeRodFunc and Modules.StartMinigameFunc and Modules.CompleteFishingEvent) then
+            WindUI:Notify({Title="Error", Content="Modules belum load, tunggu sebentar!", Icon="alert-triangle"})
+            stopAutoFishProcesses()
+            return
+        end
 
-            if state then
-                -- B. Update Server State
-                if RF_UpdateAutoFishingState then 
-                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(true) end) 
-                end
+        featureState.AutoFish = true
+        local chargeCount = 0
+        local isCurrentlyResetting = false
+        local counterLock = false
+
+        -- Update Server State agar tidak dikick
+        local RF_State = GetRemote(RPath, "RF/UpdateAutoFishingState")
+        if RF_State then pcall(function() RF_State:InvokeServer(true) end) end
+
+        local function worker()
+            while featureState.AutoFish and LocalPlayer do
+                local currentResetTarget_Worker = featureState.Instant_ResetCount or 15
+
+                if isCurrentlyResetting or chargeCount >= currentResetTarget_Worker then break end
+
+                local success, err = pcall(function()
+                    -- Auto Sell Check
+                    if featureState.AutoSellMode ~= "Disabled" and (tick() - lastSellTime > 20) then
+                        sellAllItems(); lastSellTime = tick()
+                    end
+
+                    if not featureState.AutoFish or isCurrentlyResetting or chargeCount >= currentResetTarget_Worker then return end
+
+                    -- Counter Logic (Safety Mechanism)
+                    local currentCount = 0
+                    local lockTimeout = 0
+                    while counterLock do 
+                        task.wait(0.01); lockTimeout = lockTimeout + 0.01
+                        if lockTimeout > 5 then counterLock = false; break end
+                    end
                 
-                -- C. Start Loop (Improved)
-                blatantThread = task.spawn(function()
-                    while isBlatantActive do
-                        local Char = LocalPlayer.Character
-                        local HRP = Char and Char:FindFirstChild("HumanoidRootPart")
-                        local Tool = Char and Char:FindFirstChildOfClass("Tool")
+                    counterLock = true
+                    if chargeCount < currentResetTarget_Worker then
+                        chargeCount = chargeCount + 1
+                        currentCount = chargeCount
+                    else
+                        currentCount = chargeCount
+                    end
+                    counterLock = false
+
+                    if currentCount > currentResetTarget_Worker then return end
+                    
+                    -- 1. Charge
+                    local chargeStartTime = workspace:GetServerTimeNow()
+                    Modules.ChargeRodFunc:InvokeServer(chargeStartTime)
+                    task.wait(featureState.Instant_ChargeDelay)
+
+                    if not featureState.AutoFish or isCurrentlyResetting then return end
+                    
+                    -- 2. Start Minigame (Dynamic Position Fix)
+                    local char = LocalPlayer.Character
+                    local castPos = char and char.PrimaryPart and (char.PrimaryPart.Position + char.PrimaryPart.CFrame.LookVector * 10) or Vector3.new(-1.25, 1, 0)
+                    
+                    -- Menggunakan argumen yang valid (Vector3) bukan angka
+                    if typeof(castPos) == "Vector3" then
+                        Modules.StartMinigameFunc:InvokeServer(castPos, 100) -- Fix argument
+                    else
+                        Modules.StartMinigameFunc:InvokeServer(-1.25, 1, workspace:GetServerTimeNow()) -- Fallback user code
+                    end
+                    
+                    task.wait(featureState.Instant_StartDelay)
+
+                    if not featureState.AutoFish or isCurrentlyResetting then return end
+                    
+                    -- 3. Spam Complete
+                    for _ = 1, featureState.Instant_SpamCount do
+                        if not featureState.AutoFish or isCurrentlyResetting then break end
+                        Modules.CompleteFishingEvent:FireServer()
+                        task.wait(0.01)
+                    end
+
+                    if not featureState.AutoFish or isCurrentlyResetting then return end
+
+                    -- 4. Wait for Signal (Caught or Filtered)
+                    -- Logika ini menunggu sinyal dari teks diatas kepala
+                    local signalReceived = false
+                    local connection
+                    
+                    local timeoutThread = task.delay(featureState.Instant_CatchTimeout, function()
+                        if not signalReceived and connection and connection.Connected then connection:Disconnect() end
+                    end)
+                    
+                    -- Cancel Inputs biar tidak stuck
+                    Modules.CancelFishing:InvokeServer()
+
+                    -- Listener Event
+                    connection = fishCaughtBindable.Event:Connect(function(status)
+                        signalReceived = true
+                        if timeoutThread then task.cancel(timeoutThread) end
+                        if connection and connection.Connected then connection:Disconnect() end
                         
-                        -- Cek Tool Dulu
-                        if not Tool then
-                            pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                            task.wait(0.8) -- Tunggu animasi equip (Penting!)
-                        elseif HRP then
-                            local timestamp = os.time() + os.clock()
-                            -- Posisi Lempar Dinamis (Depan Muka Karakter)
-                            -- Ini perbaikan dari versi lama yang pakai angka statis -139.6
-                            local castPos = HRP.Position + (HRP.CFrame.LookVector * 15) - Vector3.new(0, 5, 0)
-                            
-                            -- 1. Charge Rod
-                            pcall(function() RF_ChargeFishingRod:InvokeServer(timestamp) end)
-                            
-                            -- 2. Cast (Mulai Minigame)
-                            -- Mengirim CastPos (Vector3) dan Accuracy (100)
-                            pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(castPos, 100) end)
-                            
-                            -- 3. Tunggu Ikan
-                            task.wait(loopDelay)
-                            
-                            -- 4. Catch (Selesai)
-                            pcall(function() RE_FishingCompleted:FireServer() end)
-                            
-                            -- 5. Reset Input
-                            task.wait(0.1)
-                            pcall(function() RF_CancelFishingInputs:InvokeServer() end)
-                            
-                            -- Jeda kecil sebelum loop ulang
-                            task.wait(0.15)
+                        if status == "skipped" then
+                            pcall(function()
+                                if Modules.FishingController then Modules.FishingController:RequestClientStopFishing(true) end
+                            end)
                         end
+                    end)
+
+                    -- Fallback Loop jika detection gagal (Wait manual)
+                    local wTime = 0
+                    while not signalReceived and wTime < featureState.Instant_CatchTimeout do
+                        if not featureState.AutoFish or isCurrentlyResetting then break end
+                        task.wait(0.1)
+                        wTime = wTime + 0.1
                     end
+                    
+                    if connection and connection.Connected then connection:Disconnect() end
+                    Modules.CancelFishing:InvokeServer()
+
+                    -- Cleanup Client
+                    pcall(function()
+                         if Modules.FishingController then Modules.FishingController:RequestClientStopFishing(true) end
+                    end)
                 end)
 
-                -- D. Visual Spoofing (Bikin Tombol Merah)
-                task.spawn(function()
-                    local InactiveColor = ColorSequence.new(Color3.fromHex("ff5d60"), Color3.fromHex("ff2256"))
-                    while isBlatantActive do
-                        for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
-                            if btn:FindFirstChild("UIGradient") then btn.UIGradient.Color = InactiveColor end
-                        end
-                        task.wait(0.5)
-                    end
-                end)
-
-                WindUI:Notify({ Title = "Blatant ON", Content = "Controller Halted, Custom Loop Running.", Duration = 3, Icon = "zap" })
-            else
-                -- Matikan Loop
-                if blatantThread then task.cancel(blatantThread) blatantThread = nil end
-                
-                -- Reset Server State
-                if RF_UpdateAutoFishingState then 
-                    pcall(function() RF_UpdateAutoFishingState:InvokeServer(false) end) 
-                end
-                
-                WindUI:Notify({ Title = "Blatant OFF", Duration = 2 })
+                if not success and not tostring(err):find("busy") then warn("Worker Error:", err) end
+                if not featureState.AutoFish then break end
+                task.wait(featureState.Instant_CycleDelay)
             end
         end
-    }))
+
+        -- Worker Manager
+        local autoFishThread = task.spawn(function()
+            while featureState.AutoFish do
+                local currentResetTarget = featureState.Instant_ResetCount or 15
+                local currentPauseTime = featureState.Instant_ResetPause or 0.1
+
+                chargeCount = 0
+                isCurrentlyResetting = false
+                local batchTrove = {} 
+
+                -- Spawn Worker Threads
+                for i = 1, featureState.Instant_WorkerCount do
+                    if not featureState.AutoFish then break end
+                    local workerThread = task.spawn(worker)
+                    table.insert(batchTrove, workerThread)
+                    table.insert(fishingTrove, workerThread) 
+                end
+
+                -- Tunggu sampai target tercapai (Reset Count)
+                while featureState.AutoFish and chargeCount < currentResetTarget do task.wait(0.1) end
+
+                -- Reset Phase
+                isCurrentlyResetting = true 
+                if featureState.AutoFish then
+                    for _, thread in ipairs(batchTrove) do task.cancel(thread) end
+                    batchTrove = {}
+                    task.wait(currentPauseTime) 
+                end
+            end
+            stopAutoFishProcesses()
+        end)
+        table.insert(fishingTrove, autoFishThread)
+    end
+
+    -- Toggle Function
+    local function startOrStopAutoFish(shouldStart)
+        if shouldStart then
+            stopAutoFishProcesses()
+            featureState.AutoFish = true
+            equipFishingRod()
+            task.wait(0.5)
+            WindUI:Notify({Title="Starting X7", Content="Initializing worker threads...", Duration=2})
+            startAutoFishMethod_Instant()
+        else
+            stopAutoFishProcesses()
+            WindUI:Notify({Title="Stopped", Content="All threads killed.", Duration=2})
+        end
+    end
+
+    -- Detect Fish Catch (High Quality Filter)
+    if Modules.ReplicateTextEffect then
+        local replicateTextConn = Modules.ReplicateTextEffect.OnClientEvent:Connect(function(data)
+            if not featureState.AutoFish then return end
+            
+            local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
+            if not (data and data.TextData and data.TextData.EffectType == "Exclaim" and myHead and data.Container == myHead) then
+                return
+            end
+            
+            lastEventTime = tick()
+            
+            -- Filter Logic
+            if featureState.AutoFishHighQuality then
+                local colorValue = data.TextData.TextColor
+                if colorValue and isLowQualityFish(colorValue) then
+                    pcall(function()
+                        Modules.FishingController:RequestClientStopFishing(true)
+                    end)
+                    fishCaughtBindable:Fire("skipped") 
+                    return 
+                end
+            end
+            
+            fishCaughtBindable:Fire("caught")
+        end)
+        table.insert(fishingTrove, replicateTextConn)
+    else
+        -- Fallback Simulation jika Remote Text Effect beda nama/tidak ketemu
+        -- Ini supaya script tidak stuck nunggu sinyal
+        task.spawn(function()
+            while task.wait(1) do
+                if featureState.AutoFish then fishCaughtBindable:Fire("caught") end
+            end
+        end)
+    end
+
+    -- UI Elements
+    MainSection:Toggle({
+        Title = "ENABLE X7 SPEED (BETA)",
+        Desc = "Logic Worker + Reset. Sangat cepat, hati-hati disconnect.",
+        Value = false,
+        Callback = startOrStopAutoFish
+    })
+
+    local ConfigSection = FishingTab:Section({ Title = "X7 Configuration", TextSize = 18 })
+    
+    ConfigSection:Slider({
+        Title = "Worker Count (Threads)",
+        Desc = "Jumlah 'Orang' yang mancing barengan. 1 = Aman, 2+ = Risiko Kick.",
+        Step = 1,
+        Value = { Min = 1, Max = 5, Default = 1 },
+        Callback = function(v) featureState.Instant_WorkerCount = v end
+    })
+
+    ConfigSection:Slider({
+        Title = "Reset Count",
+        Desc = "Istirahat sejenak setelah berapa kali lempar?",
+        Step = 1,
+        Value = { Min = 5, Max = 50, Default = 15 },
+        Callback = function(v) featureState.Instant_ResetCount = v end
+    })
+
+    ConfigSection:Slider({
+        Title = "Catch Timeout",
+        Desc = "Batas waktu nunggu ikan (Detik).",
+        Step = 0.5,
+        Value = { Min = 1, Max = 10, Default = 4 },
+        Callback = function(v) featureState.Instant_CatchTimeout = v end
+    })
+    
+    ConfigSection:Toggle({
+        Title = "Filter Low Quality (Beta)",
+        Desc = "Skip ikan warna putih/abu (Membutuhkan Text Detection).",
+        Value = false,
+        Callback = function(v) featureState.AutoFishHighQuality = v end
+    })
+end
+
+WindUI:Notify({ Title = "Loaded", Content = "X7 Speed Logic Integrated.", Duration = 4, Icon = "check" })
 
     -- FISHING AREA SECTION
     farm:Divider()
@@ -1087,5 +1343,3 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
-
-
