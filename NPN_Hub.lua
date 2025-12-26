@@ -914,6 +914,47 @@ do
         end
     end
 
+    function StartFishNotificationControl()
+    NotifProcessRunning = true
+
+    if NotifProcessRunning then
+        NotifProcessRunning:Disconnect()
+    end
+
+    NotifProcessRunning = ObtainedNotifEvent.OnClientEvent:Connect(function(...)
+        local args = {...}
+        local data = args[3]
+
+        -- Anti infinite loop
+        if data and data.CustomDuration == 15 then
+            return
+        end
+
+        local clonedArgs = DeepCopy(args)
+
+        -- paksa durasi lama (biar kelihatan jelas)
+        if clonedArgs[3] then
+            clonedArgs[3].CustomDuration = 15
+        end
+
+        -- masukkan ke queue
+        table.insert(NotifQueue, clonedArgs)
+
+        -- jalankan processor
+        ProcessQueue()
+    end)
+        end
+    function StopFishNotificationControl()
+    NotifProcessRunning = false
+
+    if NotifProcessRunning then
+        NotifProcessRunning:Disconnect()
+        NotifProcessRunning = nil
+    end
+
+    NotifQueue = {}
+        end
+
     local function ProcessNotifQueue()
         if NotifProcessRunning then return end
         NotifProcessRunning = true
@@ -979,7 +1020,7 @@ do
 
     local function stopAutoFishProcesses_X5()
         featureState_X5.AutoFish = false
-        StopInterceptor()
+        StopFishNotificationControl()
         for i, item in ipairs(fishingTrove_X5) do
             if typeof(item) == "RBXScriptConnection" then item:Disconnect()
             elseif typeof(item) == "thread" then task.cancel(item) end
@@ -995,7 +1036,7 @@ do
     local function startAutoFishMethod_Instant_X5()
         if not (Modules_X5.ChargeRodFunc and Modules_X5.StartMinigameFunc and Modules_X5.CompleteFishingEvent) then return end
         featureState_X5.AutoFish = true
-        StartInterceptor()
+        StartFishNotificationControl()
         local chargeCount = 0
         local isCurrentlyResetting = false
         local counterLock = false
@@ -1435,3 +1476,4 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
