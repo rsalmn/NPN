@@ -918,9 +918,9 @@ do
     local UltraBlatant_Active = false
 
     -- DEFAULT DELAYS
-    local V4_CompleteDelay = 0.73
-    local V4_CancelDelay = 0.30
-    local V4_RecastDelay = 0.01
+    local V4_CompleteDelay = 0.77
+    local V4_CancelDelay = 0.36
+    local V4_RecastDelay = 0.001
 
 
     ------------------------------------------------------------
@@ -1437,3 +1437,4 @@ do
 end
 
 WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
+
