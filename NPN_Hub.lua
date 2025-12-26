@@ -1352,7 +1352,7 @@ do
                     end)
                 end
                 
-                task.wait(1.25) -- delay tampil satu per satu
+                task.wait(1.2) -- delay tampil satu per satu
             end
 
             NotifProcessRunning = false
@@ -1381,7 +1381,7 @@ do
             -------------------------------------------------
             -- Stop jika ini notifikasi buatan (loop protector)
             -------------------------------------------------
-            if itemData.CustomDuration == 13 then
+            if itemData.CustomDuration == 8 then
                 return
             end
 
@@ -1407,7 +1407,7 @@ do
             -- Push to Queue
             -------------------------------------------------
             local newArgs = deepCopy(args)
-            newArgs[3].CustomDuration = 13 -- Durasi panjang
+            newArgs[3].CustomDuration = 8 -- Durasi panjang
 
             table.insert(NotifQueue, newArgs)
             ProcessNotifQueue()
@@ -2002,6 +2002,7 @@ do
 end
 
 WindUI:Notify({ Title = "Extracted Script Loaded", Content = "Player & Fishing Tabs Only", Duration = 5, Icon = "check" })
+
 
 
 
