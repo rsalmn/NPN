@@ -25,6 +25,12 @@ local function Reg(id, element)
     return element
 end
 
+local NetFolder = RepStorage
+    :WaitForChild("Packages")
+    :WaitForChild("_Index")
+    :WaitForChild("sleitnick_net@0.2.0")
+    :WaitForChild("net")
+
 -- [[ HELPER FUNCTIONS ]] --
 local function GetHumanoid()
     local Character = LocalPlayer.Character
@@ -264,7 +270,6 @@ local function OnCharacterAdded(newCharacter)
     end
 end
 
-local RepStorage = game:GetService("ReplicatedStorage") 
 local ItemUtility = require(RepStorage:WaitForChild("Shared"):WaitForChild("ItemUtility", 10))
 local TierUtility = require(RepStorage:WaitForChild("Shared"):WaitForChild("TierUtility", 10))
 
@@ -412,7 +417,9 @@ do
     end
 
     -- SECTION: AUTO FISHING
-    local autofish = farm:Section({ Title = "1. Auto Fishing", TextSize = 20 })
+    local fishMancing = farm:Section({ Title = "Fishing", TextSize = 20})
+
+    local autofish = fishMancing:Section({ Title = "1. Auto Fishing", TextSize = 20 })
 
     -- 1. LEGIT MODE
     local SPEED_LEGIT = 0.05
@@ -491,7 +498,7 @@ do
     }))
 
     -- [[ BLATANT MODE (OLD / KILLER LOGIC) ]] --
-    local blatant = farm:Section({ Title = "2. Blatant Mode (Old)", TextSize = 20, })
+    local blatant = fishMancing:Section({ Title = "2. Blatant Mode (Old)", TextSize = 20, })
 
     local completeDelay = 3.055
     local cancelDelay = 0.3
@@ -709,7 +716,6 @@ do
     ------------------------------------------------------------
     -- REAL FISH NOTIFICATION QUEUE ENGINE (SAFE)
     ------------------------------------------------------------
-    local RepStorage = game:GetService("ReplicatedStorage")
     local Net = RepStorage.Packages._Index["sleitnick_net@0.2.0"].net
 
     local ObtainedNotifEvent = Net["RE/ObtainedNewFishNotification"]
@@ -1031,14 +1037,6 @@ do
         TextSize = 20
     })
 
-    local RepStorage = game:GetService("ReplicatedStorage")
-
-    local NetFolder = RepStorage
-        :WaitForChild("Packages")
-        :WaitForChild("_Index")
-        :WaitForChild("sleitnick_net@0.2.0")
-        :WaitForChild("net")
-
     local RF_ChargeFishingRod = NetFolder["RF/ChargeFishingRod"]
     local RF_RequestFishingMinigameStarted = NetFolder["RF/RequestFishingMinigameStarted"]
     local RF_CancelFishingInputs = NetFolder["RF/CancelFishingInputs"]
@@ -1272,14 +1270,6 @@ do
         Title = "Blatant V5 (Tester)",
         TextSize = 20
     })
-
-    local RepStorage = game:GetService("ReplicatedStorage")
-
-    local NetFolder = RepStorage
-        :WaitForChild("Packages")
-        :WaitForChild("_Index")
-        :WaitForChild("sleitnick_net@0.2.0")
-        :WaitForChild("net")
 
     local RF_ChargeFishingRod = NetFolder["RF/ChargeFishingRod"]
     local RF_RequestFishingMinigameStarted = NetFolder["RF/RequestFishingMinigameStarted"]
