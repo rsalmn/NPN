@@ -654,17 +654,14 @@ end
 --============================================================
 do
     local extra = farm:Section({
-        Title = "🔥 Blatant Extra Function (Final Adaptive Engine)",
+        Title = "🔥 Blatant Extra Function (Unified Engine)",
         TextSize = 20
     })
 
     ------------------------------------------------------------
-    -- DEPENDENCIES
+    -- REMOTES
     ------------------------------------------------------------
     local RepStorage = game:GetService("ReplicatedStorage")
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-
     local Net = RepStorage.Packages._Index["sleitnick_net@0.2.0"].net
 
     local RF_Charge = Net["RF/ChargeFishingRod"]
@@ -675,99 +672,34 @@ do
     local RE_Change = Net["RE/FishingMinigameChanged"]
     local RE_Equip = Net["RE/EquipToolFromHotbar"]
 
-    local ObtainedNotifEvent = Net["RE/ObtainedNewFishNotification"]
-
     ------------------------------------------------------------
     -- STATE
     ------------------------------------------------------------
     local EXTRA_ACTIVE = false
     local LOOP = nil
     local EQUIP = nil
+    local WATCHDOG = nil
+
     local lastComplete = 0
 
     ------------------------------------------------------------
-    -- ROD SPEED AUTO DETECT
-    ------------------------------------------------------------
-    local RodSpeedMap = {
-        ["Wooden Rod"] = 1.00,
-        ["Carbon Rod"] = 0.85,
-        ["Pro Rod"] = 0.65,
-        ["Mythic Rod"] = 0.45,
-        ["God Rod"] = 0.35,
-    }
-
-    ------------------------------------------------------------
-    -- AUTO SKIN SPEED PROFILE
-    ------------------------------------------------------------
-    local RodSpeedProfile = {
-        Eclipse = {
-            ChargeDelay = 0.006,
-            CompleteDelay = 0.10,
-            CancelDelay = 0.12,
-        },
-
-        HolyTrident = {
-            ChargeDelay = 0.0045,
-            CompleteDelay = 0.085,
-            CancelDelay = 0.10,
-        },
-
-        SoulScythe = {
-            ChargeDelay = 0.0035,
-            CompleteDelay = 0.07,
-            CancelDelay = 0.09,
-        },
-
-        Default = {
-            ChargeDelay = 0.009,
-            CompleteDelay = 0.12,
-            CancelDelay = 0.14,
-        }
-    }
-
-    local function GetCurrentRodSpeed()
-        local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-        if not tool then return 1 end
-        
-        for name, speed in pairs(RodSpeedProfile) do
-            if string.find(string.lower(tool.Name), string.lower(name)) then
-                return speed
-            end
-        end
-        
-        return 1
-    end
-
-    local function GetCurrentRodSkin()
-        local char = LocalPlayer.Character
-        if not char then return "Default" end
-
-        local tool = char:FindFirstChildOfClass("Tool")
-        if not tool then return "Default" end
-
-        local name = tool.Name
-
-        if string.find(name, "Eclipse") then return "Eclipse" end
-        if string.find(name, "Trident") then return "HolyTrident" end
-        if string.find(name, "Scythe") then return "SoulScythe" end
-        
-        return "Default"
-    end
-
-    ------------------------------------------------------------
-    -- CONFIG (BASE)
+    -- CONFIG (Hybrid Default)
     ------------------------------------------------------------
     local CFG = {
-        ChargeDelay = 0.007,
-        CompleteDelay = 0.72,
-        CancelDelay = 0.28,
+        ChargeDelay = 0.007,     -- V2 Brain
+        CompleteDelay = 0.72,    -- V4 Stability
+        CancelDelay = 0.28,      -- V4 Stability
+        TurboFactor = 0.25,      -- Borrow V5 + Smart scaling
+        Cooldown = 0.35,
     }
 
     ------------------------------------------------------------
-    -- SAFE CALL
+    -- SAFE FIRE
     ------------------------------------------------------------
     local function safe(fn)
-        task.spawn(function() pcall(fn) end)
+        task.spawn(function()
+            pcall(fn)
+        end)
     end
 
     ------------------------------------------------------------
@@ -775,95 +707,92 @@ do
     ------------------------------------------------------------
     local function SafeComplete()
         local now = tick()
-        if now - lastComplete < 0.35 then return false end
+        if now - lastComplete < CFG.Cooldown then
+            return false
+        end
         lastComplete = now
-        safe(function() RE_Complete:FireServer() end)
+        safe(function()
+            RE_Complete:FireServer()
+        end)
         return true
     end
 
     ------------------------------------------------------------
-    -- NOTIFICATION ENGINE
-    ------------------------------------------------------------
-    local NotifQueue = {}
-    local NotifProcess = false
-    local NotifConn = nil
-
-    local function DeepCopy(tbl)
-        local new = {}
-        for k,v in pairs(tbl) do
-            new[k] = type(v)=="table" and DeepCopy(v) or v
-        end
-        return new
-    end
-
-    local function ProcessNotif()
-        if NotifProcess then return end
-        NotifProcess = true
-        task.spawn(function()
-            while #NotifQueue > 0 do
-                local args = table.remove(NotifQueue,1)
-                pcall(function()
-                    firesignal(ObtainedNotifEvent.OnClientEvent, unpack(args))
-                end)
-                task.wait(1.2)
-            end
-            NotifProcess=false
-        end)
-    end
-
-    function StartFishNotificationControl()
-        if NotifConn then NotifConn:Disconnect() end
-        NotifConn = ObtainedNotifEvent.OnClientEvent:Connect(function(...)
-            local args = {...}
-            local cloned = DeepCopy(args)
-            if cloned[3] then
-                cloned[3].CustomDuration = 15
-            end
-            table.insert(NotifQueue,cloned)
-            ProcessNotif()
-        end)
-    end
-
-    function StopFishNotificationControl()
-        if NotifConn then NotifConn:Disconnect() NotifConn=nil end
-        NotifQueue={}
-    end
-
-    ------------------------------------------------------------
-    -- MAIN ENGINE
+    -- MEGA ENGINE
     ------------------------------------------------------------
     local function ExtraCycle()
         if not EXTRA_ACTIVE then return end
-        
-        local speedScale = GetCurrentRodSpeed()
-
-        safe(function() RF_Cancel:InvokeServer() end)
-        task.wait(0.03)
 
         local t = tick()
 
-        safe(function() RF_Charge:InvokeServer({[1]=t}) end)
-        task.wait(CFG.ChargeDelay * speedScale)
-
-        safe(function()
-            RF_Start:InvokeServer(1,0,t)
-        end)
-
-        task.wait(CFG.CompleteDelay * speedScale)
-
-        SafeComplete()
-
-        task.wait(CFG.CancelDelay * speedScale)
-
+        -- Cancel Residual (V3 / Watchdog idea)
         safe(function()
             RF_Cancel:InvokeServer()
         end)
 
-        print("🎣 Skin:", speedScale)
+        task.wait(0.03)
+
+        -- Charge (V2 style)
+        safe(function()
+            RF_Charge:InvokeServer({[1] = t})
+        end)
+
+        task.wait(CFG.ChargeDelay)
+
+        -- Start mini
+        safe(function()
+            RF_Start:InvokeServer(1, 0, t)
+        end)
+
+        -- Smart Complete Hybrid (V2+V4+Turbo)
+        local dynamicWait = math.max(
+            CFG.CompleteDelay * CFG.TurboFactor,
+            0.1
+        )
+
+        task.wait(dynamicWait)
+
+        SafeComplete()
+
+        -- Cancel
+        task.wait(CFG.CancelDelay)
+        safe(function()
+            RF_Cancel:InvokeServer()
+        end)
+
+        -- instant turbo recast
+        task.wait(0.02)
+
+        safe(function()
+            RF_Charge:InvokeServer({[1] = tick()})
+        end)
+
+        task.wait(0.01)
+
+        safe(function()
+            RF_Start:InvokeServer(1, 0, tick())
+        end)
     end
 
     ------------------------------------------------------------
-    -- AUTO EQUIP LOOP
+    -- REALTIME FAILSAFE
+    ------------------------------------------------------------
+    RE_Change.OnClientEvent:Connect(function()
+        if not EXTRA_ACTIVE then return end
+
+        task.spawn(function()
+            task.wait(CFG.CompleteDelay)
+            if SafeComplete() then
+                task.wait(CFG.CancelDelay)
+                safe(function()
+                    RF_Cancel:InvokeServer()
+                end)
+            end
+        end)
+    end)
+
+    ------------------------------------------------------------
+    -- EQUIP LOOP (V2/V3)
     ------------------------------------------------------------
     local function StartEquip()
         EQUIP = task.spawn(function()
@@ -877,39 +806,38 @@ do
     end
 
     ------------------------------------------------------------
+    -- WATCHDOG
+    ------------------------------------------------------------
+    local function StartWatchdog()
+        WATCHDOG = task.spawn(function()
+            while EXTRA_ACTIVE do
+                safe(function()
+                    RF_Cancel:InvokeServer()
+                end)
+                task.wait(6)
+            end
+        end)
+    end
+
+    ------------------------------------------------------------
     -- LOOP
     ------------------------------------------------------------
     local function StartLoop()
         LOOP = task.spawn(function()
             while EXTRA_ACTIVE do
                 ExtraCycle()
-                task.wait(0.1)
+                task.wait(0.15)
             end
         end)
     end
 
     ------------------------------------------------------------
-    -- SYNC FAILSAFE
-    ------------------------------------------------------------
-    RE_Change.OnClientEvent:Connect(function()
-        if not EXTRA_ACTIVE then return end
-        task.spawn(function()
-            task.wait(CFG.CompleteDelay)
-            if SafeComplete() then
-                task.wait(CFG.CancelDelay)
-                safe(function()
-                    RF_Cancel:InvokeServer()
-                end)
-            end
-        end)
-    end)
-
-    ------------------------------------------------------------
-    -- UI INPUT
+    -- UI SETTINGS
     ------------------------------------------------------------
     Reg("extra_charge", extra:Input({
         Title = "Charge Delay",
         Value = tostring(CFG.ChargeDelay),
+        Placeholder = "0.007",
         Callback = function(v)
             local n = tonumber(v)
             if n then CFG.ChargeDelay = n end
@@ -919,6 +847,7 @@ do
     Reg("extra_complete", extra:Input({
         Title = "Complete Delay",
         Value = tostring(CFG.CompleteDelay),
+        Placeholder = "0.72",
         Callback = function(v)
             local n = tonumber(v)
             if n then CFG.CompleteDelay = n end
@@ -928,9 +857,20 @@ do
     Reg("extra_cancel", extra:Input({
         Title = "Cancel Delay",
         Value = tostring(CFG.CancelDelay),
+        Placeholder = "0.28",
         Callback = function(v)
             local n = tonumber(v)
             if n then CFG.CancelDelay = n end
+        end
+    }))
+
+    Reg("extra_turbo", extra:Input({
+        Title = "Turbo Factor (0.1 = SUPER FAST)",
+        Value = tostring(CFG.TurboFactor),
+        Placeholder = "0.25",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n>0 then CFG.TurboFactor = n end
         end
     }))
 
@@ -943,7 +883,10 @@ do
         Callback = function(state)
 
             if not checkFishingRemotes() then
-                WindUI:Notify({Title="Missing Remotes",Duration=3})
+                WindUI:Notify({
+                    Title="Missing Remotes",
+                    Duration=3
+                })
                 return
             end
 
@@ -956,18 +899,21 @@ do
 
                 StartEquip()
                 StartLoop()
+                StartWatchdog()
+                StartFishNotificationControl()
 
                 WindUI:Notify({
-                    Title = "Blatant Extra ENABLED",
-                    Content = "Adaptive Hybrid Engine Running",
-                    Duration = 4,
+                    Title="Blatant Extra Function ENABLED",
+                    Content="Hybrid Engine Running",
+                    Duration=4,
                     Icon="zap"
                 })
             else
-                EXTRA_ACTIVE = false
+                EXTRA_ACTIVE=false
 
                 if LOOP then task.cancel(LOOP) end
                 if EQUIP then task.cancel(EQUIP) end
+                if WATCHDOG then task.cancel(WATCHDOG) end
 
                 StopFishNotificationControl()
 
@@ -976,14 +922,13 @@ do
                 end)
 
                 WindUI:Notify({
-                    Title="Blatant Extra Disabled",
+                    Title="Stopped",
                     Duration=2
                 })
             end
         end
     }))
 end
-
 
 -- FISHING SUPPORT
 
