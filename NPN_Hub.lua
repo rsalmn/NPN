@@ -655,7 +655,7 @@ do
     end
 
     local togblat = Reg("blatantt_old",blatant:Toggle({
-        Title = "Instant Fishing (Blatant Old)",
+        Title = "2. Blatant Old",
         Value = false,
         Callback = function(state)
             if not checkFishingRemotes() then return end
@@ -712,6 +712,7 @@ do
     }))
 end
 
+/*
 do
     ------------------------------------------------------------
     -- REAL FISH NOTIFICATION QUEUE ENGINE (SAFE)
@@ -1026,14 +1027,14 @@ do
     }))
 
 end
-
+*/
 ------------------------------------------------------------
 -- BLATANT V4 - FINAL STABLE EDITION
 -- Fast + Safe + Adaptive
 ------------------------------------------------------------
 do
-    local v4 = farm:Section({
-        Title = "5 Blatant V4 (Final)",
+    local v4 = fishMancing:Section({
+        Title = "3. Blatant V2",
         TextSize = 20
     })
 
@@ -1208,7 +1209,7 @@ do
     -- TOGGLE
     ------------------------------------------------------------
     Reg("v4toggle", v4:Toggle({
-        Title = "Enable Blatant V4 (Final)",
+        Title = "Enable Blatant V2",
         Value = false,
         Callback = function(state)
 
@@ -1234,7 +1235,7 @@ do
                 V4_LoopThread = task.spawn(V4_Loop)
 
                 WindUI:Notify({
-                    Title="Blatant V4 Enabled",
+                    Title="Blatant V2 Enabled",
                     Content="Final Stable Mode Activated",
                     Duration=4,
                     Icon="zap"
@@ -1253,7 +1254,7 @@ do
                 end)
 
                 WindUI:Notify({
-                    Title="Blatant V4 Stopped",
+                    Title="Blatant V2 Stopped",
                     Duration=3
                 })
             end
@@ -1266,8 +1267,8 @@ do
     -- BLATANT V5 (TESTER)
     -- Ultra Spam Mode (Gila Cepat, tapi Experimental)
     ------------------------------------------------------------
-    local v5 = farm:Section({
-        Title = "Blatant V5 (Tester)",
+    local v5 = fishMancing:Section({
+        Title = "4. Blatant (Tester)",
         TextSize = 20
     })
 
