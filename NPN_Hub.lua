@@ -1278,165 +1278,71 @@ do
 end
 
 do
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local Players = game:GetService("Players")
+    local v6 = farm:Section({ Title = "5. Blatant V6 (Ultra)", TextSize = 20 })
 
-    -- NETWORK
-    local netFolder = ReplicatedStorage
-        :WaitForChild("Packages")
-        :WaitForChild("_Index")
-        :WaitForChild("sleitnick_net@0.2.0")
-        :WaitForChild("net")
+    local V6_Active = false
+    local V6_Settings = { CompleteDelay = 0.05, CancelDelay = 0.05 }
+    local V6_Stats = { CastCount = 0 }
 
-    local RF_ChargeFishingRod = netFolder:WaitForChild("RF/ChargeFishingRod")
-    local RF_RequestMinigame = netFolder:WaitForChild("RF/RequestFishingMinigameStarted")
-    local RF_CancelFishingInputs = netFolder:WaitForChild("RF/CancelFishingInputs")
-    local RF_UpdateAutoFishingState = netFolder:WaitForChild("RF/UpdateAutoFishingState")
-    local RE_FishingCompleted = netFolder:WaitForChild("RE/FishingCompleted")
-    local RE_MinigameChanged = netFolder:WaitForChild("RE/FishingMinigameChanged")
-
-    -- MODULE
-    local BlatantV6 = {}
-    BlatantV6.Active = false
-
-    BlatantV6.Stats = {
-        castCount = 0,
-        perfectCasts = 0,
-        startTime = 0
-    }
-
-    BlatantV6.Settings = {
-        ChargeDelay = 0.007,
-        CompleteDelay = 0.001,
-        CancelDelay = 0.001,
-        SafeCooldown = 0.35 -- NEW Anti double complete
-    }
-
-    local lastComplete = 0
-
-    local function safeFire(func)
-        task.spawn(function()
-            pcall(func)
-        end)
+    local function safeFire(fn)
+        task.spawn(function() pcall(fn) end)
     end
 
-    ---------------------------------------------------------
-    -- SMART COMPLETE PROTECTION
-    ---------------------------------------------------------
-    local function SafeComplete()
-        local now = tick()
-        if now - lastComplete < BlatantV6.Settings.SafeCooldown then
-            return false
-        end
-
-        lastComplete = now
-        safeFire(function()
-            RE_FishingCompleted:FireServer()
-        end)
-
-        return true
-    end
-
-
-    ---------------------------------------------------------
-    -- MAIN ENGINE
-    ---------------------------------------------------------
-    local function ultraPerfectLoop()
-        while BlatantV6.Active do
-            local startTime = tick()
-
-            safeFire(function()
-                RF_ChargeFishingRod:InvokeServer({[1] = startTime})
-            end)
-
-            task.wait(BlatantV6.Settings.ChargeDelay)
-
-            local releaseTime = tick()
-            safeFire(function()
-                RF_RequestMinigame:InvokeServer(1, 0, releaseTime)
-            end)
-
-            BlatantV6.Stats.castCount += 1
-            BlatantV6.Stats.perfectCasts += 1
-
-            task.wait(BlatantV6.Settings.CompleteDelay)
-
-            SafeComplete()
-
-            task.wait(BlatantV6.Settings.CancelDelay)
-
-            safeFire(function()
-                RF_CancelFishingInputs:InvokeServer()
-            end)
+    local function V6_Loop()
+        while V6_Active do
+            local now = tick()
+            safeFire(function() RF_ChargeFishingRod:InvokeServer({[1] = now}) end)
+            safeFire(function() RF_RequestFishingMinigameStarted:InvokeServer(1, 0, now) end)
+            V6_Stats.CastCount = V6_Stats.CastCount + 1
+            task.wait(V6_Settings.CompleteDelay)
+            safeFire(function() RE_FishingCompleted:FireServer() end)
+            task.wait(V6_Settings.CancelDelay)
+            safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
         end
     end
 
+    if RE_FishingMinigameChanged then
+        RE_FishingMinigameChanged.OnClientEvent:Connect(function()
+            if not V6_Active then return end
+            task.spawn(function()
+                task.wait(V6_Settings.CompleteDelay)
+                safeFire(function() RE_FishingCompleted:FireServer() end)
+                task.wait(V6_Settings.CancelDelay)
+                safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
+            end)
+        end)
+    end
 
-    ---------------------------------------------------------
-    -- FAILSAFE EVENT LISTENER
-    ---------------------------------------------------------
-    RE_MinigameChanged.OnClientEvent:Connect(function()
-        if not BlatantV6.Active then return end
+    Reg("v6comp", v6:Input({
+        Title = "Complete Delay", Value = tostring(V6_Settings.CompleteDelay), Placeholder = "0.05",
+        Callback = function(v) local n = tonumber(v); if n then V6_Settings.CompleteDelay = n end end
+    }))
 
-        task.spawn(function()
-            task.wait(BlatantV6.Settings.CompleteDelay)
+    Reg("v6canc", v6:Input({
+        Title = "Cancel Delay", Value = tostring(V6_Settings.CancelDelay), Placeholder = "0.05",
+        Callback = function(v) local n = tonumber(v); if n then V6_Settings.CancelDelay = n end end
+    }))
 
-            if SafeComplete() then
-                task.wait(BlatantV6.Settings.CancelDelay)
-                safeFire(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
+    Reg("v6toggle", v6:Toggle({
+        Title = "Enable Blatant V6", Desc = "Ultra Mode (Fastest)", Value = false,
+        Callback = function(s)
+            if s then
+                if V6_Active then return end
+                V6_Active = true
+                safeFire(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                task.wait(0.2)
+                task.spawn(V6_Loop)
+                WindUI:Notify({ Title = "V6 ULTRA ON", Duration = 2, Icon = "zap" })
+            else
+                if not V6_Active then return end
+                V6_Active = false
+                safeFire(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
+                task.wait(0.2)
+                safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
+                WindUI:Notify({ Title = "V6 Stopped", Duration = 2 })
             end
-        end)
-    end)
-
-
-    ---------------------------------------------------------
-    -- API
-    ---------------------------------------------------------
-    function BlatantV6.UpdateSettings(charge, complete, cancel)
-        if charge then BlatantV6.Settings.ChargeDelay = charge end
-        if complete then BlatantV6.Settings.CompleteDelay = complete end
-        if cancel then BlatantV6.Settings.CancelDelay = cancel end
-    end
-
-
-    function BlatantV6.Start()
-        if BlatantV6.Active then return end
-
-        BlatantV6.Active = true
-        BlatantV6.Stats.castCount = 0
-        BlatantV6.Stats.perfectCasts = 0
-        BlatantV6.Stats.startTime = tick()
-        lastComplete = 0
-
-        safeFire(function()
-            RF_UpdateAutoFishingState:InvokeServer(true)
-        end)
-
-        task.spawn(ultraPerfectLoop)
-    end
-
-
-    function BlatantV6.Stop()
-        if not BlatantV6.Active then return end
-
-        BlatantV6.Active = false
-
-        safeFire(function()
-            RF_UpdateAutoFishingState:InvokeServer(true)
-        end)
-
-        task.wait(0.15)
-
-        safeFire(function()
-            RF_CancelFishingInputs:InvokeServer()
-        end)
-    end
-
-
-    return BlatantV6
-
+        end
+    }))
 end
 
 do
