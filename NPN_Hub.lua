@@ -86,7 +86,7 @@ local eventsList = {
 -- =========================
 local EventTP = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/akmiliadevi/Tugas_Kuliah/refs/heads/main/Project_code/Utama/SkinSwapAnimation.lua"
-))()
+,true))()
 
 -- Sync list ke UI bawaan kamu
 local eventsList = EventTP.GetEventNames()
