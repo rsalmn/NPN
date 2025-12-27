@@ -268,6 +268,15 @@ local RepStorage = game:GetService("ReplicatedStorage")
 local ItemUtility = require(RepStorage:WaitForChild("Shared"):WaitForChild("ItemUtility", 10))
 local TierUtility = require(RepStorage:WaitForChild("Shared"):WaitForChild("TierUtility", 10))
 
+local function GetPlayerDataReplion()
+    if PlayerDataReplion then return PlayerDataReplion end
+    local ReplionModule = RepStorage:WaitForChild("Packages"):WaitForChild("Replion", 10)
+    if not ReplionModule then return nil end
+    local ReplionClient = require(ReplionModule).Client
+    PlayerDataReplion = ReplionClient:WaitReplion("Data", 5)
+    return PlayerDataReplion
+end
+
 local function GetFishNameAndRarity(item)
     local name = item.Identifier or "Unknown"
     local rarity = item.Metadata and item.Metadata.Rarity or "COMMON"
