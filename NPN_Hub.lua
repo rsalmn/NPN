@@ -649,270 +649,234 @@ do
 end
 
 do
+    local extra = farm:Section({
+        Title = "🔥 Blatant Extra Function (Unified Engine)",
+        TextSize = 20
+    })
+
     ------------------------------------------------------------
-    -- REAL FISH NOTIFICATION QUEUE ENGINE (SAFE)
+    -- REMOTES
     ------------------------------------------------------------
     local RepStorage = game:GetService("ReplicatedStorage")
     local Net = RepStorage.Packages._Index["sleitnick_net@0.2.0"].net
 
-    local ObtainedNotifEvent = Net["RE/ObtainedNewFishNotification"]
-
-    local NotifQueue = {}
-    local NotifProcessing = false
-    local FishNotifConnection = nil
-    local NotificationEnabled = false
-
-    local function DeepCopy(tbl)
-        local new = {}
-        for k,v in pairs(tbl) do
-            new[k] = (type(v)=="table") and DeepCopy(v) or v
-        end
-        return new
-    end
-
-    local function ProcessNotifQueue()
-        if NotifProcessing then return end
-        NotifProcessing = true
-
-        task.spawn(function()
-            while #NotifQueue > 0 do
-                local data = table.remove(NotifQueue, 1)
-
-                if firesignal and NotifEvent then
-                    pcall(function()
-                        firesignal(NotifEvent.OnClientEvent, table.unpack(data))
-                    end)
-                end
-                
-                task.wait(1.2) -- delay tampil satu per satu
-            end
-
-            NotifProcessing = false
-        end)
-    end
-
-    function StartFishNotificationControl()
-        NotificationEnabled = true
-
-        if FishNotifConnection then
-            FishNotifConnection:Disconnect()
-        end
-
-        FishNotifConnection = ObtainedNotifEvent.OnClientEvent:Connect(function(...)
-            local args = {...}
-            local data = args[3]
-
-            if data and data.CustomDuration == 15 then
-                return
-            end
-
-            local cloned = DeepCopy(args)
-            if cloned[3] then
-                cloned[3].CustomDuration = 15
-            end
-
-            table.insert(NotifQueue, cloned)
-            ProcessQueue()
-        end)
-    end
-
-    function StopFishNotificationControl()
-        NotificationEnabled = false
-
-        if FishNotifConnection then
-            FishNotifConnection:Disconnect()
-            FishNotifConnection = nil
-        end
-
-        NotifQueue = {}
-    end
-
-
+    local RF_Charge = Net["RF/ChargeFishingRod"]
+    local RF_Start = Net["RF/RequestFishingMinigameStarted"]
+    local RF_Cancel = Net["RF/CancelFishingInputs"]
+    local RF_State = Net["RF/UpdateAutoFishingState"]
+    local RE_Complete = Net["RE/FishingCompleted"]
+    local RE_Change = Net["RE/FishingMinigameChanged"]
+    local RE_Equip = Net["RE/EquipToolFromHotbar"]
 
     ------------------------------------------------------------
-    -- 🔥 BLATANT V2 (ULTIMATE FIX VERSION)
+    -- STATE
     ------------------------------------------------------------
-    local v2 = farm:Section({
-        Title = "3. Blatant V2 (Ultimate Stable Edition)",
-        TextSize = 20
-    })
+    local EXTRA_ACTIVE = false
+    local LOOP = nil
+    local EQUIP = nil
+    local WATCHDOG = nil
 
-    local v2Active = false
-    local v2Loop = nil
-    local v2EquipLoop = nil
-    local v2Watchdog = nil
+    local lastComplete = 0
 
-    local v2LoopDelay = 1.25
-    local v2CatchDelay = 2.05
-    local v2CancelDelay = 0.22
+    ------------------------------------------------------------
+    -- CONFIG (Hybrid Default)
+    ------------------------------------------------------------
+    local CFG = {
+        ChargeDelay = 0.007,     -- V2 Brain
+        CompleteDelay = 0.72,    -- V4 Stability
+        CancelDelay = 0.28,      -- V4 Stability
+        TurboFactor = 0.25,      -- Borrow V5 + Smart scaling
+        Cooldown = 0.35,
+    }
 
-    -------------------------------------------------
-    -- UI
-    -------------------------------------------------
-    Reg("v2loopdelay", v2:Input({
-        Title="Loop Delay",
-        Value=tostring(v2LoopDelay),
-        Placeholder="1.25",
-        Callback=function(v)
-            local n=tonumber(v)
-            if n and n>=0.4 then v2LoopDelay=n end
-        end
-    }))
-
-    Reg("v2catchdelay", v2:Input({
-        Title="Catch Delay",
-        Value=tostring(v2CatchDelay),
-        Placeholder="2.05",
-        Callback=function(v)
-            local n=tonumber(v)
-            if n and n>=0.5 then v2CatchDelay=n end
-        end
-    }))
-
-    Reg("v2canceldelay", v2:Input({
-        Title="Completely Delay",
-        Value=tostring(v2CancelDelay),
-        Placeholder="0.22",
-        Callback=function(v)
-            local n=tonumber(v)
-            if n and n>=0.05 then v2CancelDelay=n end
-        end
-    }))
-
-
-    -------------------------------------------------
-    -- SAFE THREAD WRAPPER
-    -------------------------------------------------
+    ------------------------------------------------------------
+    -- SAFE FIRE
+    ------------------------------------------------------------
     local function safe(fn)
         task.spawn(function()
             pcall(fn)
         end)
     end
 
-
-    -------------------------------------------------
-    -- MAIN ENGINE
-    -------------------------------------------------
-    local function RunV2()
-        if not v2Active then return end
-        if not checkFishingRemotes() then
-            v2Active = false
-            return
+    ------------------------------------------------------------
+    -- PROTECTED COMPLETE
+    ------------------------------------------------------------
+    local function SafeComplete()
+        local now = tick()
+        if now - lastComplete < CFG.Cooldown then
+            return false
         end
+        lastComplete = now
+        safe(function()
+            RE_Complete:FireServer()
+        end)
+        return true
+    end
 
-        task.spawn(function()
+    ------------------------------------------------------------
+    -- MEGA ENGINE
+    ------------------------------------------------------------
+    local function ExtraCycle()
+        if not EXTRA_ACTIVE then return end
 
-            -- Reset state awal
-            safe(function()
-                RF_CancelFishingInputs:InvokeServer()
-            end)
+        local t = tick()
 
-            task.wait(0.05)
+        -- Cancel Residual (V3 / Watchdog idea)
+        safe(function()
+            RF_Cancel:InvokeServer()
+        end)
 
-            local t = tick()
+        task.wait(0.03)
 
-            -- Charge rod
-            safe(function()
-                RF_ChargeFishingRod:InvokeServer({[2]=t})
-            end)
+        -- Charge (V2 style)
+        safe(function()
+            RF_Charge:InvokeServer({[1] = t})
+        end)
 
-            task.wait(0.01)
+        task.wait(CFG.ChargeDelay)
 
-            -- Start minigame
-            safe(function()
-                RF_RequestFishingMinigameStarted:InvokeServer(
-                    -139.6379699707,
-                    0.99647927980797,
-                    t
-                )
-            end)
+        -- Start mini
+        safe(function()
+            RF_Start:InvokeServer(1, 0, t)
+        end)
 
-            -- tunggu ikannya "seolah" dimainin
-            task.wait(v2CatchDelay)
+        -- Smart Complete Hybrid (V2+V4+Turbo)
+        local dynamicWait = math.max(
+            CFG.CompleteDelay * CFG.TurboFactor,
+            0.1
+        )
 
-            -- Complete
-            safe(function()
-                RE_FishingCompleted:FireServer()
-            end)
+        task.wait(dynamicWait)
 
-            -- delay aman
-            task.wait(v2CancelDelay)
+        SafeComplete()
 
-            -- Cancel
-            safe(function()
-                RF_CancelFishingInputs:InvokeServer()
-            end)
+        -- Cancel
+        task.wait(CFG.CancelDelay)
+        safe(function()
+            RF_Cancel:InvokeServer()
+        end)
 
-            -- Recast cepat
-            task.wait(0.05)
+        -- instant turbo recast
+        task.wait(0.02)
 
-            safe(function()
-                RF_ChargeFishingRod:InvokeServer({[2]=t})
-            end)
+        safe(function()
+            RF_Charge:InvokeServer({[1] = tick()})
+        end)
 
-            task.wait(0.01)
+        task.wait(0.01)
 
-            safe(function()
-                RF_RequestFishingMinigameStarted:InvokeServer(
-                    -139.6379699707,
-                    0.99647927980797,
-                    t
-                )
-            end)
+        safe(function()
+            RF_Start:InvokeServer(1, 0, tick())
         end)
     end
 
+    ------------------------------------------------------------
+    -- REALTIME FAILSAFE
+    ------------------------------------------------------------
+    RE_Change.OnClientEvent:Connect(function()
+        if not EXTRA_ACTIVE then return end
 
-    -------------------------------------------------
-    -- AUTO EQUIP
-    -------------------------------------------------
-    local function StartV2Equip()
-        v2EquipLoop = task.spawn(function()
-            while v2Active do
+        task.spawn(function()
+            task.wait(CFG.CompleteDelay)
+            if SafeComplete() then
+                task.wait(CFG.CancelDelay)
+                safe(function()
+                    RF_Cancel:InvokeServer()
+                end)
+            end
+        end)
+    end)
+
+    ------------------------------------------------------------
+    -- EQUIP LOOP (V2/V3)
+    ------------------------------------------------------------
+    local function StartEquip()
+        EQUIP = task.spawn(function()
+            while EXTRA_ACTIVE do
                 pcall(function()
-                    RE_EquipToolFromHotbar:FireServer(1)
+                    RE_Equip:FireServer(1)
                 end)
                 task.wait(0.08)
             end
         end)
     end
 
-
-    -------------------------------------------------
-    -- LOOP
-    -------------------------------------------------
-    local function StartV2Loop()
-        v2Loop = task.spawn(function()
-            while v2Active do
-                RunV2()
-                task.wait(v2LoopDelay)
-            end
-        end)
-    end
-
-
-    -------------------------------------------------
-    -- WATCHDOG (Anti Stuck)
-    -------------------------------------------------
+    ------------------------------------------------------------
+    -- WATCHDOG
+    ------------------------------------------------------------
     local function StartWatchdog()
-        v2Watchdog = task.spawn(function()
-            while v2Active do
-                pcall(function()
-                    RF_CancelFishingInputs:InvokeServer()
+        WATCHDOG = task.spawn(function()
+            while EXTRA_ACTIVE do
+                safe(function()
+                    RF_Cancel:InvokeServer()
                 end)
                 task.wait(6)
             end
         end)
     end
 
+    ------------------------------------------------------------
+    -- LOOP
+    ------------------------------------------------------------
+    local function StartLoop()
+        LOOP = task.spawn(function()
+            while EXTRA_ACTIVE do
+                ExtraCycle()
+                task.wait(0.15)
+            end
+        end)
+    end
 
-    -------------------------------------------------
+    ------------------------------------------------------------
+    -- UI SETTINGS
+    ------------------------------------------------------------
+    Reg("extra_charge", extra:Input({
+        Title = "Charge Delay",
+        Value = tostring(CFG.ChargeDelay),
+        Placeholder = "0.007",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n then CFG.ChargeDelay = n end
+        end
+    }))
+
+    Reg("extra_complete", extra:Input({
+        Title = "Complete Delay",
+        Value = tostring(CFG.CompleteDelay),
+        Placeholder = "0.72",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n then CFG.CompleteDelay = n end
+        end
+    }))
+
+    Reg("extra_cancel", extra:Input({
+        Title = "Cancel Delay",
+        Value = tostring(CFG.CancelDelay),
+        Placeholder = "0.28",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n then CFG.CancelDelay = n end
+        end
+    }))
+
+    Reg("extra_turbo", extra:Input({
+        Title = "Turbo Factor (0.1 = SUPER FAST)",
+        Value = tostring(CFG.TurboFactor),
+        Placeholder = "0.25",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n>0 then CFG.TurboFactor = n end
+        end
+    }))
+
+    ------------------------------------------------------------
     -- TOGGLE
-    -------------------------------------------------
-    Reg("v2toggle", v2:Toggle({
-        Title="Enable Blatant V2",
-        Value=false,
-        Callback=function(s)
+    ------------------------------------------------------------
+    Reg("extra_toggle", extra:Toggle({
+        Title = "ENABLE BLATANT EXTRA FUNCTION",
+        Value = false,
+        Callback = function(state)
 
             if not checkFishingRemotes() then
                 WindUI:Notify({
@@ -922,639 +886,46 @@ do
                 return
             end
 
-            v2Active=s
+            EXTRA_ACTIVE = state
 
-            if s then
-                if normal~=nil then normal=false end
-                if v3proActive~=nil then v3proActive=false end
-                if hyperActive~=nil then hyperActive=false end
+            if state then
+                safe(function()
+                    RF_State:InvokeServer(true)
+                end)
 
-                StartV2Equip()
-                StartV2Loop()
+                StartEquip()
+                StartLoop()
                 StartWatchdog()
                 StartFishNotificationControl()
 
                 WindUI:Notify({
-                    Title="Blatant V2 Enabled",
-                    Content="Ultimate Stable Mode + Notification Queue",
+                    Title="Blatant Extra Function ENABLED",
+                    Content="Hybrid Engine Running",
                     Duration=4,
                     Icon="zap"
                 })
-
             else
-                v2Active=false
+                EXTRA_ACTIVE=false
 
-                if v2Loop then task.cancel(v2Loop) v2Loop=nil end
-                if v2EquipLoop then task.cancel(v2EquipLoop) v2EquipLoop=nil end
-                if v2Watchdog then task.cancel(v2Watchdog) v2Watchdog=nil end
+                if LOOP then task.cancel(LOOP) end
+                if EQUIP then task.cancel(EQUIP) end
+                if WATCHDOG then task.cancel(WATCHDOG) end
 
                 StopFishNotificationControl()
 
-                pcall(function()
-                    RF_UpdateAutoFishingState:InvokeServer(false)
+                safe(function()
+                    RF_Cancel:InvokeServer()
                 end)
 
                 WindUI:Notify({
-                    Title="Blatant V2 Stopped",
+                    Title="Stopped",
                     Duration=2
                 })
             end
         end
     }))
-
 end
 
--- [[ 2. BLATANT V3 (RESTORED) ]] --
-do
-    local v3 = farm:Section({ Title = "4. Blatant V3 (Advanced Engine)", TextSize = 20 })
-
-    local v3proActive = false
-    local v3Loop = nil
-    local v3EquipLoop = nil
-    local v3proLoopDelay = 1.35
-    local v3proCompleteDelay = 2.2
-    local v3proCancelDelay = 0.22
-
-    -- UI Tuning V3
-    Reg("v3loopdelay", v3:Input({ Title = "V3 Loop Delay", Value = tostring(v3proLoopDelay), Placeholder = "1.35", Callback = function(v) local n = tonumber(v); if n and n >= 0.5 then v3proLoopDelay = n end end }))
-    Reg("v3compdelay", v3:Input({ Title = "Catch Delay", Value = tostring(v3proCompleteDelay), Placeholder = "2.2", Callback = function(v) local n = tonumber(v); if n and n >= 0.5 then v3proCompleteDelay = n end end }))
-    Reg("v3cancdelay", v3:Input({ Title = "Cancel Delay", Value = tostring(v3proCancelDelay), Placeholder = "0.22", Callback = function(v) local n = tonumber(v); if n and n >= 0.05 then v3proCancelDelay = n end end }))
-
-    local function safeFire(fn) task.spawn(function() pcall(fn) end) end
-
-    local function RunV3Pro()
-        if not v3proActive then return end
-        if not checkFishingRemotes() then v3proActive = false return end
-
-        task.spawn(function()
-            safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
-            task.wait(0.05)
-            local t = tick()
-            safeFire(function() RF_ChargeFishingRod:InvokeServer({[2] = t}) end)
-            task.wait(0.01)
-            safeFire(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797, t) end)
-            task.wait(v3proCompleteDelay)
-            safeFire(function() RE_FishingCompleted:FireServer() end)
-            task.wait(v3proCancelDelay)
-            safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
-            task.wait(0.05)
-            safeFire(function() RF_ChargeFishingRod:InvokeServer({[2] = t}) end)
-            task.wait(0.01)
-            safeFire(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797, t) end)
-        end)
-    end
-
-    local function StartV3Equip()
-        v3EquipLoop = task.spawn(function()
-            while v3proActive do pcall(function() RE_EquipToolFromHotbar:FireServer(1) end) task.wait(0.08) end
-        end)
-    end
-
-    local function StartV3Loop()
-        v3Loop = task.spawn(function()
-            while v3proActive do RunV3Pro() task.wait(v3proLoopDelay) end
-        end)
-    end
-
-    Reg("v3toggle", v3:Toggle({
-        Title = "Enable Blatant V3",
-        Value = false,
-        Callback = function(s)
-            if not checkFishingRemotes() then WindUI:Notify({Title="Missing Remotes", Duration=3}) return end
-            v3proActive = s
-            if s then
-                StartV3Equip(); StartV3Loop()
-                WindUI:Notify({ Title="V3 Enabled", Content="Advanced Engine Running", Duration=4, Icon="zap" })
-            else
-                v3proActive=false
-                if v3Loop then task.cancel(v3Loop) v3Loop=nil end
-                if v3EquipLoop then task.cancel(v3EquipLoop) v3EquipLoop=nil end
-                WindUI:Notify({ Title="V3 Stopped", Duration=2 })
-            end
-        end
-    }))
-end
-
-------------------------------------------------------------
--- BLATANT V4 - FINAL STABLE EDITION
--- Fast + Safe + Adaptive
-------------------------------------------------------------
-do
-    local v4 = farm:Section({
-        Title = "5 Blatant V4 (Final)",
-        TextSize = 20
-    })
-
-    local RepStorage = game:GetService("ReplicatedStorage")
-
-    local NetFolder = RepStorage
-        :WaitForChild("Packages")
-        :WaitForChild("_Index")
-        :WaitForChild("sleitnick_net@0.2.0")
-        :WaitForChild("net")
-
-    local RF_ChargeFishingRod = NetFolder["RF/ChargeFishingRod"]
-    local RF_RequestFishingMinigameStarted = NetFolder["RF/RequestFishingMinigameStarted"]
-    local RF_CancelFishingInputs = NetFolder["RF/CancelFishingInputs"]
-    local RF_UpdateAutoFishingState = NetFolder["RF/UpdateAutoFishingState"]
-    local RE_FishingCompleted = NetFolder["RE/FishingCompleted"]
-    local RE_MinigameChanged = NetFolder["RE/FishingMinigameChanged"]
-
-    ------------------------------------------------------------
-    -- STATE
-    ------------------------------------------------------------
-    local V4_Active = false
-    local V4_LoopThread = nil
-
-    local State = {
-        lastComplete = 0,
-        cooldown = 0.35,
-        doingCycle = false,
-        lastCast = 0
-    }
-
-    ------------------------------------------------------------
-    -- DEFAULT CONFIG (SAFE + FAST)
-    ------------------------------------------------------------
-    local V4_CompleteDelay = 0.72
-    local V4_CancelDelay = 0.28
-    local V4_RecastDelay = 0.001
-
-    ------------------------------------------------------------
-    -- SAFE WRAPPER
-    ------------------------------------------------------------
-    local function safe(fn)
-        task.spawn(function()
-            pcall(fn)
-        end)
-    end
-
-    ------------------------------------------------------------
-    -- INTERNAL LOGIC
-    ------------------------------------------------------------
-    local function ProtectedComplete()
-        local now = tick()
-        if now - State.lastComplete < State.cooldown then
-            return false
-        end
-
-        State.lastComplete = now
-        safe(function()
-            RE_FishingCompleted:FireServer()
-        end)
-
-        return true
-    end
-
-    local function PerformCast()
-        local t = tick()
-        State.lastCast = t
-
-        safe(function()
-            RF_ChargeFishingRod:InvokeServer({[1]=t})
-        end)
-
-        task.wait(0.008)
-
-        safe(function()
-            RF_RequestFishingMinigameStarted:InvokeServer(
-                1,
-                0,
-                t
-            )
-        end)
-    end
-
-    ------------------------------------------------------------
-    -- MAIN LOOP
-    ------------------------------------------------------------
-    local function V4_Loop()
-        while V4_Active do
-            State.doingCycle = true
-
-            PerformCast()
-
-            task.wait(V4_CompleteDelay)
-
-            if V4_Active then
-                ProtectedComplete()
-            end
-
-            task.wait(V4_CancelDelay)
-
-            if V4_Active then
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-            end
-
-            State.doingCycle = false
-            task.wait(V4_RecastDelay)
-        end
-
-        State.doingCycle = false
-    end
-
-    ------------------------------------------------------------
-    -- REALTIME FAILSAFE SYNC
-    ------------------------------------------------------------
-    local lastEvent = 0
-
-    RE_MinigameChanged.OnClientEvent:Connect(function()
-        if not V4_Active then return end
-
-        local now = tick()
-        if now - lastEvent < 0.15 then return end
-        lastEvent = now
-
-        if now - State.lastComplete < 0.25 then return end
-
-        task.spawn(function()
-            task.wait(V4_CompleteDelay)
-
-            if ProtectedComplete() then
-                task.wait(V4_CancelDelay)
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-            end
-        end)
-    end)
-
-    ------------------------------------------------------------
-    -- UI INPUTS
-    ------------------------------------------------------------
-    Reg("v4_complete", v4:Input({
-        Title="Complete Delay",
-        Value=tostring(V4_CompleteDelay),
-        Placeholder="0.72",
-        Callback=function(v)
-            local n = tonumber(v)
-            if n and n >= 0.1 then
-                V4_CompleteDelay = n
-            end
-        end
-    }))
-
-    Reg("v4_cancel", v4:Input({
-        Title="Cancel Delay",
-        Value=tostring(V4_CancelDelay),
-        Placeholder="0.28",
-        Callback=function(v)
-            local n = tonumber(v)
-            if n and n >= 0.1 then
-                V4_CancelDelay = n
-            end
-        end
-    }))
-
-    Reg("v4_recast", v4:Input({
-        Title="Recast Delay",
-        Value=tostring(V4_RecastDelay),
-        Placeholder="0.001",
-        Callback=function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then
-                V4_RecastDelay = n
-            end
-        end
-    }))
-
-    ------------------------------------------------------------
-    -- TOGGLE
-    ------------------------------------------------------------
-    Reg("v4toggle", v4:Toggle({
-        Title = "Enable Blatant V4 (Final)",
-        Value = false,
-        Callback = function(state)
-
-            if not checkFishingRemotes() then
-                WindUI:Notify({
-                    Title="Missing Remotes",
-                    Content="Fishing Remotes Not Found",
-                    Duration=3
-                })
-                return
-            end
-
-            V4_Active = state
-
-            if state then
-                if v2Active ~= nil then v2Active = false end
-                if blatantInstantState ~= nil then blatantInstantState = false end
-
-                safe(function()
-                    RF_UpdateAutoFishingState:InvokeServer(true)
-                end)
-
-                V4_LoopThread = task.spawn(V4_Loop)
-
-                WindUI:Notify({
-                    Title="Blatant V4 Enabled",
-                    Content="Final Stable Mode Activated",
-                    Duration=4,
-                    Icon="zap"
-                })
-
-            else
-                V4_Active = false
-                
-                if V4_LoopThread then
-                    task.cancel(V4_LoopThread)
-                    V4_LoopThread = nil
-                end
-
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-
-                WindUI:Notify({
-                    Title="Blatant V4 Stopped",
-                    Duration=3
-                })
-            end
-        end
-    }))
-end
-
-do
-    -- ⚙️ BLATANT V6 SETTINGS PANEL -----------------------------
-    local v6Section = farm:Section({
-        Title = "Blatant V6 Settings",
-        TextSize = 20
-    })
-
-    local BlatantV6_Settings = {
-        charge = 0.007,
-        complete = 0.001,
-        cancel = 0.001
-    }
-
-    Reg("v6_charge", v6Section:Input({
-        Title = "Charge Delay",
-        Placeholder = "0.007",
-        Value = tostring(BlatantV6_Settings.charge),
-        Callback = function(v)
-            local n = tonumber(v)
-            if n then
-                BlatantV6_Settings.charge = n
-                BlatantV6.UpdateSettings(
-                    BlatantV6_Settings.charge,
-                    BlatantV6_Settings.complete,
-                    BlatantV6_Settings.cancel
-                )
-                WindUI:Notify({Title="Updated",Content="Charge Delay Updated"})
-            end
-        end
-    }))
-
-    Reg("v6_complete", v6Section:Input({
-        Title = "Complete Delay",
-        Placeholder = "0.001",
-        Value = tostring(BlatantV6_Settings.complete),
-        Callback = function(v)
-            local n = tonumber(v)
-            if n then
-                BlatantV6_Settings.complete = n
-                BlatantV6.UpdateSettings(
-                    BlatantV6_Settings.charge,
-                    BlatantV6_Settings.complete,
-                    BlatantV6_Settings.cancel
-                )
-                WindUI:Notify({Title="Updated",Content="Complete Delay Updated"})
-            end
-        end
-    }))
-
-    Reg("v6_cancel", v6Section:Input({
-        Title = "Cancel Delay",
-        Placeholder = "0.001",
-        Value = tostring(BlatantV6_Settings.cancel),
-        Callback = function(v)
-            local n = tonumber(v)
-            if n then
-                BlatantV6_Settings.cancel = n
-                BlatantV6.UpdateSettings(
-                    BlatantV6_Settings.charge,
-                    BlatantV6_Settings.complete,
-                    BlatantV6_Settings.cancel
-                )
-                WindUI:Notify({Title="Updated",Content="Cancel Delay Updated"})
-            end
-        end
-    }))
-    Reg("v6_toggle", v6Section:Toggle({
-        Title = "Blatant V6 (Perfect Engine)",
-        Value = false,
-        Callback = function(s)
-            if s then
-                BlatantV6.Start()
-                WindUI:Notify({Title="V6 Enabled",Icon="zap"})
-            else
-                BlatantV6.Stop()
-                WindUI:Notify({Title="V6 Disabled"})
-            end
-        end
-    }))
-
-end
-
-do
-    ------------------------------------------------------------
-    -- BLATANT V5 (TESTER)
-    -- Ultra Spam Mode (Gila Cepat, tapi Experimental)
-    ------------------------------------------------------------
-    local v5 = farm:Section({
-        Title = "Blatant V5 (Tester)",
-        TextSize = 20
-    })
-
-    local RepStorage = game:GetService("ReplicatedStorage")
-
-    local NetFolder = RepStorage
-        :WaitForChild("Packages")
-        :WaitForChild("_Index")
-        :WaitForChild("sleitnick_net@0.2.0")
-        :WaitForChild("net")
-
-    local RF_ChargeFishingRod = NetFolder["RF/ChargeFishingRod"]
-    local RF_RequestFishingMinigameStarted = NetFolder["RF/RequestFishingMinigameStarted"]
-    local RF_CancelFishingInputs = NetFolder["RF/CancelFishingInputs"]
-    local RF_UpdateAutoFishingState = NetFolder["RF/UpdateAutoFishingState"]
-    local RE_FishingCompleted = NetFolder["RE/FishingCompleted"]
-    local RE_MinigameChanged = NetFolder["RE/FishingMinigameChanged"]
-
-    ------------------------------------------------------------
-    -- STATE
-    ------------------------------------------------------------
-    local V5_Active = false
-    local V5_Thread = nil
-
-    local V5_CompleteDelay = 0.79
-    local V5_CancelDelay = 0.329
-
-    ------------------------------------------------------------
-    -- SAFE WRAPPER
-    ------------------------------------------------------------
-    local function safe(fn)
-        task.spawn(function()
-            pcall(fn)
-        end)
-    end
-
-
-    ------------------------------------------------------------
-    -- CORE SPAM ENGINE
-    ------------------------------------------------------------
-    local function V5_Loop()
-        while V5_Active do
-            local t = tick()
-
-            -- CAST
-            safe(function()
-                RF_ChargeFishingRod:InvokeServer({[1] = t})
-            end)
-
-            safe(function()
-                RF_RequestFishingMinigameStarted:InvokeServer(1, 0, t)
-            end)
-
-            -- COMPLETE
-            task.wait(V5_CompleteDelay)
-
-            if not V5_Active then break end
-
-            safe(function()
-                RE_FishingCompleted:FireServer()
-            end)
-
-            -- CANCEL
-            task.wait(V5_CancelDelay)
-
-            if not V5_Active then break end
-
-            safe(function()
-                RF_CancelFishingInputs:InvokeServer()
-            end)
-        end
-    end
-
-
-    ------------------------------------------------------------
-    -- BACKUP FAILSAFE LISTENER
-    ------------------------------------------------------------
-    RE_MinigameChanged.OnClientEvent:Connect(function()
-        if not V5_Active then return end
-
-        task.spawn(function()
-            task.wait(V5_CompleteDelay)
-
-            safe(function()
-                RE_FishingCompleted:FireServer()
-            end)
-
-            task.wait(V5_CancelDelay)
-
-            safe(function()
-                RF_CancelFishingInputs:InvokeServer()
-            end)
-        end)
-    end)
-
-
-    ------------------------------------------------------------
-    -- UI INPUTS
-    ------------------------------------------------------------
-    Reg("v5_complete", v5:Input({
-        Title = "Complete Delay",
-        Value = tostring(V5_CompleteDelay),
-        Placeholder = "0.001",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then
-                V5_CompleteDelay = n
-            end
-        end
-    }))
-
-    Reg("v5_cancel", v5:Input({
-        Title = "Cancel Delay",
-        Value = tostring(V5_CancelDelay),
-        Placeholder = "0.001",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then
-                V5_CancelDelay = n
-            end
-        end
-    }))
-
-
-    ------------------------------------------------------------
-    -- TOGGLE
-    ------------------------------------------------------------
-    Reg("v5toggle", v5:Toggle({
-        Title = "Enable Blatant V5 (Tester)",
-        Value = false,
-        Callback = function(state)
-
-            if not checkFishingRemotes() then
-                WindUI:Notify({
-                    Title = "Missing Remotes",
-                    Content = "Fishing Remotes Not Found",
-                    Duration = 3
-                })
-                return
-            end
-
-            V5_Active = state
-
-            if state then
-                -- disable other modes
-                if v2Active ~= nil then v2Active = false end
-                if V4_Active ~= nil then V4_Active = false end
-                if blatantInstantState ~= nil then blatantInstantState = false end
-
-                safe(function()
-                    RF_UpdateAutoFishingState:InvokeServer(true)
-                end)
-
-                V5_Thread = task.spawn(V5_Loop)
-
-                WindUI:Notify({
-                    Title = "Blatant V5 Enabled",
-                    Content = "Ultra Spam Tester Activated",
-                    Duration = 4,
-                    Icon = "zap"
-                })
-
-            else
-                V5_Active = false
-
-                if V5_Thread then
-                    task.cancel(V5_Thread)
-                    V5_Thread = nil
-                end
-
-                safe(function()
-                    RF_UpdateAutoFishingState:InvokeServer(true)
-                end)
-
-                task.wait(0.2)
-
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-
-                WindUI:Notify({
-                    Title = "Blatant V5 Stopped",
-                    Duration = 3
-                })
-            end
-        end
-    }))
-
-end
 -- FISHING SUPPORT
 
 do
