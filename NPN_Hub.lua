@@ -729,7 +729,7 @@ do
         local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
         if not tool then return 1 end
         
-        for name, speed in pairs(RodSpeedMap) do
+        for name, speed in pairs(RodSpeedProfile) do
             if string.find(string.lower(tool.Name), string.lower(name)) then
                 return speed
             end
@@ -835,7 +835,7 @@ do
     local function ExtraCycle()
         if not EXTRA_ACTIVE then return end
         
-        local speedScale = GetCurrentRodSkin()
+        local speedScale = GetCurrentRodSpeed()
 
         safe(function() RF_Cancel:InvokeServer() end)
         task.wait(0.03)
