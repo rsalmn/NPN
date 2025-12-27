@@ -1474,7 +1474,7 @@ do
 
     -- 2. REMOVE SKIN EFFECT
     local SkinCleanerConnection = nil
-    MiscSection:Toggle({
+    fishingSupport:Toggle({
         Title = "Remove Skin Effect",
         Value = false,
         Icon = "sparkles",
