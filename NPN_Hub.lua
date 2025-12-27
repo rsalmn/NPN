@@ -648,14 +648,18 @@ do
     }))
 end
 
+--============================================================
+--  🔥 BLATANT EXTRA (FINAL UNIFIED ENGINE)
+--  Hybrid Logic + Rod Adaptive + Notification Queue
+--============================================================
 do
     local extra = farm:Section({
-        Title = "🔥 Blatant Extra Function (Unified Engine)",
+        Title = "🔥 Blatant Extra Function (Final Adaptive Engine)",
         TextSize = 20
     })
 
     ------------------------------------------------------------
-    -- REMOTES
+    -- DEPENDENCIES
     ------------------------------------------------------------
     local RepStorage = game:GetService("ReplicatedStorage")
     local Players = game:GetService("Players")
@@ -671,6 +675,8 @@ do
     local RE_Change = Net["RE/FishingMinigameChanged"]
     local RE_Equip = Net["RE/EquipToolFromHotbar"]
 
+    local ObtainedNotifEvent = Net["RE/ObtainedNewFishNotification"]
+
     ------------------------------------------------------------
     -- STATE
     ------------------------------------------------------------
@@ -680,70 +686,43 @@ do
     local lastComplete = 0
 
     ------------------------------------------------------------
-    -- AUTO SKIN SPEED PROFILE
+    -- ROD SPEED AUTO DETECT
     ------------------------------------------------------------
-    local RodSpeedProfile = {
-        Eclipse = {
-            ChargeDelay = 0.006,
-            CompleteDelay = 0.10,
-            CancelDelay = 0.12,
-        },
-
-        HolyTrident = {
-            ChargeDelay = 0.0045,
-            CompleteDelay = 0.085,
-            CancelDelay = 0.10,
-        },
-
-        SoulScythe = {
-            ChargeDelay = 0.0035,
-            CompleteDelay = 0.07,
-            CancelDelay = 0.09,
-        },
-
-        Default = {
-            ChargeDelay = 0.009,
-            CompleteDelay = 0.12,
-            CancelDelay = 0.14,
-        }
+    local RodSpeedMap = {
+        ["Wooden Rod"] = 1.00,
+        ["Carbon Rod"] = 0.85,
+        ["Pro Rod"] = 0.65,
+        ["Mythic Rod"] = 0.45,
+        ["God Rod"] = 0.35,
     }
 
-    local function GetCurrentRodSkin()
-        local char = LocalPlayer.Character
-        if not char then return "Default" end
-
-        local tool = char:FindFirstChildOfClass("Tool")
-        if not tool then return "Default" end
-
-        local name = tool.Name
-
-        if string.find(name, "Eclipse") then return "Eclipse" end
-        if string.find(name, "Trident") then return "HolyTrident" end
-        if string.find(name, "Scythe") then return "SoulScythe" end
-
-        return "Default"
+    local function GetCurrentRodSpeed()
+        local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+        if not tool then return 1 end
+        
+        for name, speed in pairs(RodSpeedMap) do
+            if string.find(string.lower(tool.Name), string.lower(name)) then
+                return speed
+            end
+        end
+        
+        return 1
     end
 
-
     ------------------------------------------------------------
-    -- CONFIG (will be auto replaced by rod)
+    -- CONFIG (BASE)
     ------------------------------------------------------------
     local CFG = {
         ChargeDelay = 0.007,
         CompleteDelay = 0.72,
         CancelDelay = 0.28,
-        TurboFactor = 0.25,
-        Cooldown = 0.35,
     }
 
-
     ------------------------------------------------------------
-    -- SAFE FIRE
+    -- SAFE CALL
     ------------------------------------------------------------
     local function safe(fn)
-        task.spawn(function()
-            pcall(fn)
-        end)
+        task.spawn(function() pcall(fn) end)
     end
 
     ------------------------------------------------------------
@@ -751,78 +730,93 @@ do
     ------------------------------------------------------------
     local function SafeComplete()
         local now = tick()
-        if now - lastComplete < CFG.Cooldown then
-            return false
-        end
+        if now - lastComplete < 0.35 then return false end
         lastComplete = now
-        safe(function()
-            RE_Complete:FireServer()
-        end)
+        safe(function() RE_Complete:FireServer() end)
         return true
     end
 
+    ------------------------------------------------------------
+    -- NOTIFICATION ENGINE
+    ------------------------------------------------------------
+    local NotifQueue = {}
+    local NotifProcess = false
+    local NotifConn = nil
+
+    local function DeepCopy(tbl)
+        local new = {}
+        for k,v in pairs(tbl) do
+            new[k] = type(v)=="table" and DeepCopy(v) or v
+        end
+        return new
+    end
+
+    local function ProcessNotif()
+        if NotifProcess then return end
+        NotifProcess = true
+        task.spawn(function()
+            while #NotifQueue > 0 do
+                local args = table.remove(NotifQueue,1)
+                pcall(function()
+                    firesignal(ObtainedNotifEvent.OnClientEvent, unpack(args))
+                end)
+                task.wait(1.2)
+            end
+            NotifProcess=false
+        end)
+    end
+
+    function StartFishNotificationControl()
+        if NotifConn then NotifConn:Disconnect() end
+        NotifConn = ObtainedNotifEvent.OnClientEvent:Connect(function(...)
+            local args = {...}
+            local cloned = DeepCopy(args)
+            if cloned[3] then
+                cloned[3].CustomDuration = 15
+            end
+            table.insert(NotifQueue,cloned)
+            ProcessNotif()
+        end)
+    end
+
+    function StopFishNotificationControl()
+        if NotifConn then NotifConn:Disconnect() NotifConn=nil end
+        NotifQueue={}
+    end
 
     ------------------------------------------------------------
     -- MAIN ENGINE
     ------------------------------------------------------------
     local function ExtraCycle()
         if not EXTRA_ACTIVE then return end
+        
+        local speedScale = GetCurrentRodSpeed()
+
+        safe(function() RF_Cancel:InvokeServer() end)
+        task.wait(0.03)
 
         local t = tick()
 
-        safe(function()
-            RF_Cancel:InvokeServer()
-        end)
-
-        task.wait(0.03)
+        safe(function() RF_Charge:InvokeServer({[1]=t}) end)
+        task.wait(CFG.ChargeDelay * speedScale)
 
         safe(function()
-            RF_Charge:InvokeServer({[1] = t})
+            RF_Start:InvokeServer(1,0,t)
         end)
 
-        task.wait(CFG.ChargeDelay)
-
-        safe(function()
-            RF_Start:InvokeServer(1, 0, t)
-        end)
-
-        local dynamicWait = math.max(
-            CFG.CompleteDelay * CFG.TurboFactor,
-            0.06
-        )
-
-        task.wait(dynamicWait)
+        task.wait(CFG.CompleteDelay * speedScale)
 
         SafeComplete()
 
-        task.wait(CFG.CancelDelay)
+        task.wait(CFG.CancelDelay * speedScale)
 
         safe(function()
             RF_Cancel:InvokeServer()
         end)
     end
 
-
     ------------------------------------------------------------
-    -- FAILSAFE (EVENT BASED)
-    ------------------------------------------------------------
-    RE_Change.OnClientEvent:Connect(function()
-        if not EXTRA_ACTIVE then return end
-
-        task.spawn(function()
-            task.wait(CFG.CompleteDelay)
-            if SafeComplete() then
-                task.wait(CFG.CancelDelay)
-                safe(function()
-                    RF_Cancel:InvokeServer()
-                end)
-            end
-        end)
-    end)
-
-
-    ------------------------------------------------------------
-    -- EQUIP LOOP
+    -- AUTO EQUIP LOOP
     ------------------------------------------------------------
     local function StartEquip()
         EQUIP = task.spawn(function()
@@ -835,9 +829,8 @@ do
         end)
     end
 
-
     ------------------------------------------------------------
-    -- LOOP RUNNER
+    -- LOOP
     ------------------------------------------------------------
     local function StartLoop()
         LOOP = task.spawn(function()
@@ -848,9 +841,24 @@ do
         end)
     end
 
+    ------------------------------------------------------------
+    -- SYNC FAILSAFE
+    ------------------------------------------------------------
+    RE_Change.OnClientEvent:Connect(function()
+        if not EXTRA_ACTIVE then return end
+        task.spawn(function()
+            task.wait(CFG.CompleteDelay)
+            if SafeComplete() then
+                task.wait(CFG.CancelDelay)
+                safe(function()
+                    RF_Cancel:InvokeServer()
+                end)
+            end
+        end)
+    end)
 
     ------------------------------------------------------------
-    -- UI SETTINGS
+    -- UI INPUT
     ------------------------------------------------------------
     Reg("extra_charge", extra:Input({
         Title = "Charge Delay",
@@ -879,16 +887,6 @@ do
         end
     }))
 
-    Reg("extra_turbo", extra:Input({
-        Title = "Turbo Factor",
-        Value = tostring(CFG.TurboFactor),
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n > 0 then CFG.TurboFactor = n end
-        end
-    }))
-
-
     ------------------------------------------------------------
     -- TOGGLE
     ------------------------------------------------------------
@@ -898,23 +896,13 @@ do
         Callback = function(state)
 
             if not checkFishingRemotes() then
-                WindUI:Notify({
-                    Title="Missing Remotes",
-                    Duration=3
-                })
+                WindUI:Notify({Title="Missing Remotes",Duration=3})
                 return
             end
 
             EXTRA_ACTIVE = state
 
             if state then
-                local skin = GetCurrentRodSkin()
-                local profile = RodSpeedProfile[skin] or RodSpeedProfile.Default
-
-                CFG.ChargeDelay = profile.ChargeDelay
-                CFG.CompleteDelay = profile.CompleteDelay
-                CFG.CancelDelay = profile.CancelDelay
-
                 safe(function()
                     RF_State:InvokeServer(true)
                 end)
@@ -924,12 +912,11 @@ do
                 StartFishNotificationControl()
 
                 WindUI:Notify({
-                    Title="Blatant Extra ENABLED",
-                    Content="Auto Rod Speed: "..skin,
-                    Duration=4,
+                    Title = "Blatant Extra ENABLED",
+                    Content = "Adaptive Hybrid Engine Running",
+                    Duration = 4,
                     Icon="zap"
                 })
-
             else
                 EXTRA_ACTIVE = false
 
@@ -943,7 +930,7 @@ do
                 end)
 
                 WindUI:Notify({
-                    Title="Stopped",
+                    Title="Blatant Extra Disabled",
                     Duration=2
                 })
             end
