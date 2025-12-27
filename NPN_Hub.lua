@@ -769,9 +769,6 @@ do
 
         task.wait(0.01)
 
-        safe(function()
-            RF_Start:InvokeServer(1, 0, tick())
-        end)
     end
 
     ------------------------------------------------------------
@@ -899,7 +896,6 @@ do
 
                 StartEquip()
                 StartLoop()
-                StartWatchdog()
                 StartFishNotificationControl()
 
                 WindUI:Notify({
