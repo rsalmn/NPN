@@ -81,21 +81,150 @@ local eventsList = {
     "Ghost Worm", "Meteor Rain", "Megalodon Hunt", "Treasure Event"
 }
 
--- =========================
--- NEW EVENT TELEPORT MODULE
--- =========================
-local EventTP = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/akmiliadevi/Tugas_Kuliah/refs/heads/main/Project_code/Utama/SkinSwapAnimation.lua"
-,true))()
-
--- Sync list ke UI bawaan kamu
-local eventsList = EventTP.GetEventNames()
-
-
 local autoEventTargetName = nil 
 local autoEventTeleportState = false
 local autoEventTeleportThread = nil
 
+--------------------------------------------
+-- EVENT TELEPORT DYNAMIC ENGINE (NO LOADSTRING)
+--------------------------------------------
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+local EventTP = {}
+EventTP.Events = {
+    ["Shark Hunt"] = {
+        Vector3.new(1.64999, -1.35, 2095.72),
+        Vector3.new(1369.94, -1.35, 930.125),
+        Vector3.new(-1585.5, -1.35, 1242.87),
+        Vector3.new(-1896.8, -1.35, 2634.37),
+    },
+    ["Worm Hunt"] = {
+        Vector3.new(2190.85, -1.3999, 97.5749),
+        Vector3.new(-2450.6, -1.3999, 139.731),
+        Vector3.new(-267.47, -1.3999, 5188.53),
+    },
+    ["Megalodon Hunt"] = {
+        Vector3.new(-1076.3, -1.3999, 1676.19),
+        Vector3.new(-1191.8, -1.3999, 3597.30),
+        Vector3.new(412.7, -1.3999, 4134.39),
+    },
+    ["Ghost Shark Hunt"] = {
+        Vector3.new(489.558, -1.35, 25.4060),
+        Vector3.new(-1358.2, -1.35, 4100.55),
+        Vector3.new(627.859, -1.35, 3798.08),
+    },
+    ["Treasure Event"] = nil
+}
+
+EventTP.SearchRadius = 16
+EventTP.ScanInterval = 0.75
+
+local running = false
+local currentEvent = nil
+
+local function char()
+	return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+end
+
+local function hrp()
+	local c = LocalPlayer.Character
+	return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function findNearby(centerPos, radius)
+	local best, dist = nil, math.huge
+	if Workspace.GetPartBoundsInBox then
+		local ok, parts = pcall(function()
+			return Workspace:GetPartBoundsInBox(CFrame.new(centerPos), Vector3.new(radius*2,radius*2,radius*2))
+		end)
+		if ok and parts then
+			for _,p in ipairs(parts) do
+				if p:IsA("BasePart") then
+					local d = (p.Position-centerPos).Magnitude
+					if d <= radius and d < dist then
+						best = p
+						dist = d
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function resolve(eventName)
+	local coords = EventTP.Events[eventName]
+	if not coords then return nil end
+
+	for _,c in ipairs(coords) do
+		local p = findNearby(c, EventTP.SearchRadius)
+		if p then return p.Position end
+	end
+
+	if hrp() then
+		local best, d = nil, math.huge
+		for _,c in ipairs(coords) do
+			local dist = (hrp().Position - c).Magnitude
+			if dist < d then
+				d = dist
+				best = c
+			end
+		end
+		return best
+	end
+
+	return coords[1]
+end
+
+local function tp(pos)
+	if not pos then return false end
+	local c = char()
+	local root = c:FindFirstChild("HumanoidRootPart")
+	if not root then return false end
+	pcall(function()
+		if c.PrimaryPart then
+			c:PivotTo(CFrame.new(pos))
+		else
+			root.CFrame = CFrame.new(pos)
+		end
+	end)
+	return true
+end
+
+function EventTP.TeleportOnce(name)
+	local ok, pos = pcall(function()
+		return resolve(name)
+	end)
+	if ok and pos then
+		return tp(pos)
+	end
+	return false
+end
+
+function EventTP.Start(name)
+	if running then return end
+	if not EventTP.Events[name] then return end
+	running = true
+	currentEvent = name
+
+	task.spawn(function()
+		while running do
+			local ok, pos = pcall(function()
+				return resolve(currentEvent)
+			end)
+			if ok and pos then tp(pos) end
+			task.wait(EventTP.ScanInterval)
+		end
+	end)
+end
+
+function EventTP.Stop()
+	running = false
+	currentEvent = nil
+end
 
 -- =========================
 -- BRIDGE UNTUK WINDUI
@@ -1405,19 +1534,23 @@ do
     local tovent = televent:Button({
         Title = "Teleport to Chosen Event (Once)",
         Icon = "corner-down-right",
-        Callback = function()
+        Callback = function(state)
             if not autoEventTargetName then
-                WindUI:Notify({ Title = "Error", Content = "Pilih event dulu di dropdown!", Duration = 3, Icon = "alert-triangle" })
-                return
+                WindUI:Notify({Title="Error", Content="Pilih event dulu!", Duration=3, Icon="alert-triangle"})
+                return false
             end
-            
-            WindUI:Notify({ Title = "Searching...", Content = "Mencari keberadaan event...", Duration = 2, Icon = "search" })
-            
-            local found = FindAndTeleportToTargetEvent()
-            if not found then
-                WindUI:Notify({ Title = "Gagal", Content = "Event tidak ditemukan / belum spawn.", Duration = 3, Icon = "x" })
+
+            autoEventTeleportState = state
+
+            if state then
+                EventTP.Start(autoEventTargetName)
+                WindUI:Notify({Title="Auto Event ON", Icon="search", Duration=3})
+            else
+                EventTP.Stop()
+                WindUI:Notify({Title="Auto Event OFF", Icon="x", Duration=3})
             end
         end
+
     })
 
 
