@@ -77,7 +77,7 @@ pcall(function()
 end)
 
 local eventsList = { 
-    "Shark Hunt", "Ghost Shark Hunt", "Worm Hunt", "Black Hole", "Shocked", 
+    "Lochness Hunt" ,"Shark Hunt", "Ghost Shark Hunt", "Worm Hunt", "Black Hole", "Shocked", 
     "Ghost Worm", "Meteor Rain", "Megalodon Hunt", "Treasure Event"
 }
 
