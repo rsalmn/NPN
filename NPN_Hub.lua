@@ -81,98 +81,78 @@ local eventsList = {
     "Ghost Worm", "Meteor Rain", "Megalodon Hunt", "Treasure Event"
 }
 
+-- =========================
+-- NEW EVENT TELEPORT MODULE
+-- =========================
+local EventTP = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/akmiliadevi/Tugas_Kuliah/refs/heads/main/Project_code/Utama/SkinSwapAnimation.lua"
+))()
+
+-- Sync list ke UI bawaan kamu
+local eventsList = EventTP.GetEventNames()
+
+
 local autoEventTargetName = nil 
 local autoEventTeleportState = false
 local autoEventTeleportThread = nil
 
 
+-- =========================
+-- BRIDGE UNTUK WINDUI
+-- =========================
 local function FindAndTeleportToTargetEvent()
-    local targetName = autoEventTargetName
-    if not targetName or targetName == "" then return false end
-    
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    
-    local eventModel = nil
-    
-    if targetName == "Treasure Event" then
-        local sunkenFolder = workspace:FindFirstChild("Sunken Wreckage")
-        if sunkenFolder then
-            eventModel = sunkenFolder:FindFirstChild("Treasure")
-        end
-    
-    elseif targetName == "Worm Hunt" then
-        local menuRingsFolder = workspace:FindFirstChild("!!! MENU RINGS")
-        if menuRingsFolder then
-            for _, child in ipairs(menuRingsFolder:GetChildren()) do
-                if child.Name == "Props" then
-                    local specificModel = child:FindFirstChild("Model")
-                    if specificModel then
-                        eventModel = specificModel
-                        break
-                    end
-                end
-            end
-        end
+    if not autoEventTargetName then return false end
+    local ok = EventTP.TeleportNow(autoEventTargetName)
 
-    else
-        local menuRingsFolder = workspace:FindFirstChild("!!! MENU RINGS") 
-        if menuRingsFolder then
-            for _, container in ipairs(menuRingsFolder:GetChildren()) do
-                if container:FindFirstChild(targetName) then
-                    eventModel = container:FindFirstChild(targetName)
-                    break
-                end
-            end
-        end
-    end
-    
-    if not eventModel then return false end 
-
-    local targetPart = nil
-    local positionOffset = Vector3.new(0, 15, 0) 
-    
-    if targetName == "Megalodon Hunt" then
-        targetPart = eventModel:FindFirstChild("Top") 
-        if targetPart then positionOffset = Vector3.new(0, 3, 0) end
-    elseif targetName == "Treasure Event" then
-        targetPart = eventModel
-        positionOffset = Vector3.new(0, 5, 0)
-    else
-        targetPart = eventModel:FindFirstChild("Fishing Boat")
-        if not targetPart then targetPart = eventModel end
-        positionOffset = Vector3.new(0, 15, 0)
-    end
-
-    if not targetPart then return false end
-
-    local targetCFrame = nil
-    
-    local success = pcall(function()
-        if targetPart:IsA("Model") then
-             targetCFrame = targetPart:GetPivot()
-        elseif targetPart:IsA("BasePart") then
-             targetCFrame = targetPart.CFrame
-        end
-    end)
-
-    if success and targetCFrame and typeof(targetCFrame) == "CFrame" then
-        local position = targetCFrame.p + positionOffset
-        local lookVector = targetCFrame.LookVector
-        
-        TeleportToLookAt(position, lookVector)
-        
+    if ok then
         WindUI:Notify({
-            Title = "Event Found!",
-            Content = "Teleported to: " .. targetName,
+            Title = "Event Found",
+            Content = "Teleported to "..autoEventTargetName,
             Icon = "map-pin",
             Duration = 3
         })
         return true
+    else
+        WindUI:Notify({
+            Title = "Event Not Found",
+            Content = "Belum spawn / tidak terdeteksi.",
+            Icon = "x",
+            Duration = 3
+        })
+        return false
     end
-    
-    return false
 end
+
+
+local function StartAutoEvent()
+    local ok = EventTP.Start(autoEventTargetName)
+    if ok then
+        WindUI:Notify({
+            Title = "Auto Event TP ON",
+            Content = "Memantau event: "..autoEventTargetName,
+            Icon = "search",
+            Duration = 3
+        })
+    else
+        WindUI:Notify({
+            Title = "Gagal",
+            Content = "Event tidak valid / tidak punya koordinat.",
+            Icon = "x",
+            Duration = 3
+        })
+        Window:GetElementByTitle("Enable Auto Event Teleport"):Set(false)
+    end
+end
+
+local function StopAutoEvent()
+    EventTP.Stop()
+    WindUI:Notify({
+        Title = "Auto Event TP OFF",
+        Duration = 3,
+        Icon = "x"
+    })
+end
+
 
 local function RunAutoEventTeleportLoop()
     if autoEventTeleportThread then task.cancel(autoEventTeleportThread) end
@@ -1453,10 +1433,9 @@ do
             
             autoEventTeleportState = state
             if state then
-                RunAutoEventTeleportLoop()
+                StartAutoEvent()
             else
-                if autoEventTeleportThread then task.cancel(autoEventTeleportThread) autoEventTeleportThread = nil end
-                WindUI:Notify({ Title = "Auto Event TP OFF", Duration = 3, Icon = "x" })
+                StopAutoEvent()
             end
         end
     })
