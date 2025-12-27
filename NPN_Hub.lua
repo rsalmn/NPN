@@ -1278,71 +1278,85 @@ do
 end
 
 do
-    local v6 = farm:Section({ Title = "5. Blatant V6 (Ultra)", TextSize = 20 })
+    -- ⚙️ BLATANT V6 SETTINGS PANEL -----------------------------
+    local v6Section = farm:Section({
+        Title = "Blatant V6 Settings",
+        TextSize = 20
+    })
 
-    local V6_Active = false
-    local V6_Settings = { CompleteDelay = 0.05, CancelDelay = 0.05 }
-    local V6_Stats = { CastCount = 0 }
+    local BlatantV6_Settings = {
+        charge = 0.007,
+        complete = 0.001,
+        cancel = 0.001
+    }
 
-    local function safeFire(fn)
-        task.spawn(function() pcall(fn) end)
-    end
-
-    local function V6_Loop()
-        while V6_Active do
-            local now = tick()
-            safeFire(function() RF_ChargeFishingRod:InvokeServer({[1] = now}) end)
-            safeFire(function() RF_RequestFishingMinigameStarted:InvokeServer(1, 0, now) end)
-            V6_Stats.CastCount = V6_Stats.CastCount + 1
-            task.wait(V6_Settings.CompleteDelay)
-            safeFire(function() RE_FishingCompleted:FireServer() end)
-            task.wait(V6_Settings.CancelDelay)
-            safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
-        end
-    end
-
-    if RE_FishingMinigameChanged then
-        RE_FishingMinigameChanged.OnClientEvent:Connect(function()
-            if not V6_Active then return end
-            task.spawn(function()
-                task.wait(V6_Settings.CompleteDelay)
-                safeFire(function() RE_FishingCompleted:FireServer() end)
-                task.wait(V6_Settings.CancelDelay)
-                safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
-            end)
-        end)
-    end
-
-    Reg("v6comp", v6:Input({
-        Title = "Complete Delay", Value = tostring(V6_Settings.CompleteDelay), Placeholder = "0.05",
-        Callback = function(v) local n = tonumber(v); if n then V6_Settings.CompleteDelay = n end end
-    }))
-
-    Reg("v6canc", v6:Input({
-        Title = "Cancel Delay", Value = tostring(V6_Settings.CancelDelay), Placeholder = "0.05",
-        Callback = function(v) local n = tonumber(v); if n then V6_Settings.CancelDelay = n end end
-    }))
-
-    Reg("v6toggle", v6:Toggle({
-        Title = "Enable Blatant V6", Desc = "Ultra Mode (Fastest)", Value = false,
-        Callback = function(s)
-            if s then
-                if V6_Active then return end
-                V6_Active = true
-                safeFire(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
-                task.wait(0.2)
-                task.spawn(V6_Loop)
-                WindUI:Notify({ Title = "V6 ULTRA ON", Duration = 2, Icon = "zap" })
-            else
-                if not V6_Active then return end
-                V6_Active = false
-                safeFire(function() RF_UpdateAutoFishingState:InvokeServer(true) end)
-                task.wait(0.2)
-                safeFire(function() RF_CancelFishingInputs:InvokeServer() end)
-                WindUI:Notify({ Title = "V6 Stopped", Duration = 2 })
+    Reg("v6_charge", v6Section:Input({
+        Title = "Charge Delay",
+        Placeholder = "0.007",
+        Value = tostring(BlatantV6_Settings.charge),
+        Callback = function(v)
+            local n = tonumber(v)
+            if n then
+                BlatantV6_Settings.charge = n
+                BlatantV6.UpdateSettings(
+                    BlatantV6_Settings.charge,
+                    BlatantV6_Settings.complete,
+                    BlatantV6_Settings.cancel
+                )
+                WindUI:Notify({Title="Updated",Content="Charge Delay Updated"})
             end
         end
     }))
+
+    Reg("v6_complete", v6Section:Input({
+        Title = "Complete Delay",
+        Placeholder = "0.001",
+        Value = tostring(BlatantV6_Settings.complete),
+        Callback = function(v)
+            local n = tonumber(v)
+            if n then
+                BlatantV6_Settings.complete = n
+                BlatantV6.UpdateSettings(
+                    BlatantV6_Settings.charge,
+                    BlatantV6_Settings.complete,
+                    BlatantV6_Settings.cancel
+                )
+                WindUI:Notify({Title="Updated",Content="Complete Delay Updated"})
+            end
+        end
+    }))
+
+    Reg("v6_cancel", v6Section:Input({
+        Title = "Cancel Delay",
+        Placeholder = "0.001",
+        Value = tostring(BlatantV6_Settings.cancel),
+        Callback = function(v)
+            local n = tonumber(v)
+            if n then
+                BlatantV6_Settings.cancel = n
+                BlatantV6.UpdateSettings(
+                    BlatantV6_Settings.charge,
+                    BlatantV6_Settings.complete,
+                    BlatantV6_Settings.cancel
+                )
+                WindUI:Notify({Title="Updated",Content="Cancel Delay Updated"})
+            end
+        end
+    }))
+    Reg("v6_toggle", farm:Toggle({
+        Title = "Blatant V6 (Perfect Engine)",
+        Value = false,
+        Callback = function(s)
+            if s then
+                BlatantV6.Start()
+                WindUI:Notify({Title="V6 Enabled",Icon="zap"})
+            else
+                BlatantV6.Stop()
+                WindUI:Notify({Title="V6 Disabled"})
+            end
+        end
+    }))
+
 end
 
 do
