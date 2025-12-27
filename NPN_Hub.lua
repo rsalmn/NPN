@@ -710,9 +710,7 @@ do
             end
         end
     }))
-end
 
-do
     local v4 = fishMancing:Section({
         Title = "3. Blatant V2",
         TextSize = 20
@@ -940,9 +938,7 @@ do
             end
         end
     }))
-end
 
-do
     ------------------------------------------------------------
     -- BLATANT V5 (TESTER)
     -- Ultra Spam Mode (Gila Cepat, tapi Experimental)
@@ -1128,8 +1124,8 @@ do
             end
         end
     }))
-
 end
+
 -- FISHING SUPPORT
 
 do
