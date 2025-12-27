@@ -1343,7 +1343,7 @@ do
             end
         end
     }))
-    Reg("v6_toggle", farm:Toggle({
+    Reg("v6_toggle", v6Section:Toggle({
         Title = "Blatant V6 (Perfect Engine)",
         Value = false,
         Callback = function(s)
