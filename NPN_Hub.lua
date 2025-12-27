@@ -909,8 +909,7 @@ do
 
                 StartEquip()
                 StartLoop()
-                StartFishNotificationControl()
-
+                
                 WindUI:Notify({
                     Title = "Blatant Extra ENABLED",
                     Content = "Adaptive Hybrid Engine Running",
