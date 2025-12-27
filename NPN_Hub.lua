@@ -116,8 +116,46 @@ EventTP.Events = {
         Vector3.new(-1358.2, -1.35, 4100.55),
         Vector3.new(627.859, -1.35, 3798.08),
     },
+    ["Lochness Hunt"] = {
+        Vector3.new(1500, -1.4, 2200),
+        Vector3.new(-1800, -1.4, 2500),
+        Vector3.new(300, -1.4, 4100),
+    },
     ["Treasure Event"] = nil
 }
+
+--------------------------------------------------
+-- 🐍 LOCHNESS SPECIAL TIMER LOGIC
+--------------------------------------------------
+EventTP.Special = {
+    ["Lochness Hunt"] = {
+        Interval = 4 * 60 * 60,   -- 4 Jam
+        Duration = 10 * 60,       -- 10 Menit
+        Anchor = 0                -- patokan waktu siklus (00:00)
+    }
+}
+
+local function GetEventTimeState(eventName)
+    local cfg = EventTP.Special[eventName]
+    if not cfg then return { active = true } end
+
+    local now = os.time()
+    local elapsed = (now - cfg.Anchor) % cfg.Interval
+
+    if elapsed <= cfg.Duration then
+        local remaining = cfg.Duration - elapsed
+        return {
+            active = true,
+            remaining = remaining
+        }
+    else
+        local untilNext = cfg.Interval - elapsed
+        return {
+            active = false,
+            untilNext = untilNext
+        }
+    end
+end
 
 EventTP.SearchRadius = 16
 EventTP.ScanInterval = 0.75
@@ -195,6 +233,18 @@ local function tp(pos)
 end
 
 function EventTP.TeleportOnce(name)
+    local t = GetEventTimeState(name)
+    if t.active == false then
+        WindUI:Notify({
+            Title = "Lochness Not Active",
+            Content = string.format("Next spawn in %d menit",
+                math.floor((t.untilNext or 0)/60)),
+            Duration = 4,
+            Icon = "clock"
+        })
+        return false
+    end
+
 	local ok, pos = pcall(function()
 		return resolve(name)
 	end)
@@ -211,14 +261,33 @@ function EventTP.Start(name)
 	currentEvent = name
 
 	task.spawn(function()
-		while running do
-			local ok, pos = pcall(function()
-				return resolve(currentEvent)
-			end)
-			if ok and pos then tp(pos) end
-			task.wait(EventTP.ScanInterval)
-		end
-	end)
+        while running do
+            
+            local special = GetEventTimeState(currentEvent)
+
+            if special.active then
+                -- hanya scan saat aktif
+                local ok, pos = pcall(function()
+                    return resolve(currentEvent)
+                end)
+
+                if ok and pos then tp(pos) end
+
+                task.wait(EventTP.ScanInterval)
+
+            else
+                -- tidur dulu sampai mendekati spawn
+                local waitTime = math.max(5, math.min(special.untilNext, 120))
+                WindUI:Notify({
+                    Title = "Waiting Event Window",
+                    Content = "Auto teleport standby...",
+                    Duration = 3,
+                    Icon = "clock"
+                })
+                task.wait(waitTime)
+            end
+        end
+    end)
 end
 
 function EventTP.Stop()
