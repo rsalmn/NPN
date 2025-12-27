@@ -648,243 +648,6 @@ do
     }))
 end
 
--- [[ 3. BLATANT EXTRA (V2 + NOTIF QUEUE) ]] --
-do
-    local BlatantExtra = farm:Section({ Title = "3. Blatant Extra (V2 + Notif)", TextSize = 20 })
-
-    -- State & Config
-    local Extra_Active = false
-    local Extra_Loop = nil
-    local Extra_EquipLoop = nil
-    local Extra_Watchdog = nil
-    
-    local Config = {
-        LoopDelay = 1.25,
-        CatchDelay = 2.05,
-        CancelDelay = 0.22,
-        NotifDuration = 15 -- Durasi notifikasi di layar
-    }
-
-    -- Notification System Variables
-    local NotifQueue = {}
-    local NotifProcessing = false
-    local FishNotifConnection = nil
-    local RealNotifEvent = nil
-
-    -- [HELPER] Deep Copy Table
-    local function DeepCopy(tbl)
-        local new = {}
-        for k,v in pairs(tbl) do
-            new[k] = (type(v)=="table") and DeepCopy(v) or v
-        end
-        return new
-    end
-
-    -- [HELPER] Safe Fire
-    local function safe(fn)
-        task.spawn(function() pcall(fn) end)
-    end
-
-    -- [SYSTEM] Notification Queue Processor
-    local function ProcessNotifQueue()
-        if NotifProcessing then return end
-        NotifProcessing = true
-
-        task.spawn(function()
-            while #NotifQueue > 0 do
-                local data = table.remove(NotifQueue, 1)
-
-                -- Tampilkan Notifikasi (Memalsukan sinyal server)
-                if firesignal and RealNotifEvent then
-                    pcall(function()
-                        firesignal(RealNotifEvent.OnClientEvent, table.unpack(data))
-                    end)
-                end
-                
-                -- Delay antar notifikasi agar menumpuk rapi
-                task.wait(1.2) 
-            end
-            NotifProcessing = false
-        end)
-    end
-
-    -- [SYSTEM] Start Notification Interceptor
-    local function StartNotifInterceptor()
-        -- Cari Remote Notifikasi
-        if not RealNotifEvent then
-            local success, event = pcall(function()
-                return RepStorage.Packages._Index["sleitnick_net@0.2.0"].net["RE/ObtainedNewFishNotification"]
-            end)
-            if success then RealNotifEvent = event end
-        end
-
-        if not RealNotifEvent then return end
-
-        -- Disconnect listener lama jika ada
-        if FishNotifConnection then FishNotifConnection:Disconnect() end
-
-        -- Connect Listener Baru
-        FishNotifConnection = RealNotifEvent.OnClientEvent:Connect(function(...)
-            local args = {...}
-            local data = args[3]
-
-            -- Cek apakah ini notifikasi buatan kita (Flag: CustomDuration = 15)
-            if data and data.CustomDuration == Config.NotifDuration then 
-                return -- Abaikan agar tidak looping
-            end
-
-            -- Clone data asli
-            local clonedArgs = DeepCopy(args)
-            
-            -- Modifikasi Durasi agar lama hilang
-            if clonedArgs[3] then
-                clonedArgs[3].CustomDuration = Config.NotifDuration
-            end
-
-            -- Masukkan ke antrian visual
-            table.insert(NotifQueue, clonedArgs)
-            ProcessNotifQueue()
-        end)
-    end
-
-    -- [SYSTEM] Stop Notification Interceptor
-    local function StopNotifInterceptor()
-        if FishNotifConnection then
-            FishNotifConnection:Disconnect()
-            FishNotifConnection = nil
-        end
-        NotifQueue = {} -- Bersihkan antrian
-    end
-
-    -- [ENGINE] Fishing Logic (V2 Ultimate)
-    local function RunExtraEngine()
-        if not Extra_Active then return end
-        
-        -- Reset State
-        safe(function() RF_CancelFishingInputs:InvokeServer() end)
-        task.wait(0.05)
-
-        local t = tick()
-
-        -- 1. Cast
-        safe(function() RF_ChargeFishingRod:InvokeServer({[2]=t}) end)
-        task.wait(0.01)
-        safe(function() 
-            RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99, t) 
-        end)
-
-        -- 2. Wait Catch
-        task.wait(Config.CatchDelay)
-
-        -- 3. Complete
-        safe(function() RE_FishingCompleted:FireServer() end)
-
-        -- 4. Wait Cancel
-        task.wait(Config.CancelDelay)
-
-        -- 5. Cancel
-        safe(function() RF_CancelFishingInputs:InvokeServer() end)
-
-        -- 6. Fast Recast (Double Pump)
-        task.wait(0.05)
-        safe(function() RF_ChargeFishingRod:InvokeServer({[2]=t}) end)
-        task.wait(0.01)
-        safe(function() 
-            RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99, t) 
-        end)
-    end
-
-    -- [LOOPS]
-    local function StartLoops()
-        -- Main Fishing Loop
-        Extra_Loop = task.spawn(function()
-            while Extra_Active do
-                RunExtraEngine()
-                task.wait(Config.LoopDelay)
-            end
-        end)
-
-        -- Auto Equip Loop
-        Extra_EquipLoop = task.spawn(function()
-            while Extra_Active do
-                pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                task.wait(0.08)
-            end
-        end)
-
-        -- Watchdog (Anti-Stuck)
-        Extra_Watchdog = task.spawn(function()
-            while Extra_Active do
-                task.wait(6)
-                if Extra_Active then 
-                    pcall(function() RF_CancelFishingInputs:InvokeServer() end) 
-                end
-            end
-        end)
-    end
-
-    -- [UI] Inputs
-    Reg("extra_loop", BlatantExtra:Input({
-        Title="Loop Delay", Value=tostring(Config.LoopDelay), Placeholder="1.25",
-        Callback=function(v) local n=tonumber(v) if n then Config.LoopDelay=n end end
-    }))
-
-    Reg("extra_catch", BlatantExtra:Input({
-        Title="Catch Delay", Value=tostring(Config.CatchDelay), Placeholder="2.05",
-        Callback=function(v) local n=tonumber(v) if n then Config.CatchDelay=n end end
-    }))
-
-    Reg("extra_cancel", BlatantExtra:Input({
-        Title="Cancel Delay", Value=tostring(Config.CancelDelay), Placeholder="0.22",
-        Callback=function(v) local n=tonumber(v) if n then Config.CancelDelay=n end end
-    }))
-
-    -- [UI] Main Toggle
-    Reg("extra_toggle", BlatantExtra:Toggle({
-        Title = "Enable Blatant Extra",
-        Desc = "Stable V2 Engine + Real Notification Queue",
-        Value = false,
-        Callback = function(state)
-            if not checkFishingRemotes() then 
-                WindUI:Notify({Title="Error", Content="Missing Remotes", Duration=3})
-                return 
-            end
-
-            Extra_Active = state
-
-            if state then
-                -- Disable mode lain jika perlu
-                -- ...
-
-                StartNotifInterceptor() -- Nyalakan Queue Notifikasi
-                StartLoops()            -- Nyalakan Mesin Mancing
-
-                WindUI:Notify({
-                    Title = "Blatant Extra ON",
-                    Content = "Engine & Notif Queue Active",
-                    Duration = 3,
-                    Icon = "zap"
-                })
-            else
-                StopNotifInterceptor() -- Matikan Queue
-
-                -- Matikan semua loops
-                if Extra_Loop then task.cancel(Extra_Loop) Extra_Loop=nil end
-                if Extra_EquipLoop then task.cancel(Extra_EquipLoop) Extra_EquipLoop=nil end
-                if Extra_Watchdog then task.cancel(Extra_Watchdog) Extra_Watchdog=nil end
-
-                -- Reset State Game
-                safe(function() RF_UpdateAutoFishingState:InvokeServer(false) end)
-                task.wait(0.2)
-                safe(function() RF_CancelFishingInputs:InvokeServer() end)
-
-                WindUI:Notify({ Title = "Blatant Extra OFF", Duration = 2 })
-            end
-        end
-    }))
-end
-
-
 --============================================================
 --  🔥 BLATANT EXTRA (FINAL UNIFIED ENGINE)
 --  Hybrid Logic + Rod Adaptive + Notification Queue
@@ -933,6 +696,35 @@ do
         ["God Rod"] = 0.35,
     }
 
+    ------------------------------------------------------------
+    -- AUTO SKIN SPEED PROFILE
+    ------------------------------------------------------------
+    local RodSpeedProfile = {
+        Eclipse = {
+            ChargeDelay = 0.006,
+            CompleteDelay = 0.10,
+            CancelDelay = 0.12,
+        },
+
+        HolyTrident = {
+            ChargeDelay = 0.0045,
+            CompleteDelay = 0.085,
+            CancelDelay = 0.10,
+        },
+
+        SoulScythe = {
+            ChargeDelay = 0.0035,
+            CompleteDelay = 0.07,
+            CancelDelay = 0.09,
+        },
+
+        Default = {
+            ChargeDelay = 0.009,
+            CompleteDelay = 0.12,
+            CancelDelay = 0.14,
+        }
+    }
+
     local function GetCurrentRodSpeed()
         local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
         if not tool then return 1 end
@@ -944,6 +736,22 @@ do
         end
         
         return 1
+    end
+
+    local function GetCurrentRodSkin()
+        local char = LocalPlayer.Character
+        if not char then return "Default" end
+
+        local tool = char:FindFirstChildOfClass("Tool")
+        if not tool then return "Default" end
+
+        local name = tool.Name
+
+        if string.find(name, "Eclipse") then return "Eclipse" end
+        if string.find(name, "Trident") then return "HolyTrident" end
+        if string.find(name, "Scythe") then return "SoulScythe" end
+        
+        return "Default"
     end
 
     ------------------------------------------------------------
@@ -1027,7 +835,7 @@ do
     local function ExtraCycle()
         if not EXTRA_ACTIVE then return end
         
-        local speedScale = GetCurrentRodSpeed()
+        local speedScale = GetCurrentRodSkin()
 
         safe(function() RF_Cancel:InvokeServer() end)
         task.wait(0.03)
@@ -1050,6 +858,8 @@ do
         safe(function()
             RF_Cancel:InvokeServer()
         end)
+
+        print("🎣 Skin:", speedScale)
     end
 
     ------------------------------------------------------------
@@ -1146,7 +956,7 @@ do
 
                 StartEquip()
                 StartLoop()
-                
+
                 WindUI:Notify({
                     Title = "Blatant Extra ENABLED",
                     Content = "Adaptive Hybrid Engine Running",
