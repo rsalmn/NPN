@@ -2,21 +2,21 @@
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 local Window = WindUI:CreateWindow({
     Title = "NPN Hub Premium",
-    Icon = "rbxassetid://116236936447443",
+    Icon = "geist:window",
     Author = "XYOURZONE | All Modes",
     Folder = "RockHubCombined",
     Size = UDim2.fromOffset(600, 450),
     Transparent = true,
-    Theme = "Rose",
+    Theme = "Dark",
     Resizable = true,
     KeySystem = {                                                   
-        Note = "Example Key System. With pandadevelopment.",        
+        Note = "FREEMIUM KEY IN DISCORD CHANNEL",        
         API = {                                                     
             { -- pandadevelopment
                 Type = "pandadevelopment", -- type
-                ServiceId = "NPNHub", -- service id
+                ServiceId = "fDS7ZzVtzOQyihv0gSFKjv42Rcex6yw8", -- service id
             },                                                      
-        },                                                          
+        },
     },
 })
 
@@ -2119,8 +2119,8 @@ do
     -- Script hanya akan menganggap event aktif jika menemukan part dengan nama-nama ini
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Shark", "Great White"},
-        ["Ghost Shark Hunt"] = {"Ghost", "GHOST Shark Hunt", "Shark Hunt"},
+        ["Shark Hunt"] = {"Shark"},
+        ["Ghost Shark Hunt"] = {"Ghost", "GHOST"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost Worm"},
         ["Treasure Event"] = {"Chest", "Supply", "Crate"},
