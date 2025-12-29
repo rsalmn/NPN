@@ -2155,7 +2155,7 @@ do
     -- KEYWORD UNTUK VERIFIKASI SETELAH TELEPORT
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Shark", "Great White"}, 
+        ["Shark Hunt"] = {"Shark Hunt", "Blob Shark"}, 
         ["Ghost Shark Hunt"] = {"Ghost"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost"},
