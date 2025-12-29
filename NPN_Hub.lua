@@ -2082,10 +2082,10 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (V4 DEEP SCAN)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event (V5 PROBE SYSTEM)", TextSize = 20 })
 
     -- =========================================================
-    -- 1. DATA FISHING AREA
+    -- 1. DATA FISHING AREA (Idle Map)
     -- =========================================================
     local FishingAreass = {
         ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
@@ -2124,107 +2124,140 @@ do
     local CurrentCheckIndex = 1 
 
     -- =========================================================
-    -- 2. KEYWORDS (NAMA MONSTER YANG AKAN DICARI)
+    -- 2. DATABASE KOORDINAT (HARDCODED)
     -- =========================================================
+    local EventCoords = {
+        ["Shark Hunt"] = {
+            Vector3.new(1.6, -1.3, 2095), Vector3.new(1369, -1.3, 930),
+            Vector3.new(-1585, -1.3, 1242), Vector3.new(-1896, -1.3, 2634)
+        },
+        ["Megalodon Hunt"] = {
+            Vector3.new(-1076, -1.3, 1676), Vector3.new(-1191, -1.3, 3597),
+            Vector3.new(412, -1.3, 4134)
+        },
+        ["Ghost Shark Hunt"] = {
+            Vector3.new(489, -1.3, 25), Vector3.new(-1358, -1.3, 4100),
+            Vector3.new(627, -1.3, 3798)
+        },
+        ["Worm Hunt"] = {
+            Vector3.new(2190, -1.3, 97), Vector3.new(-2450, -1.3, 139),
+            Vector3.new(-267, -1.3, 5188)
+        },
+        ["Ghost Worm"] = { 
+            Vector3.new(2190, -1.3, 97), Vector3.new(-2450, -1.3, 139),
+            Vector3.new(-267, -1.3, 5188)
+        },
+        ["Meteor Rain"] = { -- Meteor Random, kita coba area umum
+            Vector3.new(1.6, 0, 2095), Vector3.new(-1585, 0, 1242)
+        }
+    }
+
+    -- KEYWORD UNTUK VERIFIKASI SETELAH TELEPORT
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Great White", "Shark"}, 
+        ["Shark Hunt"] = {"Shark", "Great White"}, 
         ["Ghost Shark Hunt"] = {"Ghost"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost"},
         ["Treasure Event"] = {"Chest", "Crate", "Supply"},
         ["Meteor Rain"] = {"Meteor"},
-        ["Lochness Hunt"] = {"Ness", "Loch"},
-    }
-
-    -- Koordinat Manual (Backup untuk Probe)
-    local EventCoordsBackup = {
-        ["Shark Hunt"] = {Vector3.new(1.6, -1.3, 2095), Vector3.new(1369, -1.3, 930)},
-        ["Megalodon Hunt"] = {Vector3.new(-1076, -1.3, 1676), Vector3.new(412, -1.3, 4134)},
-        ["Ghost Shark Hunt"] = {Vector3.new(489, -1.3, 25), Vector3.new(627, -1.3, 3798)},
-        ["Worm Hunt"] = {Vector3.new(2190, -1.3, 97), Vector3.new(-2450, -1.3, 139)}
     }
 
     -- =========================================================
-    -- 3. SCANNER ENGINE (DEEP SCAN + PROBE)
+    -- 3. HELPER FUNCTIONS
     -- =========================================================
     
-    local function FindEventCoordinate(targetName)
-        if not targetName then return nil end
-        print("🔍 [Scan] Mencari: " .. targetName)
-
-        -- [A] LOCHNESS LOGIC
-        if targetName == "Lochness Hunt" then
-            local _, _, active = getLochNextTimes()
-            if active then
-                -- Deep Scan untuk Lochness
-                for _, obj in ipairs(workspace:GetDescendants()) do
-                    if obj:IsA("Model") and (string.find(obj.Name, "Nessie") or string.find(obj.Name, "Lochness")) then
-                        print("✅ [Lochness] FOUND Physical Object!")
-                        return obj:GetPivot().Position + Vector3.new(0, 15, 0)
-                    end
-                end
-                print("⏳ [Lochness] Time active, waiting render...")
-                return SAFE_LAND_POSITION
-            end
-            return nil
-        end
-
-        -- [B] EVENT BIASA: DEEP SCAN
-        local keywords = EventKeywords[targetName] or {targetName}
-        
-        -- 1. PRE-LOAD AREA (STREAMING FIX)
-        -- Jika kita punya koordinat backup, minta server kirim data area itu dulu
-        if EventCoordsBackup[targetName] then
-            for _, pos in ipairs(EventCoordsBackup[targetName]) do
-                LocalPlayer:RequestStreamAroundAsync(pos)
-            end
-        end
-
-        -- 2. DEEP SCAN (Cari di semua folder workspace)
-        local candidates = workspace:GetDescendants()
-        
-        for _, obj in ipairs(candidates) do
-            -- Filter Optimasi: Hanya cek Model yang punya Humanoid/Life
-            -- (Kecuali Treasure/Meteor)
-            if obj:IsA("Model") then
-                local objName = obj.Name
-                local hasLife = obj:FindFirstChild("Humanoid") or obj:FindFirstChild("Health")
-                local isItem = targetName == "Treasure Event" or targetName == "Meteor Rain"
-
-                -- Keyword Matching
-                for _, key in ipairs(keywords) do
-                    if string.find(objName, key) then
-                        if hasLife or isItem then
-                            local pos = obj:GetPivot().Position
-                            print("✅ [DEEP SCAN] KETEMU: " .. objName .. " di " .. tostring(pos))
-                            
-                            -- Visual Feedback
-                            local h = Instance.new("Hint", workspace)
-                            h.Text = "NPN HUB: Found " .. objName
-                            game:GetService("Debris"):AddItem(h, 2)
-                            
-                            return pos + Vector3.new(0, 15, 0)
-                        end
-                    end
-                end
-            end
-        end
-
-        print("❌ [ZONK] Tidak ditemukan di seluruh Workspace.")
-        return nil
-    end
-
+    -- Fungsi Teleport Aman (Dengan WalkOnWater logic)
     local function SafeTeleportTo(pos)
         local char = Players.LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            print("🚀 [Teleport] OTW...")
-            char:PivotTo(CFrame.new(pos))
+            char:PivotTo(CFrame.new(pos + Vector3.new(0, 15, 0))) -- +15 Agar jatuh ke platform air
             hrp.Anchored = false 
             hrp.Velocity = Vector3.zero
             hrp.AssemblyLinearVelocity = Vector3.zero
         end
+    end
+
+    -- FUNGSI PROBE (TELEPORT & CHECK)
+    local function ProbeAndFindEvent(targetName)
+        if not targetName then return false end
+        
+        -- [A] KHUSUS LOCHNESS (Logic Beda)
+        if targetName == "Lochness Hunt" then
+            local _, _, active = getLochNextTimes()
+            if active then
+                -- Cek Fisik Global (Lochness biasanya besar dan dirender jauh)
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("Model") and (string.find(obj.Name, "Nessie") or string.find(obj.Name, "Lochness")) then
+                        print("✅ [Lochness] FOUND!")
+                        SafeTeleportTo(obj:GetPivot().Position)
+                        return true
+                    end
+                end
+                print("⏳ [Lochness] Waiting...")
+                -- Teleport ke Safe Land untuk menunggu
+                SafeTeleportTo(SAFE_LAND_POSITION) 
+                return true -- Return True biar ga pindah ke Idle
+            end
+            return false
+        end
+
+        -- [B] EVENT BIASA: PROBE SYSTEM
+        local coords = EventCoords[targetName]
+        if not coords then 
+            print("⚠️ [System] No coords for " .. targetName)
+            return false 
+        end
+
+        local keywords = EventKeywords[targetName] or {targetName}
+        
+        print("🕵️ [Probe] Memeriksa lokasi untuk: " .. targetName)
+
+        for i, pos in ipairs(coords) do
+            -- 1. BLIND TELEPORT (Paksa Load Chunk)
+            SafeTeleportTo(pos)
+            
+            -- 2. TUNGGU LOADING (Penting!)
+            -- Kita tunggu sebentar agar StreamingEnabled memuat monster
+            task.wait(1.5) 
+            
+            -- 3. SCAN LOKAL (Radius 500 Studs)
+            local overlapParams = OverlapParams.new()
+            overlapParams.FilterDescendantsInstances = {Players.LocalPlayer.Character, workspace.Terrain}
+            overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+            
+            local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(500, 200, 500), overlapParams)
+            
+            for _, part in ipairs(parts) do
+                local pName = part.Name
+                local mName = part.Parent and part.Parent.Name or ""
+                
+                for _, key in ipairs(keywords) do
+                    if string.find(pName, key) or string.find(mName, key) then
+                        -- VALIDASI MODEL HIDUP
+                        local model = part:FindFirstAncestorOfClass("Model")
+                        if model then
+                            if model:FindFirstChild("Humanoid") or model:FindFirstChild("Health") or targetName == "Treasure Event" then
+                                print("✅ [FOUND] " .. targetName .. " at Spot #" .. i)
+                                
+                                -- Re-adjust posisi tepat di atas monster
+                                SafeTeleportTo(part.Position)
+                                return true
+                            end
+                        end
+                        -- Fallback Check
+                        print("✅ [FOUND-Part] " .. targetName .. " detected via Part.")
+                        return true 
+                    end
+                end
+            end
+            
+            -- Jika tidak ketemu di titik ini, loop akan lanjut ke titik berikutnya
+        end
+
+        print("❌ [ZONK] " .. targetName .. " tidak ditemukan di semua titik spawn.")
+        return false
     end
 
     -- =========================================================
@@ -2257,68 +2290,63 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC (ROBUST ROTATION)
+    -- 5. MAIN LOGIC (PROBE LOOP)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
-        Desc = "V4: Deep Scan + Streaming Fix",
+        Desc = "Blind Probe + Auto Verify",
         Value = false,
         Callback = function(state)
             SmartEventState = state
 
             if SmartEventState then
-                WindUI:Notify({ Title = "Smart System V4", Content = "Running Deep Scan...", Duration = 3, Icon = "cpu" })
-                print("\n=== SMART SYSTEM V4 STARTED ===")
+                WindUI:Notify({ Title = "Smart System", Content = "Probing Locations...", Duration = 3, Icon = "cpu" })
+                print("\n=== PROBE SYSTEM STARTED ===")
                 
                 pcall(function() if EventTP and EventTP.Stop then EventTP.Stop() end end)
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(true) end
 
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
-                        local priorityFound = false
-                        local anyNormalFound = false
+                        local foundActive = false
                         
-                        -- [A] PRIORITY CHECK
+                        -- [PHASE 1] PRIORITY PROBE
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
-                            local dest = FindEventCoordinate(SelectedPriorityEvent)
-                            if dest then
-                                SafeTeleportTo(dest)
-                                priorityFound = true
-                                task.wait(1.5)
+                            if ProbeAndFindEvent(SelectedPriorityEvent) then
+                                foundActive = true
+                                print("⭐ Priority Active. Holding position.")
+                                task.wait(3) -- Refresh rate saat diam di event
                             end
                         end
 
-                        if priorityFound then
-                            print("⭐ Staying at Priority")
+                        if foundActive then
+                            -- Skip Phase 2 & 3
                         else
-                            -- [B] ROTASI NORMAL EVENTS
+                            -- [PHASE 2] NORMAL EVENTS PROBE (ROTATION)
                             local normalCount = #SelectedNormalEvents
                             if normalCount > 0 then
                                 if CurrentCheckIndex > normalCount then CurrentCheckIndex = 1 end
                                 local targetEvent = SelectedNormalEvents[CurrentCheckIndex]
                                 CurrentCheckIndex = CurrentCheckIndex + 1 
                                 
-                                local dest = FindEventCoordinate(targetEvent)
+                                -- Debug
+                                -- WindUI:Notify({Title="Checking...", Content=targetEvent, Duration=1})
                                 
-                                if dest then
-                                    SafeTeleportTo(dest)
-                                    anyNormalFound = true
-                                    print("⚔️ Farming: " .. targetEvent)
+                                if ProbeAndFindEvent(targetEvent) then
+                                    foundActive = true
+                                    print("⚔️ Farming: " .. targetEvent .. ". Waiting 5s...")
                                     task.wait(5)
                                 else
-                                    -- Kalau ZONK, jangan langsung nyerah
-                                    -- Coba cek event selanjutnya di list SEBELUM memutuskan Idle
-                                    task.wait(0.1)
+                                    -- Kalau tidak ketemu, dia sudah otomatis teleport ke semua titik spawn.
+                                    -- Jadi tidak perlu delay tambahan, langsung cek event berikutnya di loop depan.
+                                    task.wait(0.2)
                                 end
                             end
                         end
 
-                        -- [C] IDLE MODE
-                        if not priorityFound and not anyNormalFound then
-                            -- Pastikan kita sudah mencoba scan seluruh list setidaknya sekali
-                            -- Tapi di logic loop sederhana, jika step B gagal menemukan apapun, kita masuk C
-                            
-                            print("💤 Entering Idle Logic...")
+                        -- [PHASE 3] IDLE
+                        if not foundActive then
+                            print("💤 All Events Checked. Going Idle.")
                             if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
                                 local data = FishingAreass[Loch_Return_SelectedArea]
                                 local char = Players.LocalPlayer.Character
@@ -2327,17 +2355,13 @@ do
                                 if hrp then
                                     local dist = (hrp.Position - data.Pos).Magnitude
                                     if dist > 50 then 
-                                        print("✈️ Teleporting to Idle Spot")
                                         hrp.Anchored = false 
                                         TeleportToLookAt(data.Pos, data.Look)
-                                    else
-                                        print("✔️ Already at Idle Spot")
                                     end
                                 end
-                            else
-                                print("⚠️ No Idle Area Selected")
                             end
-                            task.wait(1.5)
+                            -- Tunggu agak lama sebelum mulai cycle checking lagi
+                            task.wait(2)
                         end
                     end
                 end)
