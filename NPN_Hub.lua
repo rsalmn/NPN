@@ -2082,10 +2082,10 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (DEBUGGER)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (V4 DEEP SCAN)", TextSize = 20 })
 
     -- =========================================================
-    -- 1. DATA FISHING AREA (Idle Map)
+    -- 1. DATA FISHING AREA
     -- =========================================================
     local FishingAreass = {
         ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
@@ -2124,9 +2124,8 @@ do
     local CurrentCheckIndex = 1 
 
     -- =========================================================
-    -- 2. KEYWORDS (BRUTE FORCE FILTER)
+    -- 2. KEYWORDS (NAMA MONSTER YANG AKAN DICARI)
     -- =========================================================
-    -- Kita pakai string.find, jadi cukup bagian unik dari namanya saja
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
         ["Shark Hunt"] = {"Great White", "Shark"}, 
@@ -2138,62 +2137,71 @@ do
         ["Lochness Hunt"] = {"Ness", "Loch"},
     }
 
+    -- Koordinat Manual (Backup untuk Probe)
+    local EventCoordsBackup = {
+        ["Shark Hunt"] = {Vector3.new(1.6, -1.3, 2095), Vector3.new(1369, -1.3, 930)},
+        ["Megalodon Hunt"] = {Vector3.new(-1076, -1.3, 1676), Vector3.new(412, -1.3, 4134)},
+        ["Ghost Shark Hunt"] = {Vector3.new(489, -1.3, 25), Vector3.new(627, -1.3, 3798)},
+        ["Worm Hunt"] = {Vector3.new(2190, -1.3, 97), Vector3.new(-2450, -1.3, 139)}
+    }
+
     -- =========================================================
-    -- 3. SCANNER ENGINE (BRUTE FORCE GLOBAL)
+    -- 3. SCANNER ENGINE (DEEP SCAN + PROBE)
     -- =========================================================
     
     local function FindEventCoordinate(targetName)
         if not targetName then return nil end
-        
-        -- [DEBUG LOG]
-        print("🔍 [System] Scanning for event: " .. targetName)
+        print("🔍 [Scan] Mencari: " .. targetName)
 
-        -- [A] KHUSUS LOCHNESS
+        -- [A] LOCHNESS LOGIC
         if targetName == "Lochness Hunt" then
             local _, _, active = getLochNextTimes()
             if active then
-                -- Cek Fisik dulu
+                -- Deep Scan untuk Lochness
                 for _, obj in ipairs(workspace:GetDescendants()) do
-                    if obj:IsA("BasePart") or obj:IsA("Model") then
-                        if string.find(obj.Name, "Nessie") or string.find(obj.Name, "Lochness") then
-                            print("✅ [Lochness] FOUND Physical Object!")
-                            local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
-                            return pos + Vector3.new(0, 15, 0)
-                        end
+                    if obj:IsA("Model") and (string.find(obj.Name, "Nessie") or string.find(obj.Name, "Lochness")) then
+                        print("✅ [Lochness] FOUND Physical Object!")
+                        return obj:GetPivot().Position + Vector3.new(0, 15, 0)
                     end
                 end
-                print("⚠️ [Lochness] Time Active but No Object. Waiting at Safe Zone.")
-                return SAFE_LAND_POSITION 
+                print("⏳ [Lochness] Time active, waiting render...")
+                return SAFE_LAND_POSITION
             end
-            print("❌ [Lochness] Not active time.")
             return nil
         end
 
-        -- [B] EVENT BIASA (GLOBAL BRUTE FORCE)
+        -- [B] EVENT BIASA: DEEP SCAN
         local keywords = EventKeywords[targetName] or {targetName}
         
-        -- Kita cari di workspace langsung (tanpa batasan area/region)
-        -- Ini agak berat tapi paling akurat
-        for _, obj in ipairs(workspace:GetChildren()) do
-            -- Optimasi: Hanya cek Model (karena Boss biasanya Model)
+        -- 1. PRE-LOAD AREA (STREAMING FIX)
+        -- Jika kita punya koordinat backup, minta server kirim data area itu dulu
+        if EventCoordsBackup[targetName] then
+            for _, pos in ipairs(EventCoordsBackup[targetName]) do
+                LocalPlayer:RequestStreamAroundAsync(pos)
+            end
+        end
+
+        -- 2. DEEP SCAN (Cari di semua folder workspace)
+        local candidates = workspace:GetDescendants()
+        
+        for _, obj in ipairs(candidates) do
+            -- Filter Optimasi: Hanya cek Model yang punya Humanoid/Life
+            -- (Kecuali Treasure/Meteor)
             if obj:IsA("Model") then
                 local objName = obj.Name
-                
+                local hasLife = obj:FindFirstChild("Humanoid") or obj:FindFirstChild("Health")
+                local isItem = targetName == "Treasure Event" or targetName == "Meteor Rain"
+
+                -- Keyword Matching
                 for _, key in ipairs(keywords) do
                     if string.find(objName, key) then
-                        -- Validasi Tambahan: Pastikan itu makhluk hidup (punya Humanoid/Health)
-                        -- Atau jika Treasure/Meteor, langsung ambil
-                        
-                        local isLiving = obj:FindFirstChild("Humanoid") or obj:FindFirstChild("Health")
-                        local isItem = targetName == "Treasure Event" or targetName == "Meteor Rain"
-                        
-                        if isLiving or isItem then
+                        if hasLife or isItem then
                             local pos = obj:GetPivot().Position
-                            print("✅ [System] FOUND: " .. objName .. " at " .. tostring(pos))
+                            print("✅ [DEEP SCAN] KETEMU: " .. objName .. " di " .. tostring(pos))
                             
-                            -- Visual Hint (Muncul di layar game)
+                            -- Visual Feedback
                             local h = Instance.new("Hint", workspace)
-                            h.Text = "FOUND: " .. targetName
+                            h.Text = "NPN HUB: Found " .. objName
                             game:GetService("Debris"):AddItem(h, 2)
                             
                             return pos + Vector3.new(0, 15, 0)
@@ -2203,7 +2211,7 @@ do
             end
         end
 
-        print("❌ [System] ZONK. " .. targetName .. " not found in workspace.")
+        print("❌ [ZONK] Tidak ditemukan di seluruh Workspace.")
         return nil
     end
 
@@ -2211,13 +2219,11 @@ do
         local char = Players.LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            print("🚀 [Teleport] Moving to target...")
+            print("🚀 [Teleport] OTW...")
             char:PivotTo(CFrame.new(pos))
             hrp.Anchored = false 
             hrp.Velocity = Vector3.zero
             hrp.AssemblyLinearVelocity = Vector3.zero
-        else
-            print("⚠️ [Teleport] Error: No HRP found!")
         end
     end
 
@@ -2251,18 +2257,18 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC (DEBUG MODE)
+    -- 5. MAIN LOGIC (ROBUST ROTATION)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
-        Desc = "Brute Force Scan + Debug Logs (F9)",
+        Desc = "V4: Deep Scan + Streaming Fix",
         Value = false,
         Callback = function(state)
             SmartEventState = state
 
             if SmartEventState then
-                WindUI:Notify({ Title = "Smart System", Content = "Check Console (F9) for Logs", Duration = 3, Icon = "terminal" })
-                print("\n\n======== SMART SYSTEM STARTED ========")
+                WindUI:Notify({ Title = "Smart System V4", Content = "Running Deep Scan...", Duration = 3, Icon = "cpu" })
+                print("\n=== SMART SYSTEM V4 STARTED ===")
                 
                 pcall(function() if EventTP and EventTP.Stop then EventTP.Stop() end end)
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(true) end
@@ -2270,11 +2276,9 @@ do
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
                         local priorityFound = false
-                        local anyNormalEventFound = false
+                        local anyNormalFound = false
                         
-                        print("--------------------------------")
-                        
-                        -- [PHASE 1] PRIORITY CHECK
+                        -- [A] PRIORITY CHECK
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
                             local dest = FindEventCoordinate(SelectedPriorityEvent)
                             if dest then
@@ -2285,13 +2289,11 @@ do
                         end
 
                         if priorityFound then
-                            print("⭐ Priority Active: " .. SelectedPriorityEvent)
+                            print("⭐ Staying at Priority")
                         else
-                            -- [PHASE 2] ROTASI EVENT BIASA
+                            -- [B] ROTASI NORMAL EVENTS
                             local normalCount = #SelectedNormalEvents
                             if normalCount > 0 then
-                                
-                                -- Rotasi Index
                                 if CurrentCheckIndex > normalCount then CurrentCheckIndex = 1 end
                                 local targetEvent = SelectedNormalEvents[CurrentCheckIndex]
                                 CurrentCheckIndex = CurrentCheckIndex + 1 
@@ -2300,21 +2302,23 @@ do
                                 
                                 if dest then
                                     SafeTeleportTo(dest)
-                                    anyNormalEventFound = true
-                                    print("⚔️ Farming Normal Event: " .. targetEvent)
+                                    anyNormalFound = true
+                                    print("⚔️ Farming: " .. targetEvent)
                                     task.wait(5)
                                 else
-                                    task.wait(0.1) 
+                                    -- Kalau ZONK, jangan langsung nyerah
+                                    -- Coba cek event selanjutnya di list SEBELUM memutuskan Idle
+                                    task.wait(0.1)
                                 end
-                            else
-                                print("ℹ️ No Normal Events Selected")
                             end
                         end
 
-                        -- [PHASE 3] IDLE
-                        if not priorityFound and not anyNormalEventFound then
-                            print("💤 Idle Mode Triggered")
+                        -- [C] IDLE MODE
+                        if not priorityFound and not anyNormalFound then
+                            -- Pastikan kita sudah mencoba scan seluruh list setidaknya sekali
+                            -- Tapi di logic loop sederhana, jika step B gagal menemukan apapun, kita masuk C
                             
+                            print("💤 Entering Idle Logic...")
                             if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
                                 local data = FishingAreass[Loch_Return_SelectedArea]
                                 local char = Players.LocalPlayer.Character
@@ -2323,7 +2327,7 @@ do
                                 if hrp then
                                     local dist = (hrp.Position - data.Pos).Magnitude
                                     if dist > 50 then 
-                                        print("✈️ Teleporting to Idle: " .. Loch_Return_SelectedArea)
+                                        print("✈️ Teleporting to Idle Spot")
                                         hrp.Anchored = false 
                                         TeleportToLookAt(data.Pos, data.Look)
                                     else
@@ -2331,9 +2335,9 @@ do
                                     end
                                 end
                             else
-                                print("⚠️ No Idle Area Selected!")
+                                print("⚠️ No Idle Area Selected")
                             end
-                            task.wait(1)
+                            task.wait(1.5)
                         end
                     end
                 end)
@@ -2341,7 +2345,7 @@ do
                 if SmartEventThread then task.cancel(SmartEventThread) SmartEventThread = nil end
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(false) end
                 
-                print("======== SMART SYSTEM STOPPED ========\n")
+                print("=== SYSTEM STOPPED ===")
                 WindUI:Notify({ Title = "Smart System", Content = "Stopped.", Duration = 3, Icon = "x" })
             end
         end
