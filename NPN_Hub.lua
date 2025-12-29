@@ -15,13 +15,12 @@ local Window = WindUI:CreateWindow({
             { -- pandadevelopment
                 Type = "pandadevelopment", -- type
                 ServiceId = "NPNHub", -- service id
-            },                                                      
-        },
-
+            },
             {   -- 🧪 Junkie Development
                 Type = "junkie-development",
                 ServiceId = "293b1e7e-d799-4eb5-b531-9391e859a975", 
-            },
+            },                                                      
+        },
     },
 })
 
