@@ -2082,10 +2082,10 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (GLOBAL SCAN)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (ULTRA STRICT)", TextSize = 20 })
 
     -- =========================================================
-    -- 1. DATA IDLE MAP & VARIABLES
+    -- 1. DATA FISHING AREA (Idle Map)
     -- =========================================================
     local FishingAreass = {
         ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
@@ -2124,91 +2124,97 @@ do
     local CurrentCheckIndex = 1 
 
     -- =========================================================
-    -- 2. KEYWORD MAPPING
+    -- 2. KEYWORDS (NAMA ASLI DI WORKSPACE)
     -- =========================================================
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Shark", "Great White"},
-        ["Ghost Shark Hunt"] = {"Ghost", "GhostShark"},
+        ["Shark Hunt"] = {"Great White Shark", "Shark"}, -- Spesifik, jangan cuma 'Shark' biar ga deteksi ikan kecil
+        ["Ghost Shark Hunt"] = {"Ghost"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost"},
-        ["Treasure Event"] = {"Chest", "Supply", "Crate"},
+        ["Treasure Event"] = {"Chest", "Crate", "Supply"},
         ["Meteor Rain"] = {"Meteor"},
         ["Lochness Hunt"] = {"Ness", "Loch"},
     }
 
     -- =========================================================
-    -- 3. SCANNER ENGINE (GLOBAL & STRICT)
+    -- 3. SCANNER ENGINE (ULTRA STRICT)
     -- =========================================================
     
     local function FindEventCoordinate(targetName)
         if not targetName then return nil end
         
-        -- Special Logic: Lochness Time Check
+        -- [A] KHUSUS LOCHNESS
         if targetName == "Lochness Hunt" then
             local _, _, active = getLochNextTimes()
-            if active then
-                -- Cek Fisik dulu
-                for _, obj in ipairs(workspace:GetDescendants()) do
-                    if obj:IsA("BasePart") or obj:IsA("Model") then
-                        if string.find(obj.Name, "Nessie") or string.find(obj.Name, "Lochness") then
-                            local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
-                            return pos + Vector3.new(0, 15, 0)
-                        end
+            for _, inst in ipairs(workspace:GetDescendants()) do
+                if inst:IsA("BasePart") or inst:IsA("Model") then
+                    if string.find(inst.Name, "Nessie") or string.find(inst.Name, "Lochness") then
+                        -- Pastikan bukan model palsu/gui
+                        if inst:IsA("Model") then return inst:GetPivot().Position + Vector3.new(0, 10, 0) end
+                        return inst.Position + Vector3.new(0, 10, 0)
                     end
                 end
-                return SAFE_LAND_POSITION -- Time active, but not rendered yet
             end
+            if active then return SAFE_LAND_POSITION end
             return nil
         end
 
-        -- Logic Umum: Global Workspace Scan
-        -- Kita tidak lagi bergantung pada koordinat statis EventTP untuk monster bergerak
-        local keywords = EventKeywords[targetName] or {targetName}
-        
-        -- 1. Scan Zones/Monsters Folder (Jika ada, ini optimasi)
-        local scanTargets = workspace:GetChildren() 
-        
-        for _, obj in ipairs(scanTargets) do
-            local objName = obj.Name
-            
-            -- Filter Cepat: Abaikan Terrain, Players, Camera
-            if objName ~= "Terrain" and objName ~= "Camera" and not game.Players:GetPlayerFromCharacter(obj) then
+        -- [B] KHUSUS EVENT BIASA (STRICT SCAN)
+        if EventTP and EventTP.Events then
+            local possibleCoords = EventTP.Events[targetName]
+            if possibleCoords and type(possibleCoords) == "table" then
                 
-                -- Cek Keyword
-                for _, key in ipairs(keywords) do
-                    if string.find(objName, key) then
-                        -- Validasi Tambahan: Pastikan itu Model/Part hidup
-                        if obj:IsA("Model") then
-                            local prim = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-                            if prim then return prim.Position + Vector3.new(0, 15, 0) end
-                        elseif obj:IsA("BasePart") then
-                            return obj.Position + Vector3.new(0, 15, 0)
+                local keywords = EventKeywords[targetName] or {targetName}
+                local overlapParams = OverlapParams.new()
+                overlapParams.FilterDescendantsInstances = {Players.LocalPlayer.Character, workspace.Terrain}
+                overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+                for _, coord in ipairs(possibleCoords) do
+                    -- Gunakan GetPartBoundsInBox (Lebih akurat dari Region3)
+                    -- Radius besar (350) untuk mencakup area berenang monster
+                    local parts = workspace:GetPartBoundsInBox(CFrame.new(coord), Vector3.new(400, 100, 400), overlapParams)
+                    
+                    for _, part in ipairs(parts) do
+                        local pName = part.Name
+                        local mName = part.Parent and part.Parent.Name or ""
+                        local isMatch = false
+
+                        -- Cek apakah nama part/model mengandung keyword
+                        for _, key in ipairs(keywords) do
+                            if string.find(pName, key) or string.find(mName, key) then
+                                isMatch = true
+                                break
+                            end
+                        end
+
+                        if isMatch then
+                            -- VALIDASI KETAT:
+                            -- 1. Jangan deteksi diri sendiri (sudah difilter di params, tapi double check)
+                            -- 2. Jangan deteksi "Water" atau "Zone" kosong
+                            -- 3. Prioritaskan Model yang punya Humanoid (Monster Hidup)
+                            
+                            local model = part:FindFirstAncestorOfClass("Model")
+                            if model then
+                                -- Jika eventnya monster, pastikan dia punya Humanoid/Life
+                                if model:FindFirstChild("Humanoid") or model:FindFirstChild("Health") then
+                                    return coord + Vector3.new(0, 15, 0)
+                                end
+                                -- Jika event benda mati (Chest/Meteor), loloskan
+                                if targetName == "Treasure Event" or targetName == "Meteor Rain" then
+                                    return coord + Vector3.new(0, 15, 0)
+                                end
+                            end
+                            
+                            -- Fallback: Jika part bernama spesifik ditemukan (misal "MegalodonBody")
+                            return coord + Vector3.new(0, 15, 0)
                         end
                     end
                 end
-                
             end
         end
 
-        -- 2. Fallback: Koordinat Statis (Hanya untuk stationary event seperti Treasure/Meteor)
-        -- Ini backup jika scan global gagal (misal objeknya tidak bernama 'Treasure' di workspace root)
-        if EventTP and EventTP.Events and EventTP.Events[targetName] then
-            local coords = EventTP.Events[targetName]
-            if type(coords) == "table" then
-                for _, c in ipairs(coords) do
-                    local r = Region3.new(c - Vector3.new(20,20,20), c + Vector3.new(20,20,20))
-                    local parts = workspace:FindPartsInRegion3(r, nil, 10)
-                    for _, p in ipairs(parts) do
-                        if p.Name ~= "Terrain" and p.Name ~= "Water" then
-                            -- Asumsi ketemu jika ada part asing di spawn point static
-                            return c + Vector3.new(0, 15, 0)
-                        end
-                    end
-                end
-            end
-        end
-
+        -- Jika loop selesai dan tidak ada yang cocok, return NIL
         return nil
     end
 
@@ -2253,7 +2259,7 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC (DEBUGGED ROTATION)
+    -- 5. MAIN LOGIC (DEBUGGED)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
@@ -2270,7 +2276,7 @@ do
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
                         local priorityFound = false
-                        local eventFoundInCycle = false
+                        local anyNormalEventFound = false
                         
                         -- [PHASE 1] PRIORITY CHECK
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
@@ -2292,44 +2298,43 @@ do
                                 -- Rotasi Index
                                 if CurrentCheckIndex > normalCount then CurrentCheckIndex = 1 end
                                 local targetEvent = SelectedNormalEvents[CurrentCheckIndex]
-                                CurrentCheckIndex = CurrentCheckIndex + 1 -- Siapkan index untuk putaran depannya
-                                
-                                -- Debug Notify (Biar tau lagi cek apa)
-                                -- WindUI:Notify({Title="Checking...", Content=targetEvent, Duration=0.5}) 
+                                CurrentCheckIndex = CurrentCheckIndex + 1 -- Geser index
                                 
                                 local dest = FindEventCoordinate(targetEvent)
                                 
                                 if dest then
-                                    -- KETEMU!
+                                    -- KETEMU EVENT AKTIF!
                                     SafeTeleportTo(dest)
-                                    eventFoundInCycle = true
+                                    anyNormalEventFound = true
                                     
                                     -- Farming 5 Detik
                                     task.wait(5)
                                 else
-                                    -- ZONK! Cek event selanjutnya dengan cepat
+                                    -- EVENT INI TIDAK ADA (ZONK)
+                                    -- Langsung skip ke loop berikutnya untuk cek event selanjutnya
                                     task.wait(0.1) 
                                 end
                             end
+                        end
+
+                        -- [PHASE 3] IDLE
+                        -- Jika Priority Zonk DAN (List Normal Kosong ATAU Semua Normal Event Zonk)
+                        if not priorityFound and not anyNormalEventFound then
                             
-                            -- [PHASE 3] IDLE
-                            -- Masuk sini jika Priority Gagal DAN (List Biasa Kosong ATAU Event yg dicek barusan Zonk)
-                            if not eventFoundInCycle then
-                                if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
-                                    local data = FishingAreass[Loch_Return_SelectedArea]
-                                    local char = Players.LocalPlayer.Character
-                                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                                    
-                                    if hrp then
-                                        local dist = (hrp.Position - data.Pos).Magnitude
-                                        if dist > 50 then -- Toleransi jarak besar biar ga spam TP di pulau
-                                            hrp.Anchored = false 
-                                            TeleportToLookAt(data.Pos, data.Look)
-                                        end
+                            if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
+                                local data = FishingAreass[Loch_Return_SelectedArea]
+                                local char = Players.LocalPlayer.Character
+                                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                                
+                                if hrp then
+                                    local dist = (hrp.Position - data.Pos).Magnitude
+                                    if dist > 50 then 
+                                        hrp.Anchored = false 
+                                        TeleportToLookAt(data.Pos, data.Look)
                                     end
                                 end
-                                task.wait(1)
                             end
+                            task.wait(1)
                         end
                     end
                 end)
