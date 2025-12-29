@@ -13,8 +13,8 @@ local Window = WindUI:CreateWindow({
         Note = "Example Key System. With pandadevelopment.",        
         API = {                                                     
             { -- pandadevelopment
-                Type = "NPNHub", -- type
-                ServiceId = "fDS7ZzVtzOQyihv0gSFKjv42Rcex6yw8", -- service id
+                Type = "pandadevelopment", -- type
+                ServiceId = "NPNHub", -- service id
             },                                                      
         },                                                          
     },
