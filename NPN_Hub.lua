@@ -10,13 +10,18 @@ local Window = WindUI:CreateWindow({
     Theme = "Dark",
     Resizable = true,
     KeySystem = {                                                   
-        Note = "JOIN DISCORD CHANNEL FOR FREE KEY",        
+        Note = "FREEMIUM KEY IN DISCORD CHANNEL",        
         API = {                                                     
             { -- pandadevelopment
                 Type = "pandadevelopment", -- type
                 ServiceId = "NPNHub", -- service id
             },                                                      
         },
+
+            {   -- 🧪 Junkie Development
+                Type = "junkie-development",
+                ServiceId = "293b1e7e-d799-4eb5-b531-9391e859a975", 
+            },
     },
 })
 
@@ -2113,6 +2118,17 @@ do
     for name, _ in pairs(FishingAreass) do table.insert(AreaNamess, name) end
     table.sort(AreaNamess)
 
+    local EventKeywords = {
+        ["Megalodon Hunt"] = {"Megalodon"},
+        ["Shark Hunt"] = {"Shark", "Great White"},
+        ["Ghost Shark Hunt"] = {"Ghost"},
+        ["Worm Hunt"] = {"Worm"},
+        ["Ghost Worm"] = {"Ghost"},
+        ["Treasure Event"] = {"Chest", "Supply", "Crate"},
+        ["Meteor Rain"] = {"Meteor"},
+        -- Tambahkan event lain jika perlu
+    }
+
     -- =========================================================
     -- 2. VARIABLES
     -- =========================================================
@@ -2152,6 +2168,10 @@ do
         if EventTP and EventTP.Events then
             local possibleCoords = EventTP.Events[targetName]
             if possibleCoords and type(possibleCoords) == "table" then
+
+                -- Ambil kata kunci untuk event ini
+                local keywords = EventKeywords[targetName] or {targetName:gsub(" Hunt", "")}
+
                 for _, coord in ipairs(possibleCoords) do
                     local regionSize = Vector3.new(50, 50, 50)
                     local region = Region3.new(coord - regionSize, coord + regionSize)
@@ -2189,6 +2209,7 @@ do
             -- 2. Matikan Anchor (PENTING: Biar WalkOnWater yang handle fisika)
             hrp.Anchored = false 
             hrp.Velocity = Vector3.zero
+            hrp.AssemblyLinearVelocity = Vector3.zero
         end
     end
 
