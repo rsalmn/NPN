@@ -17,7 +17,7 @@ local Window = WindUI:CreateWindow({
                 ServiceId = "NPNHub", -- service id
             },
             {   -- 🧪 Junkie Development
-                Type = "junkie-development",
+                Type = "junkiedevelopment",
                 ServiceId = "293b1e7e-d799-4eb5-b531-9391e859a975", 
             },                                                      
         },
@@ -2080,10 +2080,9 @@ do
 
 end
 
-
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (AUTO-CYCLE)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (STRICT)", TextSize = 20 })
 
     -- =========================================================
     -- 1. DATA FISHING AREA (Idle Map)
@@ -2117,6 +2116,9 @@ do
     for name, _ in pairs(FishingAreass) do table.insert(AreaNamess, name) end
     table.sort(AreaNamess)
 
+    -- =========================================================
+    -- 2. KEYWORD FILTER (STRICT DETECTION)
+    -- =========================================================
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
         ["Shark Hunt"] = {"Shark", "Great White"},
@@ -2125,11 +2127,11 @@ do
         ["Ghost Worm"] = {"Ghost"},
         ["Treasure Event"] = {"Chest", "Supply", "Crate"},
         ["Meteor Rain"] = {"Meteor"},
-        -- Tambahkan event lain jika perlu
+        -- Tambahkan keyword lain jika perlu
     }
 
     -- =========================================================
-    -- 2. VARIABLES
+    -- 3. VARIABLES
     -- =========================================================
     local SelectedPriorityEvent = nil
     local SelectedNormalEvents = {}
@@ -2140,7 +2142,7 @@ do
     local CycleIndex = 1
 
     -- =========================================================
-    -- 3. SCANNER & TELEPORTER
+    -- 4. SCANNER & TELEPORTER (STRICT MODE)
     -- =========================================================
     
     local function FindEventCoordinate(targetName)
@@ -2149,46 +2151,49 @@ do
         -- [A] KHUSUS LOCHNESS
         if targetName == "Lochness Hunt" then
             local _, _, active = getLochNextTimes()
-            
             for _, inst in ipairs(workspace:GetDescendants()) do
                 if inst:IsA("BasePart") then
                     local n = inst.Name:lower()
                     if string.find(n, "loch") or string.find(n, "ness") then
-                        return inst.Position + Vector3.new(0, 5, 0) -- Lebih dekat ke air biar WalkOnWater nyantol
+                        return inst.Position + Vector3.new(0, 10, 0)
                     end
                 end
             end
-
             if active then return SAFE_LAND_POSITION end
             return nil
         end
 
-        -- [B] KHUSUS EVENT BIASA
+        -- [B] KHUSUS EVENT BIASA (DENGAN FILTER KETAT)
         if EventTP and EventTP.Events then
             local possibleCoords = EventTP.Events[targetName]
             if possibleCoords and type(possibleCoords) == "table" then
-
+                
                 -- Ambil kata kunci untuk event ini
                 local keywords = EventKeywords[targetName] or {targetName:gsub(" Hunt", "")}
 
                 for _, coord in ipairs(possibleCoords) do
-                    local regionSize = Vector3.new(50, 50, 50)
+                    local regionSize = Vector3.new(60, 60, 60) -- Scan area luas
                     local region = Region3.new(coord - regionSize, coord + regionSize)
-                    local parts = workspace:FindPartsInRegion3(region, nil, 20)
+                    local parts = workspace:FindPartsInRegion3(region, nil, 50)
                     
-                    local foundEventObject = false
                     for _, part in ipairs(parts) do
+                        local pName = part.Name
+                        local mName = part.Parent and part.Parent.Name or "" -- Nama Model (Boss)
                         local char = Players.LocalPlayer.Character
-                        -- Filter ketat: Pastikan bukan terrain, air, atau diri sendiri
-                        if part.Name ~= "Terrain" and part.Name ~= "Water" and (not char or not part:IsDescendantOf(char)) then
-                            foundEventObject = true
-                            break
-                        end
-                    end
 
-                    if foundEventObject then
-                        -- Teleport +5 studs dari pusat event (biar kena air tapi gak tenggelam dalam)
-                        return coord + Vector3.new(0, 5, 0) 
+                        -- Filter Dasar: Bukan Terrain, Air, atau Pemain
+                        if pName ~= "Terrain" and pName ~= "Water" and (not char or not part:IsDescendantOf(char)) then
+                            
+                            -- FILTER LANJUTAN: Cek Nama
+                            for _, key in ipairs(keywords) do
+                                -- Cek apakah nama Part atau nama Model mengandung Keyword
+                                if string.find(pName, key) or string.find(mName, key) then
+                                    -- KETEMU! Return koordinat
+                                    return coord + Vector3.new(0, 15, 0) -- +15 Y (Cukup tinggi untuk jatuh ke platform air)
+                                end
+                            end
+                            
+                        end
                     end
                 end
             end
@@ -2197,15 +2202,16 @@ do
         return nil
     end
 
-    -- Fungsi Teleport yang TERINTEGRASI dengan Walk on Water
+    -- Fungsi Teleport untuk Walk On Water
     local function SafeTeleportTo(pos)
         local char = Players.LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            -- 1. Teleport biasa
+            -- 1. Teleport
             char:PivotTo(CFrame.new(pos))
             
-            -- 2. Matikan Anchor (PENTING: Biar WalkOnWater yang handle fisika)
+            -- 2. Pastikan TIDAK ANCHOR (Agar WalkOnWater bekerja)
+            -- 3. Reset Velocity agar tidak terlempar
             hrp.Anchored = false 
             hrp.Velocity = Vector3.zero
             hrp.AssemblyLinearVelocity = Vector3.zero
@@ -2213,7 +2219,7 @@ do
     end
 
     -- =========================================================
-    -- 4. UI ELEMENTS
+    -- 5. UI ELEMENTS
     -- =========================================================
     televent:Dropdown({
         Title = "1. Set Event Priority (Utama)",
@@ -2247,7 +2253,7 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC LOOP (FIXED CYCLE & EXPIRED EVENT)
+    -- 6. MAIN LOGIC LOOP (FINAL)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
@@ -2260,7 +2266,7 @@ do
                 WindUI:Notify({ Title = "Smart System", Content = "Started!", Duration = 3, Icon = "cpu" })
                 pcall(function() if EventTP and EventTP.Stop then EventTP.Stop() end end)
                 
-                -- [AUTO ON] Walk On Water
+                -- Auto Enable Walk On Water
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then
                     WalkOnWaterToggleElement:Set(true)
                 end
@@ -2280,10 +2286,10 @@ do
                         end
 
                         if priorityFound then 
-                            -- Jika priority ada, skip logic bawah
+                            -- Stay on priority
                         else
                             -- [PHASE 2] CEK NORMAL EVENTS (RE-SCAN SETIAP LOOP)
-                            local activeNormalEvents = {} -- Reset tabel setiap loop! (Solusi Masalah 1)
+                            local activeNormalEvents = {} 
                             
                             -- Scan ulang semua pilihan user, hanya masukkan yang AKTIF SEKARANG
                             for _, eventName in ipairs(SelectedNormalEvents) do
@@ -2294,20 +2300,18 @@ do
                             end
 
                             if #activeNormalEvents > 0 then
-                                -- Ada event aktif!
-                                
-                                -- Validasi Index (Jaga-jaga jika event berkurang dari 3 jadi 2)
+                                -- Validasi Index Cycle
                                 if CycleIndex > #activeNormalEvents then CycleIndex = 1 end
                                 
                                 local target = activeNormalEvents[CycleIndex]
                                 
-                                -- Teleport ke target
+                                -- Teleport
                                 SafeTeleportTo(target.Pos)
                                 
-                                -- Update Index untuk putaran selanjutnya
+                                -- Pindah ke event berikutnya di list (Cycle)
                                 CycleIndex = CycleIndex + 1
                                 
-                                -- Tahan 5 detik di event ini
+                                -- Tunggu 5 detik
                                 task.wait(5) 
                             else
                                 -- [PHASE 3] IDLE / SEMUA KOSONG
@@ -2319,7 +2323,7 @@ do
                                     if hrp then
                                         local dist = (hrp.Position - data.Pos).Magnitude
                                         if dist > 15 then
-                                            -- Jika jauh, teleport
+                                            -- Teleport ke Idle Map
                                             hrp.Anchored = false 
                                             TeleportToLookAt(data.Pos, data.Look)
                                         end
@@ -2334,7 +2338,7 @@ do
             else
                 if SmartEventThread then task.cancel(SmartEventThread) SmartEventThread = nil end
                 
-                -- [AUTO OFF] Walk On Water (Optional, hapus baris ini kalau mau tetap nyala)
+                -- Auto Disable Walk On Water (Optional)
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then
                     WalkOnWaterToggleElement:Set(false)
                 end
@@ -2390,7 +2394,7 @@ do
                     task.wait(0.1)
                 end
                 -- Jeda putaran setelah mencoba beli semua list
-                task.wait(300)
+                task.wait(10)
             end
         end)
     end
