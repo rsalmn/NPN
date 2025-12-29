@@ -2869,6 +2869,194 @@ do
         end
     })
 
+    local autoSellSection = shop:Section({ Title = "Auto Sell Items", TextSize = 20 })
+
+    -- >> LOGIC INTERNAL AUTO SELL
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+
+    -- 1. Finder Remote
+    local function findSellRemote()
+        local packages = ReplicatedStorage:FindFirstChild("Packages")
+        if not packages then return nil end
+        local index = packages:FindFirstChild("_Index")
+        if not index then return nil end
+        local sleitnick = index:FindFirstChild("sleitnick_net@0.2.0")
+        if not sleitnick then return nil end
+        local net = sleitnick:FindFirstChild("net")
+        if not net then return nil end
+        
+        -- Coba berbagai kemungkinan path
+        local sellRemote = net:FindFirstChild("RF/SellAllItems")
+        if sellRemote then return sellRemote end
+        
+        local rf = net:FindFirstChild("RF")
+        if rf then
+            sellRemote = rf:FindFirstChild("SellAllItems")
+            if sellRemote then return sellRemote end
+        end
+        
+        return nil
+    end
+
+    local SellRemote = findSellRemote()
+
+    -- 2. Bag Parser
+    local function parseNumber(text)
+        if not text or text == "" then return 0 end
+        local cleaned = tostring(text):gsub("%D", "")
+        return tonumber(cleaned) or 0
+    end
+
+    local function getBagCount()
+        local gui = player:FindFirstChild("PlayerGui")
+        if not gui then return 0, 0 end
+        local inv = gui:FindFirstChild("Inventory") or gui:FindFirstChild("inventory")
+        if not inv then return 0, 0 end
+
+        -- Path UI Fisch (Cukup dalam, semoga tidak berubah update depan)
+        local label = inv:FindFirstChild("Main")
+            and inv.Main:FindFirstChild("Top")
+            and inv.Main.Top:FindFirstChild("Options")
+            and inv.Main.Top.Options:FindFirstChild("Fish")
+            and inv.Main.Top.Options.Fish:FindFirstChild("Label")
+            and inv.Main.Top.Options.Fish.Label:FindFirstChild("BagSize")
+
+        if not label or not label:IsA("TextLabel") then return 0, 0 end
+        local curText, maxText = label.Text:match("(.+)%/(.+)")
+        return parseNumber(curText), parseNumber(maxText)
+    end
+
+    -- 3. System Variables
+    local AutoSell = {
+        TotalSells = 0,
+        Timer = { Enabled = false, Interval = 5, Thread = nil },
+        Count = { Enabled = false, Target = 200, Thread = nil, LastSell = 0 }
+    }
+
+    local function executeSell()
+        if not SellRemote then return false end
+        local s, r = pcall(function() return SellRemote:InvokeServer() end)
+        if s then AutoSell.TotalSells = AutoSell.TotalSells + 1 return true end
+        return false
+    end
+
+    -- >> UI ELEMENTS AUTO SELL
+
+    -- STATUS PARAGRAPH
+    local sellStatusLabel = autoSellSection:Paragraph({
+        Title = "Sell Stats",
+        Content = "Remote: " .. (SellRemote and "Found ✅" or "Not Found ❌") .. "\nBag: Calculating...",
+        Icon = "bar-chart-2"
+    })
+
+    -- LOOP UPDATER UI (Agar terlihat realtime)
+    task.spawn(function()
+        while true do
+            if shop then -- Cek apakah tab masih ada
+                local cur, max = getBagCount()
+                sellStatusLabel:SetDesc(string.format("Bag: %d / %d\nTotal Auto Sells: %d", cur, max, AutoSell.TotalSells))
+            end
+            task.wait(1)
+        end
+    end)
+
+    -- MANUAL BUTTON
+    autoSellSection:Button({
+        Title = "Sell All Items Now",
+        Desc = "Jual semua ikan secara manual satu kali.",
+        Icon = "dollar-sign",
+        Callback = function()
+            if executeSell() then
+                WindUI:Notify({ Title = "Sold!", Content = "Semua item terjual.", Duration = 2, Icon = "check" })
+            else
+                WindUI:Notify({ Title = "Gagal", Content = "Remote tidak ditemukan / Server lag.", Duration = 3, Icon = "x" })
+            end
+        end
+    })
+
+    autoSellSection:Divider()
+
+    -- MODE TIMER
+    Reg("sell_timer_int", autoSellSection:Input({
+        Title = "Timer Interval (Seconds)",
+        Value = "5",
+        Placeholder = "5",
+        Type = "Number",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 1 then AutoSell.Timer.Interval = n end
+        end
+    }))
+
+    Reg("sell_timer_tog", autoSellSection:Toggle({
+        Title = "Enable Auto Sell (Timer)",
+        Desc = "Menjual otomatis setiap X detik.",
+        Value = false,
+        Callback = function(state)
+            AutoSell.Timer.Enabled = state
+            if state then
+                AutoSell.Timer.Thread = task.spawn(function()
+                    while AutoSell.Timer.Enabled do
+                        task.wait(AutoSell.Timer.Interval)
+                        if not AutoSell.Timer.Enabled then break end
+                        executeSell()
+                    end
+                end)
+                WindUI:Notify({ Title = "Auto Sell (Timer)", Content = "Started!", Duration = 2 })
+            else
+                if AutoSell.Timer.Thread then task.cancel(AutoSell.Timer.Thread) end
+                WindUI:Notify({ Title = "Auto Sell (Timer)", Content = "Stopped.", Duration = 2 })
+            end
+        end
+    }))
+
+    autoSellSection:Divider()
+
+    -- MODE COUNT (BY BAG SIZE)
+    Reg("sell_count_target", autoSellSection:Input({
+        Title = "Sell at Bag Count",
+        Desc = "Jual otomatis saat isi tas mencapai jumlah ini.",
+        Value = "200",
+        Placeholder = "200",
+        Type = "Number",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n > 0 then AutoSell.Count.Target = n end
+        end
+    }))
+
+    Reg("sell_count_tog", autoSellSection:Toggle({
+        Title = "Enable Auto Sell (By Count)",
+        Value = false,
+        Callback = function(state)
+            AutoSell.Count.Enabled = state
+            if state then
+                AutoSell.Count.Thread = task.spawn(function()
+                    while AutoSell.Count.Enabled do
+                        task.wait(1.5) -- Cek setiap 1.5 detik
+                        if not AutoSell.Count.Enabled then break end
+                        
+                        local cur, _ = getBagCount()
+                        if cur >= AutoSell.Count.Target then
+                            -- Cooldown sederhana 3 detik antar sell
+                            if tick() - AutoSell.Count.LastSell > 3 then
+                                AutoSell.Count.LastSell = tick()
+                                executeSell()
+                                task.wait(2) -- Tunggu animasi sell
+                            end
+                        end
+                    end
+                end)
+                WindUI:Notify({ Title = "Auto Sell (Count)", Content = "Monitoring Bag...", Duration = 2 })
+            else
+                if AutoSell.Count.Thread then task.cancel(AutoSell.Count.Thread) end
+                WindUI:Notify({ Title = "Auto Sell (Count)", Content = "Stopped.", Duration = 2 })
+            end
+        end
+    }))
+
 end
 
 do
