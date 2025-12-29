@@ -2082,7 +2082,7 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (ULTRA STRICT)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (FINAL V3)", TextSize = 20 })
 
     -- =========================================================
     -- 1. DATA FISHING AREA (Idle Map)
@@ -2116,6 +2116,9 @@ do
     for name, _ in pairs(FishingAreass) do table.insert(AreaNamess, name) end
     table.sort(AreaNamess)
 
+    -- =========================================================
+    -- 2. SMART VARIABLES
+    -- =========================================================
     local SelectedPriorityEvent = nil
     local SelectedNormalEvents = {}
     local Loch_Return_SelectedArea = nil 
@@ -2124,100 +2127,107 @@ do
     local CurrentCheckIndex = 1 
 
     -- =========================================================
-    -- 2. KEYWORDS (NAMA ASLI DI WORKSPACE)
+    -- 3. ADVANCED DETECTION ENGINE (Merged from Module)
     -- =========================================================
+    
+    -- Koordinat Database (Static Reference)
+    local EventCoords = {
+        ["Shark Hunt"] = {
+            Vector3.new(1.64999, -1.3500, 2095.72), Vector3.new(1369.94, -1.3500, 930.125),
+            Vector3.new(-1585.5, -1.3500, 1242.87), Vector3.new(-1896.8, -1.3500, 2634.37)
+        },
+        ["Worm Hunt"] = {
+            Vector3.new(2190.85, -1.3999, 97.5749), Vector3.new(-2450.6, -1.3999, 139.731),
+            Vector3.new(-267.47, -1.3999, 5188.53)
+        },
+        ["Megalodon Hunt"] = {
+            Vector3.new(-1076.3, -1.3999, 1676.19), Vector3.new(-1191.8, -1.3999, 3597.30),
+            Vector3.new(412.700, -1.3999, 4134.39)
+        },
+        ["Ghost Shark Hunt"] = {
+            Vector3.new(489.558, -1.3500, 25.4060), Vector3.new(-1358.2, -1.3500, 4100.55),
+            Vector3.new(627.859, -1.3500, 3798.08)
+        },
+        ["Ghost Worm"] = { -- Asumsi koordinat sama dgn Worm
+            Vector3.new(2190.85, -1.3999, 97.5749), Vector3.new(-2450.6, -1.3999, 139.731),
+            Vector3.new(-267.47, -1.3999, 5188.53)
+        },
+        ["Meteor Rain"] = { -- Meteor biasanya global, tapi kita coba scan area umum
+            Vector3.new(1.6, 0, 2095), Vector3.new(-1585, 0, 1242)
+        }
+    }
+
+    -- Keyword Mapping (Nama Fisik Monster)
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Great White Shark", "Shark"}, -- Spesifik, jangan cuma 'Shark' biar ga deteksi ikan kecil
+        ["Shark Hunt"] = {"Shark", "Great White"},
         ["Ghost Shark Hunt"] = {"Ghost"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost"},
         ["Treasure Event"] = {"Chest", "Crate", "Supply"},
         ["Meteor Rain"] = {"Meteor"},
-        ["Lochness Hunt"] = {"Ness", "Loch"},
     }
 
-    -- =========================================================
-    -- 3. SCANNER ENGINE (ULTRA STRICT)
-    -- =========================================================
-    
+    -- FUNGSI DETEKSI (OPTIMIZED)
     local function FindEventCoordinate(targetName)
         if not targetName then return nil end
         
-        -- [A] KHUSUS LOCHNESS
+        -- [A] KHUSUS LOCHNESS (Priority Logic)
         if targetName == "Lochness Hunt" then
             local _, _, active = getLochNextTimes()
+            -- Cek fisik dulu
             for _, inst in ipairs(workspace:GetDescendants()) do
                 if inst:IsA("BasePart") or inst:IsA("Model") then
                     if string.find(inst.Name, "Nessie") or string.find(inst.Name, "Lochness") then
-                        -- Pastikan bukan model palsu/gui
-                        if inst:IsA("Model") then return inst:GetPivot().Position + Vector3.new(0, 10, 0) end
-                        return inst.Position + Vector3.new(0, 10, 0)
+                        local pos = inst:IsA("Model") and inst:GetPivot().Position or inst.Position
+                        return pos + Vector3.new(0, 10, 0)
                     end
                 end
             end
+            -- Jika waktu aktif, return safe land sebagai tanda "Menunggu"
             if active then return SAFE_LAND_POSITION end
             return nil
         end
 
-        -- [B] KHUSUS EVENT BIASA (STRICT SCAN)
-        if EventTP and EventTP.Events then
-            local possibleCoords = EventTP.Events[targetName]
-            if possibleCoords and type(possibleCoords) == "table" then
+        -- [B] EVENT BIASA (Spatial Query)
+        local coords = EventCoords[targetName]
+        if not coords then return nil end -- Jika event tidak ada di DB, skip
+
+        local keywords = EventKeywords[targetName] or {targetName}
+        local overlapParams = OverlapParams.new()
+        overlapParams.FilterDescendantsInstances = {Players.LocalPlayer.Character, workspace.Terrain}
+        overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+        for _, pos in ipairs(coords) do
+            -- [OPTIMIZATION] Gunakan GetPartBoundsInBox (Radius 400 studs)
+            -- Ini jauh lebih akurat mendeteksi monster yang berenang menjauh
+            local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(400, 100, 400), overlapParams)
+            
+            for _, part in ipairs(parts) do
+                local pName = part.Name
+                local mName = part.Parent and part.Parent.Name or ""
                 
-                local keywords = EventKeywords[targetName] or {targetName}
-                local overlapParams = OverlapParams.new()
-                overlapParams.FilterDescendantsInstances = {Players.LocalPlayer.Character, workspace.Terrain}
-                overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-
-                for _, coord in ipairs(possibleCoords) do
-                    -- Gunakan GetPartBoundsInBox (Lebih akurat dari Region3)
-                    -- Radius besar (350) untuk mencakup area berenang monster
-                    local parts = workspace:GetPartBoundsInBox(CFrame.new(coord), Vector3.new(400, 100, 400), overlapParams)
-                    
-                    for _, part in ipairs(parts) do
-                        local pName = part.Name
-                        local mName = part.Parent and part.Parent.Name or ""
-                        local isMatch = false
-
-                        -- Cek apakah nama part/model mengandung keyword
-                        for _, key in ipairs(keywords) do
-                            if string.find(pName, key) or string.find(mName, key) then
-                                isMatch = true
-                                break
-                            end
-                        end
-
-                        if isMatch then
-                            -- VALIDASI KETAT:
-                            -- 1. Jangan deteksi diri sendiri (sudah difilter di params, tapi double check)
-                            -- 2. Jangan deteksi "Water" atau "Zone" kosong
-                            -- 3. Prioritaskan Model yang punya Humanoid (Monster Hidup)
-                            
-                            local model = part:FindFirstAncestorOfClass("Model")
-                            if model then
-                                -- Jika eventnya monster, pastikan dia punya Humanoid/Life
-                                if model:FindFirstChild("Humanoid") or model:FindFirstChild("Health") then
-                                    return coord + Vector3.new(0, 15, 0)
-                                end
-                                -- Jika event benda mati (Chest/Meteor), loloskan
-                                if targetName == "Treasure Event" or targetName == "Meteor Rain" then
-                                    return coord + Vector3.new(0, 15, 0)
-                                end
-                            end
-                            
-                            -- Fallback: Jika part bernama spesifik ditemukan (misal "MegalodonBody")
-                            return coord + Vector3.new(0, 15, 0)
+                -- Validasi Nama (Keyword Check)
+                for _, key in ipairs(keywords) do
+                    if string.find(pName, key) or string.find(mName, key) then
+                        -- [EXTRA CHECK] Pastikan bukan debris/sampah
+                        -- Cek apakah Model induknya punya Humanoid/Health (Indikasi Boss Hidup)
+                        local model = part:FindFirstAncestorOfClass("Model")
+                        if model and (model:FindFirstChild("Humanoid") or model:FindFirstChild("Health")) then
+                            return pos + Vector3.new(0, 15, 0)
+                        elseif targetName == "Treasure Event" or targetName == "Meteor Rain" then
+                             -- Benda mati langsung acc
+                             return pos + Vector3.new(0, 15, 0)
                         end
                     end
                 end
             end
         end
 
-        -- Jika loop selesai dan tidak ada yang cocok, return NIL
         return nil
     end
 
+    -- FUNGSI TELEPORT AMAN
     local function SafeTeleportTo(pos)
         local char = Players.LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2259,11 +2269,11 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC (DEBUGGED)
+    -- 5. MAIN LOGIC (SMART ROTATION)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
-        Desc = "Global Scan + Auto Cycle + Walk on Water",
+        Desc = "High Accuracy + Auto Rotation",
         Value = false,
         Callback = function(state)
             SmartEventState = state
@@ -2274,9 +2284,11 @@ do
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(true) end
 
                 SmartEventThread = task.spawn(function()
+                    local idleAttempt = 0 -- Counter untuk mencegah spam idle
+
                     while SmartEventState do
                         local priorityFound = false
-                        local anyNormalEventFound = false
+                        local eventFoundInCycle = false
                         
                         -- [PHASE 1] PRIORITY CHECK
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
@@ -2284,6 +2296,7 @@ do
                             if dest then
                                 SafeTeleportTo(dest)
                                 priorityFound = true
+                                idleAttempt = 0
                                 task.wait(1.5)
                             end
                         end
@@ -2303,38 +2316,43 @@ do
                                 local dest = FindEventCoordinate(targetEvent)
                                 
                                 if dest then
-                                    -- KETEMU EVENT AKTIF!
+                                    -- KETEMU!
                                     SafeTeleportTo(dest)
-                                    anyNormalEventFound = true
+                                    eventFoundInCycle = true
+                                    idleAttempt = 0
                                     
                                     -- Farming 5 Detik
                                     task.wait(5)
                                 else
-                                    -- EVENT INI TIDAK ADA (ZONK)
-                                    -- Langsung skip ke loop berikutnya untuk cek event selanjutnya
+                                    -- ZONK! Cek event selanjutnya dengan cepat
                                     task.wait(0.1) 
                                 end
                             end
-                        end
-
-                        -- [PHASE 3] IDLE
-                        -- Jika Priority Zonk DAN (List Normal Kosong ATAU Semua Normal Event Zonk)
-                        if not priorityFound and not anyNormalEventFound then
                             
-                            if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
-                                local data = FishingAreass[Loch_Return_SelectedArea]
-                                local char = Players.LocalPlayer.Character
-                                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                            -- [PHASE 3] IDLE
+                            -- Masuk sini jika Priority Gagal DAN (List Biasa Kosong ATAU Event yg dicek barusan Zonk)
+                            if not eventFoundInCycle then
+                                -- Tambahkan delay kecil agar tidak spam idle
+                                idleAttempt = idleAttempt + 1
                                 
-                                if hrp then
-                                    local dist = (hrp.Position - data.Pos).Magnitude
-                                    if dist > 50 then 
-                                        hrp.Anchored = false 
-                                        TeleportToLookAt(data.Pos, data.Look)
+                                if idleAttempt >= 3 then -- Hanya idle jika sudah gagal cek 3x
+                                    if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
+                                        local data = FishingAreass[Loch_Return_SelectedArea]
+                                        local char = Players.LocalPlayer.Character
+                                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                                        
+                                        if hrp then
+                                            local dist = (hrp.Position - data.Pos).Magnitude
+                                            if dist > 50 then 
+                                                hrp.Anchored = false 
+                                                TeleportToLookAt(data.Pos, data.Look)
+                                            end
+                                        end
                                     end
+                                    idleAttempt = 0 -- Reset counter
                                 end
+                                task.wait(1)
                             end
-                            task.wait(1)
                         end
                     end
                 end)
