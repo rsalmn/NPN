@@ -9,6 +9,15 @@ local Window = WindUI:CreateWindow({
     Transparent = true,
     Theme = "Rose",
     Resizable = true,
+    KeySystem = {                                                   
+        Note = "Example Key System. With pandadevelopment.",        
+        API = {                                                     
+            { -- pandadevelopment
+                Type = "pandadevelopment", -- type
+                ServiceId = "fDS7ZzVtzOQyihv0gSFKjv42Rcex6yw8", -- service id
+            },                                                      
+        },                                                          
+    },
 })
 
 -- [[ GLOBAL VARIABLES & SERVICES ]] --
@@ -3627,9 +3636,6 @@ do
             end
         end
     })
-
-
-    local OtherSettingsSections = SettingsTab:Section({ Title = "Misc. Area", TextSize = 20 })
     -- ===============================================
     -- 🎄 AUTO CLAIM CHRISTMAS PRESENTS (DITAMBAHIN)
     -- ===============================================
@@ -3655,7 +3661,7 @@ do
 
     _G.AutoClaimChristmas = false
 
-    OtherSettingsSections:Toggle({
+    MiscSection:Toggle({
         Title = "Auto Claim Christmas Presents",
         Desc = "Auto claim hadiah natal dari semua NPC",
         Value = false,
@@ -3683,6 +3689,239 @@ do
             end
         end
     })
+
+    -- =========================================================
+    -- [5] PING & FPS PANEL (LYNX STYLE)
+    -- =========================================================
+    do
+        -- >> LOGIC INTERNAL PING PANEL
+        local RunService = game:GetService("RunService")
+        local Stats = game:GetService("Stats")
+        local UserInputService = game:GetService("UserInputService")
+        local LocalPlayer = game:GetService("Players").LocalPlayer
+        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+        local LynxMonitor = {}
+        
+        -- Variables
+        local lastFrameTime = tick()
+        local fpsHistory = {}
+        local maxFPSHistory = 20
+        local updateConnection = nil
+        local pingUpdateConnection = nil
+        local guiInstance = nil -- Menyimpan referensi GUI
+
+        -- 1. Helper: Get Ping
+        local function getPing()
+            local ping = 0
+            pcall(function()
+                local networkStats = Stats:FindFirstChild("Network")
+                if networkStats then
+                    local serverStatsItem = networkStats:FindFirstChild("ServerStatsItem")
+                    if serverStatsItem then
+                        local pingStr = serverStatsItem["Data Ping"]:GetValueString()
+                        ping = tonumber(pingStr:match("%d+")) or 0
+                    end
+                end
+                if ping == 0 then ping = math.floor(LocalPlayer:GetNetworkPing() * 1000) end
+            end)
+            return ping
+        end
+
+        -- 2. Helper: Get FPS
+        local function getFPS()
+            local currentTime = tick()
+            local deltaTime = currentTime - lastFrameTime
+            lastFrameTime = currentTime
+            
+            local currentFPS = 0
+            if deltaTime > 0 then currentFPS = 1 / deltaTime end
+            
+            table.insert(fpsHistory, currentFPS)
+            if #fpsHistory > maxFPSHistory then table.remove(fpsHistory, 1) end
+            
+            local sum = 0
+            for _, fps in ipairs(fpsHistory) do sum = sum + fps end
+            return math.floor(math.clamp(sum / #fpsHistory, 0, 999))
+        end
+
+        -- 3. Helper: Color Updaters
+        local function updatePingColor(label, val)
+            if val <= 60 then label.TextColor3 = Color3.fromRGB(100, 255, 150)
+            elseif val <= 120 then label.TextColor3 = Color3.fromRGB(255, 200, 100)
+            else label.TextColor3 = Color3.fromRGB(255, 100, 100) end
+        end
+
+        local function updateFPSColor(label, val)
+            if val >= 50 then label.TextColor3 = Color3.fromRGB(100, 255, 150)
+            elseif val >= 30 then label.TextColor3 = Color3.fromRGB(255, 200, 100)
+            else label.TextColor3 = Color3.fromRGB(255, 100, 100) end
+        end
+
+        -- 4. Create GUI Function
+        local function createGUI()
+            if guiInstance then return guiInstance end
+
+            local screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "LynxPanelMonitor"
+            screenGui.ResetOnSpawn = false
+            screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+            screenGui.DisplayOrder = 100
+
+            local container = Instance.new("Frame")
+            container.Name = "Container"
+            container.Size = UDim2.new(0, 190, 0, 65)
+            container.Position = UDim2.new(0, 50, 0.5, -32) -- Posisi Default
+            container.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+            container.BackgroundTransparency = 0.2
+            container.Parent = screenGui
+
+            local uiCorner = Instance.new("UICorner", container)
+            uiCorner.CornerRadius = UDim.new(0, 8)
+
+            local uiStroke = Instance.new("UIStroke", container)
+            uiStroke.Color = Color3.fromRGB(255, 140, 50) -- Orange Theme
+            uiStroke.Thickness = 1.5
+            uiStroke.Transparency = 0.4
+
+            -- Header
+            local header = Instance.new("Frame", container)
+            header.Size = UDim2.new(1, 0, 0, 30)
+            header.BackgroundTransparency = 1
+
+            local logo = Instance.new("ImageLabel", header)
+            logo.Size = UDim2.new(0, 20, 0, 20)
+            logo.Position = UDim2.new(0, 8, 0, 5)
+            logo.Image = "rbxassetid://118176705805619"
+            logo.BackgroundTransparency = 1
+
+            local title = Instance.new("TextLabel", header)
+            title.Size = UDim2.new(1, -40, 1, 0)
+            title.Position = UDim2.new(0, 34, 0, 0)
+            title.BackgroundTransparency = 1
+            title.Text = "LYNX PANEL"
+            title.TextColor3 = Color3.fromRGB(255, 140, 50)
+            title.TextSize = 12
+            title.Font = Enum.Font.GothamBold
+            title.TextXAlignment = Enum.TextXAlignment.Left
+
+            local line = Instance.new("Frame", container)
+            line.Size = UDim2.new(1, -16, 0, 1)
+            line.Position = UDim2.new(0, 8, 0, 30)
+            line.BackgroundColor3 = Color3.fromRGB(255, 140, 50)
+            line.BackgroundTransparency = 0.7
+            line.BorderSizePixel = 0
+
+            -- Content
+            local content = Instance.new("Frame", container)
+            content.Size = UDim2.new(1, -16, 1, -38)
+            content.Position = UDim2.new(0, 8, 0, 36)
+            content.BackgroundTransparency = 1
+
+            local pingLbl = Instance.new("TextLabel", content)
+            pingLbl.Size = UDim2.new(0.5, -4, 1, 0)
+            pingLbl.BackgroundTransparency = 1
+            pingLbl.Text = "Ping: --"
+            pingLbl.TextColor3 = Color3.new(1,1,1)
+            pingLbl.TextSize = 12
+            pingLbl.Font = Enum.Font.GothamBold
+            pingLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+            local fpsLbl = Instance.new("TextLabel", content)
+            fpsLbl.Size = UDim2.new(0.5, -4, 1, 0)
+            fpsLbl.Position = UDim2.new(0.5, 4, 0, 0)
+            fpsLbl.BackgroundTransparency = 1
+            fpsLbl.Text = "FPS: --"
+            fpsLbl.TextColor3 = Color3.new(1,1,1)
+            fpsLbl.TextSize = 12
+            fpsLbl.Font = Enum.Font.GothamBold
+            fpsLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+            -- Dragging Logic
+            local dragging, dragInput, dragStart, startPos
+            container.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    dragStart = input.Position
+                    startPos = container.Position
+                    input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then dragging = false end
+                    end)
+                end
+            end)
+            container.InputChanged:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if input == dragInput and dragging then
+                    local delta = input.Position - dragStart
+                    container.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+                end
+            end)
+
+            guiInstance = {
+                ScreenGui = screenGui,
+                PingLabel = pingLbl,
+                FPSLabel = fpsLbl
+            }
+            screenGui.Parent = PlayerGui
+            return guiInstance
+        end
+
+        -- 5. Main Methods
+        function LynxMonitor:Show()
+            local ui = createGUI()
+            ui.ScreenGui.Enabled = true
+            
+            -- Start Loops
+            if updateConnection then updateConnection:Disconnect() end
+            updateConnection = RunService.RenderStepped:Connect(function()
+                if not ui.ScreenGui.Parent then return end
+                local fps = getFPS()
+                ui.FPSLabel.Text = "FPS: " .. fps
+                updateFPSColor(ui.FPSLabel, fps)
+            end)
+
+            local lastCheck = 0
+            if pingUpdateConnection then pingUpdateConnection:Disconnect() end
+            pingUpdateConnection = RunService.Heartbeat:Connect(function()
+                local now = tick()
+                if now - lastCheck >= 0.5 then
+                    local ping = getPing()
+                    ui.PingLabel.Text = "Ping: " .. ping .. "ms"
+                    updatePingColor(ui.PingLabel, ping)
+                    lastCheck = now
+                end
+            end)
+        end
+
+        function LynxMonitor:Destroy()
+            if updateConnection then updateConnection:Disconnect() end
+            if pingUpdateConnection then pingUpdateConnection:Disconnect() end
+            if guiInstance and guiInstance.ScreenGui then
+                guiInstance.ScreenGui:Destroy()
+                guiInstance = nil
+            end
+        end
+
+        -- >> UI TOGGLE
+        MiscSection:Toggle({
+            Title = "Show Ping & FPS Panel",
+            Desc = "Menampilkan overlay statistik jaringan (Lynx Style).",
+            Value = false,
+            Icon = "activity",
+            Callback = function(state)
+                if state then
+                    LynxMonitor:Show()
+                    WindUI:Notify({ Title = "Panel ON", Content = "Panel muncul di kiri layar (Draggable)", Duration = 2 })
+                else
+                    LynxMonitor:Destroy()
+                    WindUI:Notify({ Title = "Panel OFF", Duration = 2 })
+                end
+            end
+        })
+    end
+
 end
 
 WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
