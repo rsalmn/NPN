@@ -1990,7 +1990,7 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (FIXED)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Teleport Event", TextSize = 30 })
 
     -- =========================================================
     -- 1. DATA FISHING AREA (Agar terbaca system)
@@ -2036,22 +2036,19 @@ do
     local CycleIndex = 1
 
     -- =========================================================
-    -- 3. HELPER FUNCTIONS (DEBUGGED)
+    -- 3. HELPER FUNCTIONS (REVISI AKTIF SCAN)
     -- =========================================================
     local function TryTeleportToEvent(targetName)
         if not targetName then return false end
+        
+        local LocalPlayer = game:GetService("Players").LocalPlayer
+        local char = LocalPlayer.Character
+        if not char then return false end
 
-        -- [[ DEBUG KHUSUS LOCHNESS ]]
+        -- [[ 1. KHUSUS LOCHNESS ]]
         if targetName == "Lochness Hunt" then
-            -- Pastikan fungsi waktu ada
-            if typeof(getLochNextTimes) ~= "function" then 
-                print("[Debug] Fungsi getLochNextTimes tidak ditemukan!")
-                return false 
-            end
-
             local _, _, active = getLochNextTimes() 
-            
-            -- Cek fisik object
+            -- Cek fisik object lochness
             local foundPart = nil
             for _, inst in ipairs(workspace:GetDescendants()) do
                 if inst:IsA("BasePart") then
@@ -2065,39 +2062,58 @@ do
 
             if foundPart then
                 pcall(function()
-                    local char = Players.LocalPlayer.Character
-                    if char then char:PivotTo(CFrame.new(foundPart.Position + Vector3.new(0, 6, 0))) end
+                    char:PivotTo(CFrame.new(foundPart.Position + Vector3.new(0, 6, 0)))
                 end)
                 return true
             end
 
-            -- [FIX]: Jika waktu aktif tapi part belum ketemu (mungkin belum render)
-            -- KITA RETURN TRUE AGAR SYSTEM TIDAK PINDAH KE EVENT LAIN
+            -- Jika event aktif secara waktu tapi object belum render,
+            -- Kita paksa return true agar script TIDAK pindah ke event lain/idle area
             if active then
-                -- Teleport ke Safe Land untuk memancing loading map
-                if SAFE_LAND_POSITION then
-                    pcall(function() 
-                        Players.LocalPlayer.Character:PivotTo(CFrame.new(SAFE_LAND_POSITION)) 
-                    end)
-                end
-                return true -- Tetap dianggap "Found" agar script fokus menunggu Lochness spawn
+                return true 
             end
 
             return false
         end
 
-        -- [[ EVENT BIASA ]]
-        -- Pastikan EventTP ada
-        if not EventTP or not EventTP.TeleportNow then 
-            print("[Debug] Engine EventTP rusak/hilang!")
-            return false 
+        -- [[ 2. KHUSUS EVENT BIASA (SCAN MANUAL) ]]
+        -- Kita ambil daftar koordinat dari database EventTP yang sudah ada
+        if EventTP and EventTP.Events then
+            local possibleCoords = EventTP.Events[targetName]
+            
+            if possibleCoords and type(possibleCoords) == "table" then
+                -- Loop semua kemungkinan lokasi spawn event tersebut
+                for _, coord in ipairs(possibleCoords) do
+                    
+                    -- Buat kotak pencarian (Region3) di sekitar koordinat
+                    local regionSize = Vector3.new(40, 40, 40) -- Scan radius 40 studs
+                    local region = Region3.new(coord - regionSize, coord + regionSize)
+                    
+                    -- Cari part di dalam kotak itu
+                    local parts = workspace:FindPartsInRegion3(region, nil, 20)
+                    local isEventHere = false
+
+                    for _, part in ipairs(parts) do
+                        -- Jika ada part yang BUKAN Terrain dan BUKAN karakter kita, berarti itu Event
+                        if part.Name ~= "Terrain" and part.Name ~= "Water" and not part:IsDescendantOf(char) then
+                            isEventHere = true
+                            break
+                        end
+                    end
+
+                    -- Jika ketemu, langsung teleport!
+                    if isEventHere then
+                        pcall(function()
+                            -- Teleport sedikit di atasnya (+15 Y) biar aman
+                            char:PivotTo(CFrame.new(coord + Vector3.new(0, 15, 0)))
+                        end)
+                        return true -- Berhasil ketemu & teleport
+                    end
+                end
+            end
         end
 
-        if EventTP.TeleportNow(targetName) then
-            return true
-        end
-
-        return false
+        return false -- Tidak ada event yang ditemukan di server ini
     end
 
     -- =========================================================
