@@ -2111,9 +2111,9 @@ do
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
         ["Shark Hunt"] = {"Shark", "Great White"},
-        ["Ghost Shark Hunt"] = {"Ghost"},
+        ["Ghost Shark Hunt"] = {"Ghost", "GHOST Shark Hunt", "Shark Hunt"},
         ["Worm Hunt"] = {"Worm"},
-        ["Ghost Worm"] = {"Ghost"},
+        ["Ghost Worm"] = {"Ghost Worm"},
         ["Treasure Event"] = {"Chest", "Supply", "Crate"},
         ["Meteor Rain"] = {"Meteor"},
         -- Tambahkan event lain jika perlu
@@ -2380,10 +2380,10 @@ do
                         RFPurchaseWeatherEvent:InvokeServer(weather)
                     end)
                     -- Jeda antar pembelian agar tidak spam parah
-                    task.wait(2)
+                    task.wait(0.1)
                 end
                 -- Jeda putaran setelah mencoba beli semua list
-                task.wait(5)
+                task.wait(300)
             end
         end)
     end
@@ -2983,7 +2983,6 @@ do
         Title = "Timer Interval (Seconds)",
         Value = "5",
         Placeholder = "5",
-        Type = "Number",
         Callback = function(v)
             local n = tonumber(v)
             if n and n >= 1 then AutoSell.Timer.Interval = n end
@@ -3017,10 +3016,8 @@ do
     -- MODE COUNT (BY BAG SIZE)
     Reg("sell_count_target", autoSellSection:Input({
         Title = "Sell at Bag Count",
-        Desc = "Jual otomatis saat isi tas mencapai jumlah ini.",
         Value = "200",
         Placeholder = "200",
-        Type = "Number",
         Callback = function(v)
             local n = tonumber(v)
             if n and n > 0 then AutoSell.Count.Target = n end
