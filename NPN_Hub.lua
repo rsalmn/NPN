@@ -1701,6 +1701,85 @@ do
         end
     }))
 
+    -- =========================================================
+    -- WALK ON WATER (USER VERSION - INTEGRATED)
+    -- =========================================================
+    local walkOnWaterConnection = nil
+    local isWalkOnWater = false
+    local waterPlatform = nil
+    
+    -- Simpan elemen toggle ke variabel agar bisa diakses Smart System
+    local WalkOnWaterToggleElement = Reg("walkwat", fishingSupport:Toggle({
+        Title = "Walk on Water", 
+        -- (Ganti 'farm' dengan tab yang kamu mau, misal 'ability')
+        Value = false,
+        Callback = function(state)
+            isWalkOnWater = state
+
+            if state then
+                WindUI:Notify({ Title = "Walk on Water ON!", Duration = 2, Icon = "droplet" })
+                
+                -- Buat Platform jika belum ada
+                if not waterPlatform then
+                    waterPlatform = Instance.new("Part")
+                    waterPlatform.Name = "WaterPlatform"
+                    waterPlatform.Anchored = true
+                    waterPlatform.CanCollide = true
+                    waterPlatform.Transparency = 1 
+                    waterPlatform.Size = Vector3.new(20, 1, 20) -- Diperbesar sedikit
+                    waterPlatform.Parent = workspace
+                end
+
+                if walkOnWaterConnection then walkOnWaterConnection:Disconnect() end
+
+                walkOnWaterConnection = game:GetService("RunService").RenderStepped:Connect(function()
+                    local character = game:GetService("Players").LocalPlayer.Character
+                    if not isWalkOnWater or not character then return end
+                    
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+
+                    if not waterPlatform or not waterPlatform.Parent then
+                        waterPlatform = Instance.new("Part")
+                        waterPlatform.Name = "WaterPlatform"
+                        waterPlatform.Anchored = true
+                        waterPlatform.CanCollide = true
+                        waterPlatform.Transparency = 1 
+                        waterPlatform.Size = Vector3.new(20, 1, 20)
+                        waterPlatform.Parent = workspace
+                    end
+
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = {workspace.Terrain} 
+                    rayParams.FilterType = Enum.RaycastFilterType.Include
+                    rayParams.IgnoreWater = false 
+
+                    local rayOrigin = hrp.Position + Vector3.new(0, 5, 0) 
+                    local rayDirection = Vector3.new(0, -500, 0)
+                    local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+
+                    if result and result.Material == Enum.Material.Water then
+                        local waterSurfaceHeight = result.Position.Y
+                        waterPlatform.Position = Vector3.new(hrp.Position.X, waterSurfaceHeight, hrp.Position.Z)
+                        
+                        -- Logic angkat kaki jika tenggelam dikit
+                        if hrp.Position.Y < (waterSurfaceHeight + 2) and hrp.Position.Y > (waterSurfaceHeight - 5) then
+                             if not game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.Space) then
+                                hrp.CFrame = CFrame.new(hrp.Position.X, waterSurfaceHeight + 3.5, hrp.Position.Z)
+                            end
+                        end
+                    else
+                        waterPlatform.Position = Vector3.new(hrp.Position.X, -500, hrp.Position.Z)
+                    end
+                end)
+            else
+                WindUI:Notify({ Title = "Walk on Water OFF!", Duration = 2, Icon = "x", })
+                if walkOnWaterConnection then walkOnWaterConnection:Disconnect() walkOnWaterConnection = nil end
+                if waterPlatform then waterPlatform:Destroy() waterPlatform = nil end
+            end
+        end
+    }))
+
     -- 2. ENABLE FISHING RADAR
     local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
     fishingSupport:Toggle({
@@ -1987,9 +2066,10 @@ do
 
 
 end
+
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (FINAL)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (AUTO-CYCLE)", TextSize = 20 })
 
     -- =========================================================
     -- 1. DATA FISHING AREA (Idle Map)
@@ -2035,10 +2115,9 @@ do
     local CycleIndex = 1
 
     -- =========================================================
-    -- 3. SCANNER & TELEPORTER (UPDATED: ANTI-NYEMPLUNG)
+    -- 3. SCANNER & TELEPORTER
     -- =========================================================
     
-    -- Fungsi ini mengembalikan COORDINATE (Vector3) jika ketemu, atau nil jika zonk
     local function FindEventCoordinate(targetName)
         if not targetName then return nil end
 
@@ -2046,42 +2125,41 @@ do
         if targetName == "Lochness Hunt" then
             local _, _, active = getLochNextTimes()
             
-            -- Prioritas: Cari fisik object dulu
             for _, inst in ipairs(workspace:GetDescendants()) do
                 if inst:IsA("BasePart") then
                     local n = inst.Name:lower()
                     if string.find(n, "loch") or string.find(n, "ness") then
-                        return inst.Position + Vector3.new(0, 15, 0) -- Ketemu fisiknya
+                        return inst.Position + Vector3.new(0, 5, 0) -- Lebih dekat ke air biar WalkOnWater nyantol
                     end
                 end
             end
 
-            -- Jika waktu aktif tapi fisik belum render
-            if active then 
-                -- Kita kembalikan posisi dummy (Safe Land) agar dianggap "FOUND" oleh system
-                -- Ini trik agar dia tidak skip ke Idle
-                return SAFE_LAND_POSITION 
-            end
-            
+            if active then return SAFE_LAND_POSITION end
             return nil
         end
 
-        -- [B] KHUSUS EVENT BIASA (SCAN REGION)
+        -- [B] KHUSUS EVENT BIASA
         if EventTP and EventTP.Events then
             local possibleCoords = EventTP.Events[targetName]
             if possibleCoords and type(possibleCoords) == "table" then
                 for _, coord in ipairs(possibleCoords) do
-                    -- Scan Region
                     local regionSize = Vector3.new(50, 50, 50)
                     local region = Region3.new(coord - regionSize, coord + regionSize)
                     local parts = workspace:FindPartsInRegion3(region, nil, 20)
                     
+                    local foundEventObject = false
                     for _, part in ipairs(parts) do
                         local char = Players.LocalPlayer.Character
+                        -- Filter ketat: Pastikan bukan terrain, air, atau diri sendiri
                         if part.Name ~= "Terrain" and part.Name ~= "Water" and (not char or not part:IsDescendantOf(char)) then
-                            -- KETEMU! Kembalikan koordinat event + Tinggi Aman
-                            return coord + Vector3.new(0, 25, 0) 
+                            foundEventObject = true
+                            break
                         end
+                    end
+
+                    if foundEventObject then
+                        -- Teleport +5 studs dari pusat event (biar kena air tapi gak tenggelam dalam)
+                        return coord + Vector3.new(0, 5, 0) 
                     end
                 end
             end
@@ -2090,16 +2168,16 @@ do
         return nil
     end
 
-    -- Fungsi Teleport Aman (Mengambang)
+    -- Fungsi Teleport yang TERINTEGRASI dengan Walk on Water
     local function SafeTeleportTo(pos)
         local char = Players.LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            -- 1. Teleport
+            -- 1. Teleport biasa
             char:PivotTo(CFrame.new(pos))
             
-            -- 2. ANCHOR AGAR MENGAMBANG (Tidak Nyemplung)
-            hrp.Anchored = true
+            -- 2. Matikan Anchor (PENTING: Biar WalkOnWater yang handle fisika)
+            hrp.Anchored = false 
             hrp.Velocity = Vector3.zero
         end
     end
@@ -2139,11 +2217,11 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC LOOP (REVISI FLOW)
+    -- 5. MAIN LOGIC LOOP (FIXED CYCLE & EXPIRED EVENT)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
-        Desc = "No Delay + Anti Nyemplung + Auto Cycle",
+        Desc = "Auto Cycle + Walk on Water Support",
         Value = false,
         Callback = function(state)
             SmartEventState = state
@@ -2152,28 +2230,32 @@ do
                 WindUI:Notify({ Title = "Smart System", Content = "Started!", Duration = 3, Icon = "cpu" })
                 pcall(function() if EventTP and EventTP.Stop then EventTP.Stop() end end)
                 
+                -- [AUTO ON] Walk On Water
+                if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then
+                    WalkOnWaterToggleElement:Set(true)
+                end
+
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
                         local priorityFound = false
                         
-                        -- [PHASE 1] CEK PRIORITY (TANPA JEDA)
+                        -- [PHASE 1] CEK PRIORITY
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
                             local dest = FindEventCoordinate(SelectedPriorityEvent)
                             if dest then
                                 SafeTeleportTo(dest)
                                 priorityFound = true
-                                task.wait(1) -- Refresh rate saat di event priority
+                                task.wait(1) 
                             end
                         end
 
-                        -- Jika Priority ditemukan, SKIP semua di bawah, langsung loop lagi
                         if priorityFound then 
-                            -- continue (Lua 5.1 ga support continue di beberapa executor, kita pakai if else structure)
+                            -- Jika priority ada, skip logic bawah
                         else
-                            -- [PHASE 2] CEK NORMAL EVENTS (CYCLE)
-                            local activeNormalEvents = {}
+                            -- [PHASE 2] CEK NORMAL EVENTS (RE-SCAN SETIAP LOOP)
+                            local activeNormalEvents = {} -- Reset tabel setiap loop! (Solusi Masalah 1)
                             
-                            -- Scan dulu mana yang aktif (CEPAT)
+                            -- Scan ulang semua pilihan user, hanya masukkan yang AKTIF SEKARANG
                             for _, eventName in ipairs(SelectedNormalEvents) do
                                 local dest = FindEventCoordinate(eventName)
                                 if dest then
@@ -2182,44 +2264,38 @@ do
                             end
 
                             if #activeNormalEvents > 0 then
-                                -- Ada event biasa yang aktif!
+                                -- Ada event aktif!
                                 
-                                -- Update Index Cycle
-                                CycleIndex = CycleIndex + 1
+                                -- Validasi Index (Jaga-jaga jika event berkurang dari 3 jadi 2)
                                 if CycleIndex > #activeNormalEvents then CycleIndex = 1 end
                                 
                                 local target = activeNormalEvents[CycleIndex]
                                 
-                                -- Teleport & Mengambang
+                                -- Teleport ke target
                                 SafeTeleportTo(target.Pos)
                                 
-                                -- Tahan di event ini selama 5 detik (Farming time)
-                                -- Sebelum pindah ke event selanjutnya (jika ada > 1)
+                                -- Update Index untuk putaran selanjutnya
+                                CycleIndex = CycleIndex + 1
+                                
+                                -- Tahan 5 detik di event ini
                                 task.wait(5) 
                             else
                                 -- [PHASE 3] IDLE / SEMUA KOSONG
-                                -- Hanya masuk kesini jika Priority ZONK DAN Normal Events ZONK
-                                
                                 if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
                                     local data = FishingAreass[Loch_Return_SelectedArea]
-                                    
-                                    -- Cek jarak biar ga spam TP
                                     local char = Players.LocalPlayer.Character
                                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                                    
                                     if hrp then
                                         local dist = (hrp.Position - data.Pos).Magnitude
                                         if dist > 15 then
-                                            -- Lepas Anchor biar bisa jalan di idle area
+                                            -- Jika jauh, teleport
                                             hrp.Anchored = false 
                                             TeleportToLookAt(data.Pos, data.Look)
-                                        else
-                                            -- Pastikan unanchor kalau sudah sampai
-                                            hrp.Anchored = false 
                                         end
                                     end
                                 end
                                 
-                                -- Cek ulang event setiap 1.5 detik
                                 task.wait(1.5)
                             end
                         end
@@ -2228,10 +2304,9 @@ do
             else
                 if SmartEventThread then task.cancel(SmartEventThread) SmartEventThread = nil end
                 
-                -- Lepas Anchor saat dimatikan biar user bisa gerak
-                local char = Players.LocalPlayer.Character
-                if char and char:FindFirstChild("HumanoidRootPart") then
-                    char.HumanoidRootPart.Anchored = false
+                -- [AUTO OFF] Walk On Water (Optional, hapus baris ini kalau mau tetap nyala)
+                if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then
+                    WalkOnWaterToggleElement:Set(false)
                 end
                 
                 WindUI:Notify({ Title = "Smart System", Content = "Stopped.", Duration = 3, Icon = "x" })
