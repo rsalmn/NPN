@@ -2210,47 +2210,32 @@ do
         end
     end
 
-    ----------------------------------------------------
-        -- UI : NORMAL EVENT MULTI SELECT (WINDUI MULTI DROPDOWN)
-        ----------------------------------------------------
-        local selectableEvents = {
-            "Shark Hunt",
-            "Worm Hunt",
-            "Megalodon Hunt",
-            "Ghost Shark Hunt",
-            "Treasure Event"
-        }
+    local selectableEvents = {
+        "Shark Hunt",
+        "Worm Hunt",
+        "Megalodon Hunt",
+        "Ghost Shark Hunt",
+        "Treasure Event"
+    }
 
-        NormalEvents = {}
+    for _, ev in ipairs(selectableEvents) do
+        NormalMap[ev] = false
 
-        televent:Dropdown({
-            Title = "Normal Event (Multi Select)",
-            Desc = "Event fallback jika Priority tidak aktif",
-            Values = selectableEvents,
-            Multi = true,
-            AllowNone = true,
-            Value = {},
-            Callback = function(list)
-                NormalEvents = list or {}
+        televent:Toggle({
+            Title = ev,
+            Value = false,
+            Callback = function(state)
+                NormalMap[ev] = state
+                RefreshNormalList()
 
                 if #NormalEvents == 0 then
-                    WindUI:Notify({
-                        Title = "Priority System",
-                        Content = "Normal Event kosong.",
-                        Duration = 3,
-                        Icon = "info"
-                    })
+                    SetStatus("Tidak ada normal event dipilih")
                 else
-                    WindUI:Notify({
-                        Title = "Priority System",
-                        Content = "Normal Events: " .. table.concat(NormalEvents, ", "),
-                        Duration = 3,
-                        Icon = "info"
-                    })
+                    SetStatus("Normal Events: " .. table.concat(NormalEvents,", "))
                 end
             end
         })
-
+    end
 
 
 
