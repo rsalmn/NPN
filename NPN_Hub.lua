@@ -44,56 +44,6 @@ local function GetHRP()
     return Character:WaitForChild("HumanoidRootPart", 5)
 end
 
----------------------------------------------
--- POSITION + LAND / WATER DETECTOR DISPLAY
----------------------------------------------
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
-
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-
--- UI
-local playerGui = player:WaitForChild("PlayerGui")
-
-local screen = Instance.new("ScreenGui")
-screen.Name = "PositionStatusUI"
-screen.ResetOnSpawn = false
-screen.Parent = playerGui
-
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 260, 0, 90)
-frame.Position = UDim2.new(0.02, 0, 0.08, 0)
-frame.BackgroundTransparency = 0.2
-frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-frame.BorderSizePixel = 0
-frame.Parent = screen
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 22)
-title.Position = UDim2.new(0, 0, 0, 2)
-title.BackgroundTransparency = 1
-title.Text = "PLAYER POSITION"
-title.Font = Enum.Font.GothamBold
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.TextSize = 18
-title.Parent = frame
-
-local info = Instance.new("TextLabel")
-info.Size = UDim2.new(1, -10, 1, -28)
-info.Position = UDim2.new(0, 5, 0, 26)
-info.BackgroundTransparency = 1
-info.Text = "Loading..."
-info.Font = Enum.Font.Gotham
-info.TextColor3 = Color3.fromRGB(255, 255, 255)
-info.TextSize = 16
-info.TextXAlignment = Enum.TextXAlignment.Left
-info.TextYAlignment = Enum.TextYAlignment.Top
-info.Parent = frame
-
-
 --------------------------------------------------------------------
 -- 🌊 HELPER STATUS DETECTOR (FIXED & OPTIMIZED)
 --------------------------------------------------------------------
@@ -2037,12 +1987,13 @@ do
 
 
 end
+
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (FIXED)", TextSize = 20 })
 
     -- =========================================================
-    -- 1. DATA FISHING AREA (Dipindah kesini agar terbaca system)
+    -- 1. DATA FISHING AREA (Agar terbaca system)
     -- =========================================================
     local FishingAreass = {
         ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
@@ -2071,28 +2022,35 @@ do
     }
     local AreaNamess = {}
     for name, _ in pairs(FishingAreass) do table.insert(AreaNamess, name) end
-    table.sort(AreaNamess) -- Biar rapi sesuai abjad
+    table.sort(AreaNamess)
 
     -- =========================================================
     -- 2. VARIABLE SYSTEM
     -- =========================================================
     local SelectedPriorityEvent = nil
     local SelectedNormalEvents = {}
-    local Loch_Return_SelectedArea = nil -- Map tujuan saat idle
+    local Loch_Return_SelectedArea = nil 
     
     local SmartEventState = false
     local SmartEventThread = nil
     local CycleIndex = 1
 
     -- =========================================================
-    -- 3. HELPER FUNCTIONS
+    -- 3. HELPER FUNCTIONS (DEBUGGED)
     -- =========================================================
     local function TryTeleportToEvent(targetName)
         if not targetName then return false end
 
-        -- 1. CEK LOCHNESS
+        -- [[ DEBUG KHUSUS LOCHNESS ]]
         if targetName == "Lochness Hunt" then
+            -- Pastikan fungsi waktu ada
+            if typeof(getLochNextTimes) ~= "function" then 
+                print("[Debug] Fungsi getLochNextTimes tidak ditemukan!")
+                return false 
+            end
+
             local _, _, active = getLochNextTimes() 
+            
             -- Cek fisik object
             local foundPart = nil
             for _, inst in ipairs(workspace:GetDescendants()) do
@@ -2112,10 +2070,29 @@ do
                 end)
                 return true
             end
+
+            -- [FIX]: Jika waktu aktif tapi part belum ketemu (mungkin belum render)
+            -- KITA RETURN TRUE AGAR SYSTEM TIDAK PINDAH KE EVENT LAIN
+            if active then
+                -- Teleport ke Safe Land untuk memancing loading map
+                if SAFE_LAND_POSITION then
+                    pcall(function() 
+                        Players.LocalPlayer.Character:PivotTo(CFrame.new(SAFE_LAND_POSITION)) 
+                    end)
+                end
+                return true -- Tetap dianggap "Found" agar script fokus menunggu Lochness spawn
+            end
+
             return false
         end
 
-        -- 2. CEK EVENT LAIN
+        -- [[ EVENT BIASA ]]
+        -- Pastikan EventTP ada
+        if not EventTP or not EventTP.TeleportNow then 
+            print("[Debug] Engine EventTP rusak/hilang!")
+            return false 
+        end
+
         if EventTP.TeleportNow(targetName) then
             return true
         end
@@ -2130,13 +2107,17 @@ do
     -- [A] PRIORITY EVENT
     televent:Dropdown({
         Title = "1. Set Event Priority (Utama)",
-        Desc = "Fokus utama. Jika ada, script akan diam disini.",
+        Desc = "Fokus utama. Jika aktif, script akan diam disini.",
         Values = eventsList,
         AllowNone = true,
         Multi = false,
         Callback = function(opt)
             SelectedPriorityEvent = opt
-            if opt == "Lochness Hunt" then showLochCountdown() else hideLochCountdown() end
+            if opt == "Lochness Hunt" then 
+                if showLochCountdown then showLochCountdown() end
+            else 
+                if hideLochCountdown then hideLochCountdown() end
+            end
         end
     })
 
@@ -2159,7 +2140,7 @@ do
         Values = AreaNamess,
         AllowNone = true,
         Callback = function(opt)
-            Loch_Return_SelectedArea = opt -- Ini variabel yg sama dgn 'Return Setelah Lochness'
+            Loch_Return_SelectedArea = opt
             if opt then
                 WindUI:Notify({ Title = "Idle Area Set", Content = "Map: " .. opt, Duration = 2, Icon = "map-pin" })
             end
@@ -2167,7 +2148,7 @@ do
     })
 
     -- =========================================================
-    -- 5. SMART ENGINE LOGIC
+    -- 5. SMART ENGINE LOGIC (SAFE MODE)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
@@ -2177,51 +2158,51 @@ do
             SmartEventState = state
 
             if SmartEventState then
-                EventTP.Stop() -- Matikan engine bawaan biar ga bentrok
+                -- [FIX] Notifikasi ditaruh paling atas agar user tahu tombol bekerja
+                WindUI:Notify({ Title = "Smart System", Content = "Started! Scanning...", Duration = 3, Icon = "cpu" })
+
+                -- [FIX] Gunakan pcall saat mematikan EventTP agar tidak crash jika EventTP error
+                pcall(function() 
+                    if EventTP and EventTP.Stop then EventTP.Stop() end 
+                end)
                 
                 SmartEventThread = task.spawn(function()
-                    WindUI:Notify({ Title = "Smart System", Content = "Started!", Duration = 3, Icon = "cpu" })
-                    
+                    -- Tunggu sebentar untuk inisialisasi
+                    task.wait(0.5)
+
                     while SmartEventState do
                         local AnyEventActive = false
 
                         -- [PHASE 1] CEK PRIORITY
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
+                            -- Coba teleport/scan priority
                             if TryTeleportToEvent(SelectedPriorityEvent) then
                                 AnyEventActive = true
-                                -- Diam disini, refresh tiap 1 detik
+                                -- Kita sudah di lokasi priority (atau menunggunya), diam refresh cepat
                                 task.wait(1) 
                             end
                         end
 
-                        -- [PHASE 2] CEK NORMAL EVENTS (Jika Priority Zonk)
+                        -- [PHASE 2] CEK NORMAL EVENTS (Jika Priority Zonk/Tidak Aktif)
                         if not AnyEventActive and #SelectedNormalEvents > 0 then
-                            local activeEvents = {}
-                            -- Scan mana yg aktif tanpa teleport dulu (simulasi)
-                            -- Di sini kita coba teleport langsung sebagai scan
                             
-                            -- Logic Cycle
-                            local startIdx = CycleIndex
-                            local foundInCycle = false
-
-                            -- Cek event saat ini dalam siklus
                             local targetEvent = SelectedNormalEvents[CycleIndex]
                             
+                            -- Coba teleport ke target siklus saat ini
                             if targetEvent and TryTeleportToEvent(targetEvent) then
                                 AnyEventActive = true
-                                foundInCycle = true
                                 
-                                -- Update index untuk putaran berikutnya
+                                -- Pindah index untuk putaran berikutnya (Logic Cycling)
                                 CycleIndex = CycleIndex + 1
                                 if CycleIndex > #SelectedNormalEvents then CycleIndex = 1 end
                                 
-                                -- Diam di event ini selama 5 detik sebelum pindah
+                                -- Berhasil teleport? Diam 5 detik sebelum cek/pindah lagi
                                 task.wait(5)
                             else
-                                -- Jika target cycle ini mati, coba cek next index cepat
+                                -- Gagal (Event ini ga ada)? Cek next event lebih cepat
                                 CycleIndex = CycleIndex + 1
                                 if CycleIndex > #SelectedNormalEvents then CycleIndex = 1 end
-                                task.wait(0.2) -- Check next event fast
+                                task.wait(0.2) 
                             end
                         end
 
@@ -2231,7 +2212,6 @@ do
                             if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
                                 local data = FishingAreass[Loch_Return_SelectedArea]
                                 
-                                -- Cek jarak dulu biar ga spam teleport kalo udah ditempat
                                 local char = Players.LocalPlayer.Character
                                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                                 
@@ -2243,14 +2223,12 @@ do
 
                                 if shouldTeleport then
                                     TeleportToLookAt(data.Pos, data.Look)
-                                    -- Optional: Notify sekali aja
-                                    WindUI:Notify({Title="Idle Mode", Content="Teleport ke Map Pilihan", Duration=2})
                                 end
                                 
-                                -- Tunggu 4 detik sebelum scan event lagi
+                                -- Tunggu 4 detik di map idle sebelum scan event lagi
                                 task.wait(4)
                             else
-                                -- Benar-benar diam (tidak ada map dipilih)
+                                -- Diam saja
                                 task.wait(1)
                             end
                         end
