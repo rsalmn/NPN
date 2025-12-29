@@ -3054,6 +3054,74 @@ do
         end
     }))
 
+    -- =========================================================
+    -- [4] MERCHANT ACCESS (REMOTE SHOP)
+    -- =========================================================
+    local merchantSection = shop:Section({ 
+        Title = "Merchant / Shop Access", 
+        TextSize = 20 
+    })
+
+    merchantSection:Toggle({
+        Title = "Open Merchant GUI",
+        Desc = "Buka toko dimanapun (Remote Shop).",
+        Value = false,
+        Icon = "shopping-bag",
+        Callback = function(state)
+            local player = game:GetService("Players").LocalPlayer
+            local pGui = player:WaitForChild("PlayerGui")
+            local merchantUI = pGui:FindFirstChild("Merchant")
+
+            if merchantUI then
+                merchantUI.Enabled = state
+                
+                if state then
+                    WindUI:Notify({
+                        Title = "Merchant Opened",
+                        Content = "Silakan belanja!",
+                        Duration = 2,
+                        Icon = "check"
+                    })
+                else
+                    WindUI:Notify({
+                        Title = "Merchant Closed",
+                        Duration = 2,
+                        Icon = "x"
+                    })
+                end
+            else
+                -- Failsafe jika GUI belum load
+                WindUI:Notify({
+                    Title = "Error",
+                    Content = "UI Merchant tidak ditemukan. Coba tunggu sebentar.",
+                    Duration = 3,
+                    Icon = "alert-triangle"
+                })
+            end
+        end
+    })
+
+    -- Optional: Tombol Refresh UI jika Merchant Bug
+    merchantSection:Button({
+        Title = "Fix / Refresh Merchant UI",
+        Desc = "Tekan ini jika toko tidak mau terbuka/stuck.",
+        Icon = "refresh-cw",
+        Callback = function()
+            local player = game:GetService("Players").LocalPlayer
+            local pGui = player:WaitForChild("PlayerGui")
+            local merchantUI = pGui:FindFirstChild("Merchant")
+            
+            if merchantUI then
+                -- Reset state
+                merchantUI.Enabled = false
+                task.wait(0.1)
+                merchantUI.Enabled = true
+                
+                WindUI:Notify({ Title = "Refreshed", Duration = 2 })
+            end
+        end
+    })
+
 end
 
 do
