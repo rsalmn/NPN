@@ -2070,7 +2070,7 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (STRICT)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Teleport Event", TextSize = 20 })
 
     -- =========================================================
     -- 1. DATA FISHING AREA (Idle Map)
@@ -2346,12 +2346,13 @@ do
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local Packages = ReplicatedStorage:WaitForChild("Packages")
     local NetPackage = Packages._Index["sleitnick_net@0.2.0"]
+    -- Pastikan path remote ini benar sesuai game
     local RFPurchaseWeatherEvent = NetPackage.net["RF/PurchaseWeatherEvent"]
     
     local AutoBuyWeather = {}
     
     local isRunning = false
-    local selected = {}
+    local selected = {} -- Menyimpan daftar cuaca yang dipilih
     
     AutoBuyWeather.AllWeathers = {
         "Cloudy",
@@ -2363,7 +2364,7 @@ do
     }
     
     function AutoBuyWeather.SetSelected(list)
-        selected = list
+        selected = list or {}
     end
     
     function AutoBuyWeather.Start()
@@ -2372,14 +2373,17 @@ do
     
         task.spawn(function()
             while isRunning do
+                -- Loop membeli item yang ada di list selected
                 for _, weather in ipairs(selected) do
                     if not isRunning then break end
                     pcall(function()
                         RFPurchaseWeatherEvent:InvokeServer(weather)
                     end)
+                    -- Jeda antar pembelian agar tidak spam parah
                     task.wait(2)
                 end
-                task.wait(15)
+                -- Jeda putaran setelah mencoba beli semua list
+                task.wait(5)
             end
         end)
     end
@@ -2396,9 +2400,8 @@ do
     end
     
     
-    
     ------------------------------------------------------------
-    -- SHOP TAB
+    -- SHOP TAB UI
     ------------------------------------------------------------
     local shop = Window:Tab({
         Title = "Shop",
@@ -2406,7 +2409,7 @@ do
     })
     
     local shopSection = shop:Section({
-        Title = "Buy Weather",
+        Title = "Auto Buy Weather",
         TextSize = 20
     })
     
@@ -2415,80 +2418,49 @@ do
     -- STATUS DISPLAY
     ------------------------------------------------------------
     local statusLabel = shopSection:Paragraph({
-        Title = "Status",
-        Content = "Idle"
+        Title = "Status: Idle",
+        Content = "Belum ada cuaca dipilih."
+    })
+    
+    local function UpdateStatusDisplay()
+        local statusText = "Idle"
+        if isRunning then statusText = "Running..." end
+        
+        local listText = "None"
+        if #selected > 0 then
+            listText = table.concat(selected, ", ")
+        end
+        
+        statusLabel:SetTitle("Status: " .. statusText)
+        statusLabel:SetDesc("Selected: " .. listText)
+    end
+    
+
+    ------------------------------------------------------------
+    -- MULTI SELECT DROPDOWN (PENGGANTI TOGGLES)
+    ------------------------------------------------------------
+    
+    shopSection:Dropdown({
+        Title = "Select Weathers Target",
+        Desc = "Pilih cuaca yang ingin dibeli otomatis (Bisa pilih banyak).",
+        Values = AutoBuyWeather.AllWeathers,
+        Multi = true,       -- Mengaktifkan Multiple Select
+        AllowNone = true,   -- Boleh kosong
+        Callback = function(items)
+            -- 'items' adalah table berisi string cuaca yang dipilih user
+            -- Contoh: {"Storm", "Radiant"}
+            
+            -- Update logic internal
+            AutoBuyWeather.SetSelected(items)
+            
+            -- Update tampilan status
+            UpdateStatusDisplay()
+        end
     })
     
     
     ------------------------------------------------------------
-    -- MULTI SELECT WEATHER
-    ------------------------------------------------------------
-    
-    local function toggleSelected(weather)
-        for i, v in ipairs(selectedWeathers) do
-            if v == weather then
-                table.remove(selectedWeathers,i)
-                return
-            end
-        end
-        table.insert(selectedWeathers, weather)
-    end
-    
-    ------------------------------------------------------------
-    -- MULTI SELECT WEATHER TOGGLES (SIMPLE + STABLE)
-    ------------------------------------------------------------
-    local selectedWeathers = {}
-    
-    local function ApplySelection()
-        AutoBuyWeather.SetSelected(selectedWeathers)
-    
-        if #selectedWeathers == 0 then
-            statusLabel:Set({
-                Title = "Status",
-                Content = "Selected: None"
-            })
-        else
-            statusLabel:Set({
-                Title = "Status",
-                Content = "Selected: " .. table.concat(selectedWeathers, ", ")
-            })
-        end
-    end
-    
-    local function ToggleWeather(name, state)
-        -- hapus kalau ada
-        for i, v in ipairs(selectedWeathers) do
-            if v == name then
-                if not state then
-                    table.remove(selectedWeathers, i)
-                end
-                ApplySelection()
-                return
-            end
-        end
-    
-        -- tambahkan kalau belum ada
-        if state then
-            table.insert(selectedWeathers, name)
-        end
-    
-        ApplySelection()
-    end
-    
-    
-    for _, weather in ipairs(AutoBuyWeather.AllWeathers) do
-        shopSection:Toggle({
-            Title = weather,
-            Content = "Auto buy " .. weather,
-            Value = false,
-            Callback = function(state)
-                ToggleWeather(weather, state)
-            end
-        })
-    end
-    
-    ------------------------------------------------------------
-    -- START BUTTON
+    -- CONTROL BUTTONS
     ------------------------------------------------------------
     shopSection:Button({
         Title = "Start Auto Buy",
@@ -2500,7 +2472,7 @@ do
             if #list == 0 then
                 WindUI:Notify({
                     Title = "Auto Weather",
-                    Content = "Pilih weather dulu!",
+                    Content = "Pilih minimal satu cuaca di dropdown!",
                     Duration = 3,
                     Icon = "alert-triangle"
                 })
@@ -2508,6 +2480,7 @@ do
             end
     
             AutoBuyWeather.Start()
+            UpdateStatusDisplay()
     
             WindUI:Notify({
                 Title = "Auto Weather",
@@ -2515,34 +2488,22 @@ do
                 Duration = 3,
                 Icon = "check"
             })
-    
-            statusLabel:Set({
-                Title = "Status",
-                Content = "Running..."
-            })
         end
     })
     
     
-    ------------------------------------------------------------
-    -- STOP BUTTON
-    ------------------------------------------------------------
     shopSection:Button({
-        Title = "Stop",
+        Title = "Stop Auto Buy",
         Icon = "x-circle",
         Callback = function()
             AutoBuyWeather.Stop()
+            UpdateStatusDisplay()
     
             WindUI:Notify({
                 Title = "Auto Weather",
                 Content = "Auto Buy Weather dimatikan.",
                 Duration = 3,
                 Icon = "info"
-            })
-    
-            statusLabel:Set({
-                Title = "Status",
-                Content = "Stopped"
             })
         end
     })
