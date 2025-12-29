@@ -14,7 +14,7 @@ local Window = WindUI:CreateWindow({
         API = {                                                     
             { -- pandadevelopment
                 Type = "pandadevelopment", -- type
-                ServiceId = "fDS7ZzVtzOQyihv0gSFKjv42Rcex6yw8", -- service id
+                ServiceId = "NPNHub", -- service id
             },                                                      
         },
     },
