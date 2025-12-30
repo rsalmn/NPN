@@ -2496,16 +2496,6 @@ end
         }
     }
 
-    local EventKeywords = {
-        ["Megalodon Hunt"] = {"mega", "lodon", "shark", "fish", "creature", "monster", "boss"},
-        ["Shark Hunt"] = {"shark", "white", "great", "fish", "predator"}, 
-        ["Ghost Shark Hunt"] = {"ghost", "phantom", "shark", "spectral", "spirit"},
-        ["Worm Hunt"] = {"worm", "sand", "giant", "desert", "creature"},
-        ["Ghost Worm"] = {"ghost", "phantom", "worm", "spirit"},
-        ["Treasure Event"] = {"chest", "crate", "supply", "treasure", "loot", "box"},
-        ["Meteor Rain"] = {"meteor", "asteroid", "rock", "space"},
-    }
-
     -- IMPROVED WORM DETECTION SYSTEM
 local function FindWormParticleEffects(centerPos, radius)
     print("  🌊 [WORM] Scanning for particle effects...")
@@ -2787,121 +2777,327 @@ end
     end
 
     -- =========================================================
-    -- PROBE FUNCTION
-    -- =========================================================
-    local function ProbeAndFindEvent(targetName)
-        if not targetName then return false, nil, nil end
-        
-        print("🔍 [PROBE START] Looking for:", targetName)
-        
-        if targetName == "Lochness Hunt" then
-            local isLochActive = LochnessSystem:IsActive()
-            if not isLochActive then 
-                print("⏰ [PROBE] Lochness not active")
-                return false, nil, nil 
-            end
-            
-            for _, obj in ipairs(workspace:GetChildren()) do
-                if obj:IsA("Model") then
-                    local name = obj.Name:lower()
-                    if name:find("nessie") or name:find("loch") then
-                        if IsEventAlive(obj) then
-                            local pos = obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetBoundingBox().Position
-                            print("✅ [PROBE] Found Lochness at:", pos)
-                            return true, pos, obj
-                        end
-                    end
-                end
-            end
-            print("❌ [PROBE] Lochness not found")
-            return false, nil, nil
-        end
+-- ENHANCED EVENT KEYWORDS & DETECTION
+-- =========================================================
+local EventKeywords = {
+    ["Megalodon Hunt"] = {"mega", "lodon", "shark", "fish", "creature", "monster", "boss"},
+    ["Shark Hunt"] = {"shark", "white", "great", "fish", "predator"}, 
+    ["Ghost Shark Hunt"] = {
+        -- EXPANDED KEYWORDS FOR GHOST SHARK
+        "ghost", "phantom", "shark", "spectral", "spirit", "shadow", "dark", 
+        "ethereal", "haunted", "wraith", "apparition", "spook", "void",
+        "transparent", "invisible", "mystic", "supernatural", "undead",
+        -- FALLBACK TO REGULAR SHARK TERMS
+        "shark", "predator", "fish", "jaw", "fin", "bite", "hunt"
+    },
+    ["Worm Hunt"] = {"worm", "sand", "giant", "desert", "creature"},
+    ["Ghost Worm"] = {"ghost", "phantom", "worm", "spirit"},
+    ["Treasure Event"] = {"chest", "crate", "supply", "treasure", "loot", "box"},
+    ["Meteor Rain"] = {"meteor", "asteroid", "rock", "space"},
+}
 
-        if targetName == "Worm Hunt" or targetName == "Ghost Worm" then
-            print("🌊 [PROBE] Starting worm hunt search...")
-            
-            local coords = EventCoords[targetName] or {}
-            print("🎯 [PROBE] Will check", #coords, "worm locations")
-            
-            for i, pos in ipairs(coords) do
-                print("📍 [PROBE] Checking location", i .. "/" .. #coords .. ":", pos)
+-- =========================================================
+-- ADVANCED GHOST SHARK DETECTION FUNCTION
+-- =========================================================
+local function DetectGhostShark(position, radius)
+    print("👻 [GHOST] Advanced Ghost Shark detection at:", position)
+    
+    local foundObjects = {}
+    local ghostIndicators = 0
+    local sharkIndicators = 0
+    local suspiciousObjects = {}
+    
+    -- SCAN ALL OBJECTS IN AREA
+    local params = OverlapParams.new()
+    params.FilterDescendantsInstances = {Players.LocalPlayer.Character}
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    
+    local parts = workspace:GetPartBoundsInBox(CFrame.new(position), Vector3.new(radius*2, 200, radius*2), params)
+    print("👻 [GHOST] Scanning", #parts, "parts for ghost shark")
+    
+    for _, part in ipairs(parts) do
+        local partName = part.Name:lower()
+        local parent = part.Parent
+        local parentName = parent and parent.Name:lower() or ""
+        local grandParent = parent and parent.Parent
+        local grandParentName = grandParent and grandParent.Name:lower() or ""
+        
+        -- COMPREHENSIVE NAME CHECKING
+        local allNames = {partName, parentName, grandParentName}
+        local isGhostRelated = false
+        local isSharkRelated = false
+        
+        for _, name in ipairs(allNames) do
+            if name then
+                -- GHOST INDICATORS
+                if name:find("ghost") or name:find("phantom") or name:find("spirit") or 
+                   name:find("spectral") or name:find("shadow") or name:find("dark") or
+                   name:find("ethereal") or name:find("wraith") or name:find("void") or
+                   name:find("transparent") or name:find("mystic") then
+                    isGhostRelated = true
+                    ghostIndicators = ghostIndicators + 1
+                end
                 
-                local tpSuccess = TeleportManager:Teleport(pos)
-                if tpSuccess then
-                    print("✅ [PROBE] Teleported to worm location", i)
-                    task.wait(2)
-                    
-                    local foundParticles, particlePos, particleModel = FindWormParticleEffects(pos, 500)
-                    if foundParticles then
-                        print("🎉 [PROBE] Found worm particles at:", particlePos)
-                        return true, particlePos, particleModel
-                    else
-                        print("❌ [PROBE] No worm particles at location", i)
-                    end
-                else
-                    print("⚠️ [PROBE] Failed to teleport to worm location", i)
+                -- SHARK INDICATORS
+                if name:find("shark") or name:find("predator") or name:find("fish") or
+                   name:find("jaw") or name:find("fin") or name:find("bite") or
+                   name:find("hunt") or name:find("creature") or name:find("monster") then
+                    isSharkRelated = true
+                    sharkIndicators = sharkIndicators + 1
                 end
-                task.wait(0.5)
             end
+        end
+        
+        -- CHECK VISUAL PROPERTIES FOR GHOST CHARACTERISTICS
+        local isVisuallyGhost = false
+        if part:IsA("BasePart") then
+            local transparency = part.Transparency
+            local material = part.Material.Name:lower()
+            local color = part.Color
             
-            print("❌ [PROBE] No worm events found at any location")
-            return false, nil, nil
+            -- GHOST VISUAL CHARACTERISTICS
+            if transparency > 0.5 or -- Semi-transparent
+               material:find("neon") or material:find("glass") or -- Glowing/ethereal materials
+               (color.R < 0.3 and color.G < 0.3 and color.B > 0.6) or -- Bluish ghost color
+               (color.R < 0.2 and color.G < 0.2 and color.B < 0.2) then -- Dark/shadow color
+                isVisuallyGhost = true
+                print("👻 [GHOST] Found visually ghost-like part:", partName, "Transparency:", transparency, "Material:", material)
+            end
         end
+        
+        -- CHECK FOR PARTICLE EFFECTS (Ghost sharks often have special effects)
+        local hasGhostEffects = false
+        for _, child in ipairs(part:GetDescendants()) do
+            if child:IsA("ParticleEmitter") or child:IsA("Beam") or child:IsA("Trail") then
+                local childName = child.Name:lower()
+                if childName:find("ghost") or childName:find("spirit") or childName:find("ethereal") or
+                   childName:find("glow") or childName:find("aura") or childName:find("trail") then
+                    hasGhostEffects = true
+                    print("👻 [GHOST] Found ghost effect:", child.Name, "on", partName)
+                    break
+                end
+            end
+        end
+        
+        -- SCORE THIS OBJECT
+        local ghostScore = 0
+        if isGhostRelated then ghostScore = ghostScore + 3 end
+        if isSharkRelated then ghostScore = ghostScore + 2 end
+        if isVisuallyGhost then ghostScore = ghostScore + 2 end
+        if hasGhostEffects then ghostScore = ghostScore + 3 end
+        
+        if ghostScore >= 2 then -- Minimum score to be considered
+            table.insert(suspiciousObjects, {
+                part = part,
+                parent = parent,
+                score = ghostScore,
+                reasons = {
+                    ghost = isGhostRelated,
+                    shark = isSharkRelated,
+                    visual = isVisuallyGhost,
+                    effects = hasGhostEffects
+                }
+            })
+            print("👻 [GHOST] Suspicious object found:", partName, "Score:", ghostScore)
+        end
+    end
+    
+    print("👻 [GHOST] Detection summary:")
+    print("   Ghost indicators:", ghostIndicators)
+    print("   Shark indicators:", sharkIndicators) 
+    print("   Suspicious objects:", #suspiciousObjects)
+    
+    -- DETERMINE IF GHOST SHARK IS PRESENT
+    local hasGhostShark = false
+    local bestCandidate = nil
+    local bestScore = 0
+    
+    if #suspiciousObjects > 0 then
+        -- Find best candidate
+        for _, obj in ipairs(suspiciousObjects) do
+            if obj.score > bestScore then
+                bestScore = obj.score
+                bestCandidate = obj
+            end
+        end
+        
+        -- Criteria for Ghost Shark presence
+        if bestScore >= 4 or -- High confidence score
+           (ghostIndicators >= 1 and sharkIndicators >= 1) or -- Both ghost and shark elements
+           #suspiciousObjects >= 3 then -- Multiple suspicious objects
+            hasGhostShark = true
+        end
+    end
+    
+    if hasGhostShark and bestCandidate then
+        local targetModel = bestCandidate.parent
+        if targetModel and targetModel:IsA("Model") then
+            local modelPos = targetModel.PrimaryPart and targetModel.PrimaryPart.Position or targetModel:GetBoundingBox().Position
+            print("✅ [GHOST] Ghost Shark detected! Model:", targetModel.Name, "at", modelPos)
+            print("   Confidence score:", bestScore)
+            print("   Reasons:", table.concat(getTableKeys(bestCandidate.reasons), ", "))
+            return true, modelPos, targetModel
+        else
+            local partPos = bestCandidate.part.Position
+            print("✅ [GHOST] Ghost Shark detected! Part:", bestCandidate.part.Name, "at", partPos)
+            return true, partPos, bestCandidate.part
+        end
+    end
+    
+    print("❌ [GHOST] No Ghost Shark detected")
+    return false, nil, nil
+end
 
-        print("🦈 [PROBE] Searching for:", targetName)
-        local coords = EventCoords[targetName] or {}
-        local keywords = EventKeywords[targetName] or {}
-        
-        if #coords == 0 then
-            print("⚠️ [PROBE] No coordinates defined for:", targetName)
-            return false, nil, nil
+-- =========================================================
+-- ENHANCED PROBE FUNCTION WITH GHOST SHARK SUPPORT
+-- =========================================================
+local function ProbeAndFindEvent(targetName)
+    if not targetName then return false, nil, nil end
+    
+    print("🔍 [PROBE START] Looking for:", targetName)
+    
+    if targetName == "Lochness Hunt" then
+        local isLochActive = LochnessSystem:IsActive()
+        if not isLochActive then 
+            print("⏰ [PROBE] Lochness not active")
+            return false, nil, nil 
         end
         
-        print("📍 [PROBE] Will check", #coords, "locations for", targetName)
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") then
+                local name = obj.Name:lower()
+                if name:find("nessie") or name:find("loch") then
+                    if IsEventAlive(obj) then
+                        local pos = obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetBoundingBox().Position
+                        print("✅ [PROBE] Found Lochness at:", pos)
+                        return true, pos, obj
+                    end
+                end
+            end
+        end
+        print("❌ [PROBE] Lochness not found")
+        return false, nil, nil
+    end
+
+    if targetName == "Worm Hunt" or targetName == "Ghost Worm" then
+        print("🌊 [PROBE] Starting worm hunt search...")
+        
+        local coords = EventCoords[targetName] or {}
+        print("🎯 [PROBE] Will check", #coords, "worm locations")
         
         for i, pos in ipairs(coords) do
-            print("🎯 [PROBE] Checking location", i .. "/" .. #coords .. ":", pos)
+            print("📍 [PROBE] Checking location", i .. "/" .. #coords .. ":", pos)
             
-            if TeleportManager:Teleport(pos) then
-                print("✅ [PROBE] Teleported to location", i)
-                task.wait(1.5)
+            local tpSuccess = TeleportManager:Teleport(pos)
+            if tpSuccess then
+                print("✅ [PROBE] Teleported to worm location", i)
+                task.wait(2)
                 
-                local params = OverlapParams.new()
-                params.FilterDescendantsInstances = {Players.LocalPlayer.Character}
-                params.FilterType = Enum.RaycastFilterType.Exclude
-                
-                local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(600, 100, 600), params)
-                print("🔍 [PROBE] Found", #parts, "parts at location", i)
-                
-                for _, part in ipairs(parts) do
-                    local partName = part.Name
-                    local parent = part.Parent
-                    local parentName = parent and parent.Name or ""
-                    
-                    for _, keyword in ipairs(keywords) do
-                        if partName:lower():find(keyword) or parentName:lower():find(keyword) then
-                            print("🎯 [PROBE] Found keyword match:", keyword, "in", partName, "or", parentName)
-                            
-                            if parent and parent:IsA("Model") and IsEventAlive(parent) then
-                                local modelPos = parent.PrimaryPart and parent.PrimaryPart.Position or parent:GetBoundingBox().Position
-                                print("✅ [PROBE] Found", targetName, "model at:", modelPos)
-                                return true, modelPos, parent
-                            elseif IsEventAlive(part) then
-                                print("✅ [PROBE] Found", targetName, "part at:", part.Position)
-                                return true, part.Position, part
-                            end
-                        end
-                    end
+                local foundParticles, particlePos, particleModel = FindWormParticleEffects(pos, 500)
+                if foundParticles then
+                    print("🎉 [PROBE] Found worm particles at:", particlePos)
+                    return true, particlePos, particleModel
+                else
+                    print("❌ [PROBE] No worm particles at location", i)
                 end
             else
-                print("❌ [PROBE] Failed to teleport to location", i)
+                print("⚠️ [PROBE] Failed to teleport to worm location", i)
             end
             task.wait(0.5)
         end
         
-        print("❌ [PROBE] No", targetName, "found at any location")
+        print("❌ [PROBE] No worm events found at any location")
         return false, nil, nil
     end
+
+    -- SPECIAL HANDLING FOR GHOST SHARK HUNT
+    if targetName == "Ghost Shark Hunt" then
+        print("👻 [PROBE] Starting Ghost Shark Hunt search...")
+        
+        local coords = EventCoords[targetName] or {}
+        print("📍 [PROBE] Will check", #coords, "ghost shark locations")
+        
+        for i, pos in ipairs(coords) do
+            print("🎯 [PROBE] Checking ghost shark location", i .. "/" .. #coords .. ":", pos)
+            
+            if TeleportManager:Teleport(pos) then
+                print("✅ [PROBE] Teleported to ghost shark location", i)
+                task.wait(2) -- Wait for area to load
+                
+                -- USE ADVANCED GHOST SHARK DETECTION
+                local found, position, model = DetectGhostShark(pos, 600)
+                if found then
+                    print("🎉 [PROBE] Found Ghost Shark Hunt at:", position)
+                    return true, position, model
+                else
+                    print("❌ [PROBE] No Ghost Shark at location", i)
+                end
+            else
+                print("⚠️ [PROBE] Failed to teleport to ghost shark location", i)
+            end
+            task.wait(0.5)
+        end
+        
+        print("❌ [PROBE] No Ghost Shark Hunt found at any location")
+        return false, nil, nil
+    end
+
+    -- STANDARD DETECTION FOR OTHER EVENTS
+    print("🦈 [PROBE] Searching for:", targetName)
+    local coords = EventCoords[targetName] or {}
+    local keywords = EventKeywords[targetName] or {}
+    
+    if #coords == 0 then
+        print("⚠️ [PROBE] No coordinates defined for:", targetName)
+        return false, nil, nil
+    end
+    
+    print("📍 [PROBE] Will check", #coords, "locations for", targetName)
+    
+    for i, pos in ipairs(coords) do
+        print("🎯 [PROBE] Checking location", i .. "/" .. #coords .. ":", pos)
+        
+        if TeleportManager:Teleport(pos) then
+            print("✅ [PROBE] Teleported to location", i)
+            task.wait(1.5)
+            
+            local params = OverlapParams.new()
+            params.FilterDescendantsInstances = {Players.LocalPlayer.Character}
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            
+            local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(600, 100, 600), params)
+            print("🔍 [PROBE] Found", #parts, "parts at location", i)
+            
+            for _, part in ipairs(parts) do
+                local partName = part.Name
+                local parent = part.Parent
+                local parentName = parent and parent.Name or ""
+                
+                for _, keyword in ipairs(keywords) do
+                    if partName:lower():find(keyword) or parentName:lower():find(keyword) then
+                        print("🎯 [PROBE] Found keyword match:", keyword, "in", partName, "or", parentName)
+                        
+                        if parent and parent:IsA("Model") and IsEventAlive(parent) then
+                            local modelPos = parent.PrimaryPart and parent.PrimaryPart.Position or parent:GetBoundingBox().Position
+                            print("✅ [PROBE] Found", targetName, "model at:", modelPos)
+                            return true, modelPos, parent
+                        elseif IsEventAlive(part) then
+                            print("✅ [PROBE] Found", targetName, "part at:", part.Position)
+                            return true, part.Position, part
+                        end
+                    end
+                end
+            end
+        else
+            print("❌ [PROBE] Failed to teleport to location", i)
+        end
+        task.wait(0.5)
+    end
+    
+    print("❌ [PROBE] No", targetName, "found at any location")
+    return false, nil, nil
+end
+
 
     local function GetAvailableEvents(eventsToCheck)
         local availableEvents = {}
@@ -3279,10 +3475,8 @@ end)
                 local lochActive, lochStatus = LochnessSystem:GetStatus()
                 
                 local status = cachedCount > 0 and "🔄 ROTATING" or "📡 SCANNING"
-                
-                statsText:Set({
-                    Title = "🔄 Smart Event System - " .. status,
-                    Desc = string.format("Active Events: %d | Queue: %d/%d\nNext Rotation: %ds | Interval: %ds\nNext Scan: %dm %ds\nLochness: %s\nErrors: %d | TPs: %d\n%s", 
+                statsText:SetTitle("🔄 Smart Event System - " .. status)
+                statsText:SetDesc("Active Events: %d | Queue: %d/%d\nNext Rotation: %ds | Interval: %ds\nNext Scan: %dm %ds\nLochness: %s\nErrors: %d | TPs: %d\n%s", 
                         cachedCount,
                         currentIndex,
                         queueSize,
@@ -3294,7 +3488,8 @@ end)
                         ErrorHandler.ErrorCount,
                         TeleportManager.TeleportCount,
                         cachedCount > 0 and "Events: " .. table.concat(rotationInfo, ", ") or "Idle Mode")
-                })
+                
+                
             else
                 statsText:Set({Title = "🔄 Smart Event System", Desc = "Offline"})
             end
