@@ -2231,6 +2231,10 @@ function RotationSystem:GetTimeUntilNextRotation()
     return math.max(0, currentInterval - elapsed)
 end
 
+function RotationSystem:ForceNextRotation()
+    self.forceNextRotation = true
+    print("🚀 [ROTATION] Next rotation will be immediate")
+end
     -- =========================================================
     -- LOCHNESS TIMING SYSTEM
     -- =========================================================
