@@ -2581,11 +2581,7 @@ local EventKeywords = {
     ["Shark Hunt"] = {"shark", "white", "great", "fish", "predator"}, 
     ["Ghost Shark Hunt"] = {
         -- EXPANDED KEYWORDS FOR GHOST SHARK
-        "ghost", "phantom", "shark", "spectral", "spirit", "shadow", "dark", 
-        "ethereal", "haunted", "wraith", "apparition", "spook", "void",
-        "transparent", "invisible", "mystic", "supernatural", "undead",
-        -- FALLBACK TO REGULAR SHARK TERMS
-        "shark", "predator", "fish", "jaw", "fin", "bite", "hunt"
+        "ghost", "shark", "hunt", "ghost shark hunt"
     },
     ["Worm Hunt"] = {"worm", "sand", "giant", "desert", "creature"},
     ["Ghost Worm"] = {"ghost", "phantom", "worm", "spirit"},
