@@ -2098,17 +2098,44 @@ do
         ["Vertigo"] = Vector3.new(-105, -510, 1050),
         ["Mushgrove"] = Vector3.new(2500, 5, -550),
     }
+    
     local AreaNames = {}
-    for n, _ in pairs(FishingAreas) do table.insert(AreaNames, n) end
+    for n, _ in pairs(FishingAreas) do 
+        table.insert(AreaNames, n) 
+    end
     table.sort(AreaNames)
 
     local EventCoords = {
-        ["Shark Hunt"] = {Vector3.new(1.6, -1, 2095), Vector3.new(1369, -1, 930), Vector3.new(-1585, -1, 1242), Vector3.new(-1896, -1, 2634)},
-        ["Megalodon Hunt"] = {Vector3.new(-1076, -1, 1676), Vector3.new(-1191, -1, 3597), Vector3.new(412, -1, 4134)},
-        ["Ghost Shark Hunt"] = {Vector3.new(489, -1, 25), Vector3.new(-1358, -1, 4100), Vector3.new(627, -1, 3798)},
-        ["Worm Hunt"] = {Vector3.new(2190, -1, 97), Vector3.new(-2450, -1, 139), Vector3.new(-267, -1, 5188)},
-        ["Ghost Worm"] = {Vector3.new(2190, -1, 97), Vector3.new(-2450, -1, 139), Vector3.new(-267, -1, 5188)},
-        ["Meteor Rain"] = {Vector3.new(1.6, 0, 2095), Vector3.new(-1585, 0, 1242)}
+        ["Shark Hunt"] = {
+            Vector3.new(1.6, -1, 2095), 
+            Vector3.new(1369, -1, 930), 
+            Vector3.new(-1585, -1, 1242), 
+            Vector3.new(-1896, -1, 2634)
+        },
+        ["Megalodon Hunt"] = {
+            Vector3.new(-1076, -1, 1676), 
+            Vector3.new(-1191, -1, 3597), 
+            Vector3.new(412, -1, 4134)
+        },
+        ["Ghost Shark Hunt"] = {
+            Vector3.new(489, -1, 25), 
+            Vector3.new(-1358, -1, 4100), 
+            Vector3.new(627, -1, 3798)
+        },
+        ["Worm Hunt"] = {
+            Vector3.new(2190, -1, 97), 
+            Vector3.new(-2450, -1, 139), 
+            Vector3.new(-267, -1, 5188)
+        },
+        ["Ghost Worm"] = {
+            Vector3.new(2190, -1, 97), 
+            Vector3.new(-2450, -1, 139), 
+            Vector3.new(-267, -1, 5188)
+        },
+        ["Meteor Rain"] = {
+            Vector3.new(1.6, 0, 2095), 
+            Vector3.new(-1585, 0, 1242)
+        }
     }
 
     local EventKeywords = {
@@ -2121,189 +2148,545 @@ do
         ["Treasure Event"] = {"Chest", "Crate"},
     }
 
+    -- State Management
     local SelectedPriority = nil
     local SelectedNormal = {}
     local IdleArea = nil
     local SystemActive = false
     local SystemThread = nil
+    local lastTeleportTime = 0
+    local TELEPORT_COOLDOWN = 3 -- Cooldown antar teleport (detik)
+    local SAFE_LAND_POSITION = Vector3.new(386, 12, 281) -- Moosewood sebagai safe fallback
     
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
 
     -- =========================================================
-    -- [2] FUNGSI DASAR
+    -- [2] FUNGSI DASAR (OPTIMIZED & SAFE)
     -- =========================================================
     
-    -- Teleport aman + WalkOnWater handling
-    local function TP(pos)
+    -- 🔥 Helper: Get Character with validation
+    local function GetChar()
         local char = LocalPlayer.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            char:PivotTo(CFrame.new(pos + Vector3.new(0, 15, 0)))
-            char.HumanoidRootPart.Anchored = false 
-            char.HumanoidRootPart.Velocity = Vector3.zero
-        end
+        if not char then return nil end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        
+        if not hrp or not hum then return nil end
+        if hum.Health <= 0 then return nil end
+        
+        return char, hrp, hum
     end
 
-    -- Cek keberadaan monster (Sederhana: Cek nama di sekitar)
-    local function CheckExist(targetName)
-        local keywords = EventKeywords[targetName] or {targetName}
-        local myPos = LocalPlayer.Character.HumanoidRootPart.Position
-        
-        for _, obj in ipairs(workspace:GetChildren()) do
-            if obj:IsA("Model") and obj.PrimaryPart then
-                local dist = (obj.PrimaryPart.Position - myPos).Magnitude
-                if dist < 800 then -- Radius cukup luas
-                    for _, key in ipairs(keywords) do
-                        if string.find(obj.Name, key) and not game.Players:GetPlayerFromCharacter(obj) then
-                            -- Update posisi biar nempel
-                            if dist > 50 then TP(obj.PrimaryPart.Position) end
-                            return true
-                        end
-                    end
-                end
-            end
+    -- 🔥 Teleport dengan safety checks + cooldown
+    local function TP(pos)
+        if not pos or typeof(pos) ~= "Vector3" then 
+            warn("[EventTP] Invalid position")
+            return false 
         end
-        return false
-    end
 
-    -- Logic utama untuk mengunjungi satu event
-    local function ProcessEvent(eventName)
-        if not eventName then return false end
-        
-        -- A. Khusus Lochness
-        if eventName == "Lochness Hunt" then
-            local _, _, active = getLochNextTimes()
-            if active then
-                -- Coba cari fisiknya
-                for _, v in ipairs(workspace:GetDescendants()) do
-                    if v.Name == "Nessie" or v.Name == "Lochness" then
-                        TP(v:GetPivot().Position)
-                        WindUI:Notify({Title="STAY", Content="Farming Lochness...", Duration=3})
-                        -- STAY LOOP
-                        repeat task.wait(1) until not (v.Parent) or not SystemActive
-                        return true
-                    end
-                end
-                TP(SAFE_LAND_POSITION) -- Tunggu spawn
-                return true
-            end
+        -- Cooldown check
+        local now = tick()
+        if now - lastTeleportTime < TELEPORT_COOLDOWN then
             return false
         end
 
-        -- B. Event Biasa
+        local char, hrp, hum = GetChar()
+        if not char or not hrp then 
+            return false 
+        end
+
+        -- Safety: Jangan teleport kalau sedang fishing/casting
+        pcall(function()
+            if char:FindFirstChild("Rod") then
+                local rodValue = char.Rod:FindFirstChild("Values")
+                if rodValue and rodValue:FindFirstChild("Casted") then
+                    if rodValue.Casted.Value then
+                        return false -- Skip teleport saat casting
+                    end
+                end
+            end
+        end)
+
+        -- Execute teleport
+        local success = pcall(function()
+            -- Offset Y untuk mencegah stuck di air
+            local targetPos = pos + Vector3.new(0, 15, 0)
+            char:PivotTo(CFrame.new(targetPos))
+            
+            -- Reset physics
+            hrp.Anchored = false
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            
+            lastTeleportTime = now
+        end)
+
+        return success
+    end
+
+    -- 🔥 Cek keberadaan monster dengan VALIDASI penuh
+    local function CheckExist(targetName)
+        local char, hrp = GetChar()
+        if not char or not hrp then 
+            return false 
+        end
+
+        local keywords = EventKeywords[targetName] or {targetName}
+        local myPos = hrp.Position
+        local foundTarget = nil
+        local closestDist = math.huge
+
+        -- Scan workspace untuk target
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if not SystemActive then break end -- Early exit
+            
+            -- Validasi object
+            if not obj:IsA("Model") then continue end
+            if not obj.PrimaryPart then continue end
+            if game.Players:GetPlayerFromCharacter(obj) then continue end -- Skip players
+            
+            local targetPos = obj.PrimaryPart.Position
+            local dist = (targetPos - myPos).Magnitude
+            
+            -- Radius check
+            if dist > 800 then continue end
+            
+            -- Keyword matching
+            for _, key in ipairs(keywords) do
+                if string.find(string.lower(obj.Name), string.lower(key)) then
+                    if dist < closestDist then
+                        closestDist = dist
+                        foundTarget = obj
+                    end
+                end
+            end
+        end
+
+        -- Jika ketemu, teleport kalau terlalu jauh
+        if foundTarget then
+            if closestDist > 50 then
+                TP(foundTarget.PrimaryPart.Position)
+            end
+            return true
+        end
+
+        return false
+    end
+
+    -- 🔥 Cek apakah object masih exist (Anti-Crash)
+    local function IsValidInstance(obj)
+        if not obj then return false end
+        local success = pcall(function()
+            return obj.Parent ~= nil
+        end)
+        return success
+    end
+
+    -- 🔥 Logic utama untuk mengunjungi satu event (OPTIMIZED)
+    local function ProcessEvent(eventName)
+        if not eventName or not SystemActive then 
+            return false 
+        end
+        
+        -- ===== A. Khusus Lochness =====
+        if eventName == "Lochness Hunt" then
+            local _, _, active = getLochNextTimes()
+            if not active then 
+                return false 
+            end
+            
+            -- Cari Lochness di workspace
+            for _, v in ipairs(workspace:GetDescendants()) do
+                if not SystemActive then return false end
+                
+                if v.Name == "Nessie" or v.Name == "Lochness" then
+                    local success = TP(v:GetPivot().Position)
+                    if success then
+                        WindUI:Notify({
+                            Title = "🔱 STAY MODE",
+                            Content = "Farming Lochness...",
+                            Duration = 3,
+                            Icon = "anchor"
+                        })
+                        
+                        -- STAY LOOP dengan timeout
+                        local startTime = tick()
+                        local maxStayTime = LOCH_DURATION -- 10 menit
+                        
+                        repeat 
+                            task.wait(2)
+                            
+                            -- Safety checks
+                            if not SystemActive then return false end
+                            if tick() - startTime > maxStayTime then break end
+                            if not IsValidInstance(v) then break end
+                            
+                            -- Re-teleport jika terlalu jauh
+                            local char, hrp = GetChar()
+                            if char and hrp and IsValidInstance(v) then
+                                local dist = (hrp.Position - v:GetPivot().Position).Magnitude
+                                if dist > 100 then
+                                    TP(v:GetPivot().Position)
+                                end
+                            end
+                            
+                        until not IsValidInstance(v) or not SystemActive
+                        
+                        WindUI:Notify({
+                            Title = "✅ DONE",
+                            Content = "Lochness selesai/hilang",
+                            Duration = 3,
+                            Icon = "check-circle"
+                        })
+                        return true
+                    end
+                end
+            end
+            
+            -- Lochness belum spawn, tunggu di safe area
+            TP(SAFE_LAND_POSITION)
+            return false
+        end
+
+        -- ===== B. Event Biasa =====
         local coords = EventCoords[eventName]
-        if not coords then return false end
+        if not coords then 
+            return false 
+        end
 
         -- Cek setiap titik spawn
         for i, pos in ipairs(coords) do
             if not SystemActive then return false end
             
-            -- 1. Datang
-            TP(pos)
+            -- 1. Teleport ke titik
+            local tpSuccess = TP(pos)
+            if not tpSuccess then 
+                continue 
+            end
             
-            -- 2. Tunggu Load (Wajib)
-            task.wait(2)
+            -- 2. Tunggu load area
+            task.wait(3)
             
-            -- 3. Cek
+            -- 3. Cek keberadaan monster
             if CheckExist(eventName) then
-                WindUI:Notify({Title="FOUND!", Content="Farming " .. eventName, Duration=3})
+                WindUI:Notify({
+                    Title = "🎯 FOUND!",
+                    Content = "Farming " .. eventName,
+                    Duration = 3,
+                    Icon = "crosshair"
+                })
                 
-                -- == KUNCI POSISI (STAY) ==
-                -- Script akan diam di sini (looping) selama monsternya masih terdeteksi
+                -- ===== STAY LOOP =====
+                local stayStartTime = tick()
+                local maxStayDuration = 600 -- 10 menit max per event
+                local lastCheckTime = tick()
+                local checkInterval = 3 -- Cek setiap 3 detik
+                
                 repeat 
                     task.wait(1)
+                    
+                    -- Safety checks
                     if not SystemActive then return true end
-                until not CheckExist(eventName)
+                    if tick() - stayStartTime > maxStayDuration then 
+                        WindUI:Notify({
+                            Title = "⏱️ TIMEOUT",
+                            Content = eventName .. " melebihi 10 menit",
+                            Duration = 3,
+                            Icon = "clock"
+                        })
+                        break 
+                    end
+                    
+                    -- Periodic existence check
+                    local now = tick()
+                    if now - lastCheckTime >= checkInterval then
+                        lastCheckTime = now
+                        if not CheckExist(eventName) then
+                            break
+                        end
+                    end
+                    
+                until not SystemActive
                 
-                WindUI:Notify({Title="DONE", Content=eventName .. " Selesai/Hilang", Duration=3})
-                return true -- Kita sudah farming, lanjut cycle berikutnya
+                WindUI:Notify({
+                    Title = "✅ DONE",
+                    Content = eventName .. " selesai/hilang",
+                    Duration = 3,
+                    Icon = "check-circle"
+                })
+                return true
             end
         end
         
-        return false -- Tidak ketemu di titik manapun
+        return false
     end
 
     -- =========================================================
-    -- [3] UI
+    -- [3] UI ELEMENTS
     -- =========================================================
-    televent:Dropdown({
-        Title = "Priority Event",
-        Values = eventsList,
+    
+    local priorityDropdown = Reg("EventPrioritySelect", televent:Dropdown({
+        Title = "🔴 Priority Event",
+        Description = "Event ini akan dicek lebih dulu",
+        List = eventsList,
         AllowNone = true,
-        Callback = function(v) SelectedPriority = v end
-    })
+        Callback = function(v) 
+            SelectedPriority = v 
+            if v and v ~= "" then
+                WindUI:Notify({
+                    Title = "Priority Set",
+                    Content = v,
+                    Duration = 2,
+                    Icon = "star"
+                })
+            end
+        end
+    }))
 
-    televent:Dropdown({
-        Title = "Normal Events",
-        Values = eventsList,
+    local normalDropdown = Reg("EventNormalSelect", televent:Dropdown({
+        Title = "🟢 Normal Events",
+        Description = "Event sekunder (multi-select)",
+        List = eventsList,
         Multi = true,
-        Callback = function(v) SelectedNormal = v or {} end
-    })
+        Callback = function(v) 
+            SelectedNormal = v or {} 
+        end
+    }))
 
-    televent:Dropdown({
-        Title = "Idle Area",
-        Values = AreaNames,
-        Callback = function(v) IdleArea = v end
-    })
+    local idleDropdown = Reg("EventIdleArea", televent:Dropdown({
+        Title = "🏠 Idle Area",
+        Description = "Tempat menunggu saat tidak ada event",
+        List = AreaNames,
+        Callback = function(v) 
+            IdleArea = v 
+            if v then
+                WindUI:Notify({
+                    Title = "Idle Area Set",
+                    Content = v,
+                    Duration = 2,
+                    Icon = "home"
+                })
+            end
+        end
+    }))
 
-    televent:Toggle({
-        Title = "Start Auto Farm Event",
-        Desc = "Logic: Temu -> Diam Sampai Habis -> Cari Lagi",
-        Value = false,
+    -- Status Display
+    local statusParagraph = Reg("EventSystemStatus", televent:Paragraph({
+        Title = "📊 System Status",
+        Content = "❌ System Inactive"
+    }))
+
+    -- Main Toggle
+    Reg("EventSystemToggle", televent:Toggle({
+        Title = "🚀 Start Auto Farm Event",
+        Description = "Logic: Deteksi → Stay Sampai Habis → Cari Lagi",
+        Default = false,
         Callback = function(state)
             SystemActive = state
             
             if state then
-                -- Matikan Engine Teleport Bawaan (Penting)
-                pcall(function() if EventTP and EventTP.Stop then EventTP.Stop() end end)
-                if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(true) end
+                -- Validasi input
+                if not SelectedPriority and #SelectedNormal == 0 then
+                    WindUI:Notify({
+                        Title = "⚠️ Warning",
+                        Content = "Pilih minimal 1 event!",
+                        Duration = 4,
+                        Icon = "alert-triangle"
+                    })
+                    SystemActive = false
+                    return
+                end
 
+                -- Stop sistem lain yang konflik
+                pcall(function() 
+                    if EventTP and EventTP.Stop then 
+                        EventTP.Stop() 
+                    end 
+                end)
+                
+                -- Enable WalkOnWater (jika ada)
+                pcall(function()
+                    if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then 
+                        WalkOnWaterToggleElement:Set(true) 
+                    end
+                end)
+
+                WindUI:Notify({
+                    Title = "✅ System Started",
+                    Content = "Event farming aktif!",
+                    Duration = 3,
+                    Icon = "play-circle"
+                })
+
+                -- Main Loop Thread
                 SystemThread = task.spawn(function()
+                    local cycleCount = 0
+                    
                     while SystemActive do
+                        cycleCount = cycleCount + 1
                         local farming = false
                         
-                        -- 1. Cek Priority
+                        -- Update status
+                        statusParagraph:Set({
+                            Content = string.format(
+                                "✅ Active | Cycle: %d | Priority: %s | Normal: %d events",
+                                cycleCount,
+                                SelectedPriority or "None",
+                                #SelectedNormal
+                            )
+                        })
+                        
+                        -- === 1. CHECK PRIORITY EVENT ===
                         if SelectedPriority and SelectedPriority ~= "" then
                             if ProcessEvent(SelectedPriority) then
                                 farming = true
                             end
                         end
 
-                        -- 2. Cek Normal (Jika priority tidak sedang difarming)
+                        -- === 2. CHECK NORMAL EVENTS ===
                         if not farming and #SelectedNormal > 0 then
                             for _, evName in ipairs(SelectedNormal) do
                                 if not SystemActive then break end
                                 
-                                -- Coba datangi event ini
                                 if ProcessEvent(evName) then
                                     farming = true
-                                    -- Jika ketemu dan sudah selesai farming (loop stay selesai),
-                                    -- Kita break loop 'for' agar dia cek Priority lagi (siapa tau spawn)
-                                    break 
+                                    break -- Kembali cek priority
                                 end
                             end
                         end
 
-                        -- 3. Idle (Jika semua event Zonk)
+                        -- === 3. IDLE MODE ===
                         if not farming then
                             if IdleArea and FishingAreas[IdleArea] then
-                                local p = FishingAreas[IdleArea]
-                                local char = LocalPlayer.Character
-                                if char and (char.HumanoidRootPart.Position - p).Magnitude > 100 then
-                                    TP(p)
+                                local targetPos = FishingAreas[IdleArea]
+                                local char, hrp = GetChar()
+                                
+                                if char and hrp then
+                                    local dist = (hrp.Position - targetPos).Magnitude
+                                    if dist > 100 then
+                                        TP(targetPos)
+                                        WindUI:Notify({
+                                            Title = "🏠 Idle",
+                                            Content = "Menunggu di " .. IdleArea,
+                                            Duration = 2,
+                                            Icon = "home"
+                                        })
+                                    end
                                 end
                             end
-                            task.wait(2) -- Tunggu sebelum cek ulang semua
+                            task.wait(5) -- Cooldown lebih lama saat idle
+                        else
+                            task.wait(2) -- Quick recheck setelah farming
                         end
                     end
                 end)
+                
             else
-                if SystemThread then task.cancel(SystemThread) SystemThread = nil end
-                if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(false) end
+                -- Stop system
+                if SystemThread then 
+                    pcall(function() task.cancel(SystemThread) end)
+                    SystemThread = nil 
+                end
+                
+                -- Disable WalkOnWater
+                pcall(function()
+                    if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then 
+                        WalkOnWaterToggleElement:Set(false) 
+                    end
+                end)
+                
+                statusParagraph:Set({
+                    Content = "❌ System Stopped"
+                })
+                
+                WindUI:Notify({
+                    Title = "⏸️ System Stopped",
+                    Content = "Event farming dimatikan",
+                    Duration = 3,
+                    Icon = "pause-circle"
+                })
+            end
+        end
+    }))
+
+    -- Manual Teleport Buttons
+    televent:Button({
+        Title = "📍 TP to Priority Event Now",
+        Callback = function()
+            if not SelectedPriority or SelectedPriority == "" then
+                WindUI:Notify({
+                    Title = "❌ Error",
+                    Content = "Tidak ada priority event!",
+                    Duration = 3,
+                    Icon = "x-circle"
+                })
+                return
+            end
+            
+            local coords = EventCoords[SelectedPriority]
+            if coords and #coords > 0 then
+                TP(coords[1])
+                WindUI:Notify({
+                    Title = "✅ Teleported",
+                    Content = "Ke " .. SelectedPriority,
+                    Duration = 3,
+                    Icon = "navigation"
+                })
             end
         end
     })
+
+    televent:Button({
+        Title = "🏠 TP to Idle Area Now",
+        Callback = function()
+            if not IdleArea then
+                WindUI:Notify({
+                    Title = "❌ Error",
+                    Content = "Idle area belum dipilih!",
+                    Duration = 3,
+                    Icon = "x-circle"
+                })
+                return
+            end
+            
+            local pos = FishingAreas[IdleArea]
+            if pos then
+                TP(pos)
+                WindUI:Notify({
+                    Title = "✅ Teleported",
+                    Content = "Ke " .. IdleArea,
+                    Duration = 3,
+                    Icon = "home"
+                })
+            end
+        end
+    })
+
+    -- Auto-respawn handler
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        if not SystemActive then return end
+        
+        -- Wait for character fully loaded
+        local hrp = char:WaitForChild("HumanoidRootPart", 5)
+        if not hrp then return end
+        
+        task.wait(1) -- Stability delay
+        
+        -- Return to idle area after respawn
+        if IdleArea and FishingAreas[IdleArea] then
+            TP(FishingAreas[IdleArea])
+            WindUI:Notify({
+                Title = "🔄 Respawned",
+                Content = "Kembali ke " .. IdleArea,
+                Duration = 3,
+                Icon = "rotate-ccw"
+            })
+        end
+    end)
 end
+
 
 do
     ------------------------------------------------------------
