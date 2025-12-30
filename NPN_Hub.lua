@@ -2082,10 +2082,10 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event System (V7 ROBUST)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (FINAL LOCK)", TextSize = 20 })
 
     -- =========================================================
-    -- 1. DATA FISHING AREA (Idle Map)
+    -- [1] DATA MAP & IDLE
     -- =========================================================
     local FishingAreass = {
         ["Ancient Jungle"] = {Pos = Vector3.new(1535.639, 3.159, -193.352), Look = Vector3.new(0.505, -0.000, 0.863)},
@@ -2124,7 +2124,7 @@ do
     local CurrentCheckIndex = 1 
 
     -- =========================================================
-    -- 2. DATABASE KOORDINAT (Updated)
+    -- [2] DATABASE KOORDINAT (REFERENSI TELEPORT)
     -- =========================================================
     local EventCoords = {
         ["Shark Hunt"] = {
@@ -2152,10 +2152,10 @@ do
         }
     }
 
-    -- KEYWORD UNTUK DETEKSI (NAMA MODEL ASLI DI WORKSPACE)
+    -- KEYWORD UNTUK MENGUNCI POSISI (LOCK)
     local EventKeywords = {
-        ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Great White", "Shark"}, 
+        ["Megalodon Hunt"] = {"Megalodon Hunt", "Megalodon"},
+        ["Shark Hunt"] = {"Shark Hunt", "Blob Hunt", "Blob"}, 
         ["Ghost Shark Hunt"] = {"Ghost"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost"},
@@ -2164,7 +2164,7 @@ do
     }
 
     -- =========================================================
-    -- 3. HELPER FUNCTIONS
+    -- [3] SYSTEM LOGIC
     -- =========================================================
     
     local function SafeTeleportTo(pos)
@@ -2178,36 +2178,46 @@ do
         end
     end
 
-    -- [DETEKSI CERDAS] Menggunakan GetChildren (Bukan Fisika)
-    local function CheckForMonsterNearby(targetName)
-        local keywords = EventKeywords[targetName] or {targetName}
-        local myPos = Players.LocalPlayer.Character.HumanoidRootPart.Position
+    -- [LOCK SYSTEM] Cek apakah monster sudah ada di dekat kita?
+    local function IsEventNearMe(targetName)
+        local char = Players.LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
         
-        -- Loop semua object di workspace (Top Level)
-        -- Boss biasanya ada di Workspace langsung atau folder "Zones"
-        for _, obj in ipairs(workspace:GetChildren()) do
-            -- Kita hanya cek Model yang punya Humanoid/Health (Makhluk Hidup)
-            if obj:IsA("Model") then
-                local dist = 99999
-                if obj.PrimaryPart then
-                    dist = (obj.PrimaryPart.Position - myPos).Magnitude
-                elseif obj:FindFirstChild("HumanoidRootPart") then
-                    dist = (obj.HumanoidRootPart.Position - myPos).Magnitude
-                else
-                    dist = (obj:GetPivot().Position - myPos).Magnitude
-                end
+        local myPos = hrp.Position
+        
+        -- Special Case: Lochness
+        if targetName == "Lochness Hunt" then
+            local _, _, active = getLochNextTimes()
+            if active then
+                -- Kalau waktu aktif, kita anggap "Near" agar tidak teleport-teleport
+                return true 
+            end
+            return false
+        end
 
-                -- Jika jaraknya dekat (< 1000 studs, cukup jauh untuk StreamingEnabled)
-                if dist < 1000 then
-                    -- Cek Namanya
+        local keywords = EventKeywords[targetName] or {targetName}
+        
+        -- Scan radius 800 studs (Cukup jauh)
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") then
+                -- Cek Jarak
+                local objPos = nil
+                if obj.PrimaryPart then objPos = obj.PrimaryPart.Position
+                elseif obj:FindFirstChild("HumanoidRootPart") then objPos = obj.HumanoidRootPart.Position
+                elseif obj:GetPivot() then objPos = obj:GetPivot().Position end
+                
+                if objPos and (objPos - myPos).Magnitude < 800 then
+                    -- Cek Nama
                     for _, key in ipairs(keywords) do
                         if string.find(obj.Name, key) then
-                            -- Pastikan itu bukan pemain
+                            -- Pastikan bukan player
                             if not game.Players:GetPlayerFromCharacter(obj) then
-                                print("✅ DETECTED: " .. obj.Name)
-                                -- Update posisi kita ke monster biar lebih dekat
-                                SafeTeleportTo(obj:GetPivot().Position)
-                                return true
+                                -- Update posisi ke monster biar nempel terus
+                                if (objPos - myPos).Magnitude > 50 then
+                                    SafeTeleportTo(objPos)
+                                end
+                                return true -- KITA SUDAH DI LOKASI!
                             end
                         end
                     end
@@ -2217,11 +2227,13 @@ do
         return false
     end
 
-    -- [PROBE SYSTEM] Teleport -> Tunggu -> Cek
-    local function ProbeAndFindEvent(targetName)
+    -- [PROBE SYSTEM] Teleport keliling cari event
+    local function ProbeMapForEvent(targetName)
         if not targetName then return false end
-        
-        -- [A] LOCHNESS
+        local coords = EventCoords[targetName]
+        if not coords then return false end
+
+        -- 1. Lochness Logic
         if targetName == "Lochness Hunt" then
             local _, _, active = getLochNextTimes()
             if active then
@@ -2237,31 +2249,25 @@ do
             return false
         end
 
-        -- [B] EVENT BIASA
-        local coords = EventCoords[targetName]
-        if not coords then return false end
+        print("🚀 [Probe] Scanning: " .. targetName)
 
-        print("🚀 Probing: " .. targetName)
-
-        for i, pos in ipairs(coords) do
-            -- 1. Teleport ke titik spawn
+        -- 2. Probe Loop
+        for _, pos in ipairs(coords) do
             SafeTeleportTo(pos)
+            task.wait(1.5) -- Tunggu loading map
             
-            -- 2. TUNGGU 2 DETIK (WAJIB UNTUK LOAD)
-            task.wait(2)
-            
-            -- 3. Cek apakah ada monster di sekitar?
-            if CheckForMonsterNearby(targetName) then
-                print("🔒 Locked on: " .. targetName)
-                return true -- Ketemu! Berhenti probing.
+            -- Cek apakah monster muncul?
+            if IsEventNearMe(targetName) then
+                print("✅ [Probe] Found: " .. targetName)
+                return true -- KETEMU, STOP PROBING
             end
         end
         
-        return false -- Zonk di semua titik
+        return false -- ZONK
     end
 
     -- =========================================================
-    -- 4. UI SETUP
+    -- [4] UI ELEMENTS
     -- =========================================================
     televent:Dropdown({
         Title = "1. Set Event Priority",
@@ -2290,74 +2296,76 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC (V7 ROBUST)
+    -- [5] MAIN LOOP (LOCK & STAY)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
-        Desc = "V7: Probing + Name Check (Anti Zonk)",
+        Desc = "V8: Lock System (Anti-Bolak Balik)",
         Value = false,
         Callback = function(state)
             SmartEventState = state
 
             if SmartEventState then
-                WindUI:Notify({ Title = "Smart System V7", Content = "Started", Duration = 3, Icon = "cpu" })
+                WindUI:Notify({ Title = "Smart System V8", Content = "Started", Duration = 3, Icon = "cpu" })
                 pcall(function() if EventTP and EventTP.Stop then EventTP.Stop() end end)
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(true) end
 
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
-                        local priorityFound = false
-                        local normalFound = false
+                        local priorityLocked = false
+                        local normalLocked = false
                         
-                        -- [PHASE 1] PRIORITY
+                        -- [A] PRIORITY LOGIC
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
-                            -- Cek dulu apakah kita sudah di dekatnya? (LOCK MODE)
-                            if CheckForMonsterNearby(SelectedPriorityEvent) then
-                                priorityFound = true
-                                task.wait(3) -- Farming
+                            -- 1. Cek dulu, apakah kita SUDAH di dekat Priority?
+                            if IsEventNearMe(SelectedPriorityEvent) then
+                                priorityLocked = true
+                                print("🔒 [Lock] Farming Priority...")
+                                task.wait(3) -- DIAM DI SINI, JANGAN PINDAH
                             else
-                                -- Kalau ga ada, baru Probe
-                                if ProbeAndFindEvent(SelectedPriorityEvent) then
-                                    priorityFound = true
+                                -- 2. Kalau tidak ada di dekat kita, baru cari (Probe)
+                                if ProbeMapForEvent(SelectedPriorityEvent) then
+                                    priorityLocked = true
                                     task.wait(2)
                                 end
                             end
                         end
 
-                        if priorityFound then
-                            -- Stay on priority
+                        if priorityLocked then
+                            -- Jika Priority aktif, abaikan normal events
                         else
-                            -- [PHASE 2] NORMAL EVENTS (ROTASI)
+                            -- [B] NORMAL EVENTS LOGIC
                             local normalCount = #SelectedNormalEvents
                             if normalCount > 0 then
+                                -- Tentukan target saat ini berdasarkan index
                                 if CurrentCheckIndex > normalCount then CurrentCheckIndex = 1 end
                                 local targetEvent = SelectedNormalEvents[CurrentCheckIndex]
                                 
-                                -- 1. Cek dulu apakah kita sudah di event ini? (LOCK MODE)
-                                local isAtEvent = CheckForMonsterNearby(targetEvent)
-                                
-                                if isAtEvent then
-                                    normalFound = true
-                                    print("⚔️ Farming: " .. targetEvent)
-                                    task.wait(4) -- Farming lama dikit
+                                -- 1. Cek dulu, apakah kita SUDAH di dekat target ini?
+                                if IsEventNearMe(targetEvent) then
+                                    normalLocked = true
+                                    print("🔒 [Lock] Farming: " .. targetEvent)
+                                    -- PENTING: Jangan ubah CurrentCheckIndex agar tidak pindah event
+                                    task.wait(3) 
                                 else
-                                    -- 2. Kalau tidak ada, geser index dan Probe target baru
+                                    -- 2. Kalau tidak ada di dekat kita, baru cari (Probe)
+                                    -- Karena kita akan mencari event baru, kita boleh geser index
                                     CurrentCheckIndex = CurrentCheckIndex + 1
                                     
-                                    if ProbeAndFindEvent(targetEvent) then
-                                        normalFound = true
-                                        task.wait(3)
+                                    if ProbeMapForEvent(targetEvent) then
+                                        normalLocked = true
+                                        task.wait(2)
                                     else
-                                        -- ZONK, lanjut loop cepet
-                                        task.wait(0.1)
+                                        -- ZONK, coba next loop
+                                        task.wait(0.2)
                                     end
                                 end
                             end
                         end
 
-                        -- [PHASE 3] IDLE
-                        if not priorityFound and not normalFound then
-                            print("💤 Idle Mode")
+                        -- [C] IDLE LOGIC
+                        if not priorityLocked and not normalLocked then
+                            print("💤 Going Idle...")
                             if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
                                 local data = FishingAreass[Loch_Return_SelectedArea]
                                 local char = Players.LocalPlayer.Character
@@ -2365,7 +2373,7 @@ do
                                 
                                 if hrp then
                                     local dist = (hrp.Position - data.Pos).Magnitude
-                                    if dist > 100 then 
+                                    if dist > 80 then 
                                         hrp.Anchored = false 
                                         TeleportToLookAt(data.Pos, data.Look)
                                     end
@@ -2382,6 +2390,166 @@ do
             end
         end
     })
+end
+
+do
+    ------------------------------------------------------------
+-- 🧠 PRO AI MODE — WORKS WITHOUT MODIFYING OLD SYSTEM
+------------------------------------------------------------
+local PRO_AI_MODE = false
+local AI_THREAD = nil
+local AI_SCAN_DELAY = 6
+
+local EventValue = {
+    ["Lochness Hunt"] = 999,
+    ["Megalodon Hunt"] = 95,
+    ["Ghost Shark Hunt"] = 90,
+    ["Shark Hunt"] = 85,
+    ["Worm Hunt"] = 60,
+    ["Treasure Event"] = 50,
+}
+
+local EventMemory = {}
+
+local function TouchMemory(event, success)
+    local now = os.time()
+    if not EventMemory[event] then
+        EventMemory[event] = { last = now, fail = 0, good = 0 }
+    end
+    
+    EventMemory[event].last = now
+    if success then
+        EventMemory[event].good += 1
+        EventMemory[event].fail = 0
+    else
+        EventMemory[event].fail += 1
+    end
+end
+
+local function GetScore(event)
+    local base = EventValue[event] or 1
+    local mem = EventMemory[event]
+
+    if mem then
+        base -= mem.fail * 2
+        base += math.min(mem.good * 1.3, 10)
+
+        -- kalau barusan gagal berkali2 → kurangi dulu nilainya
+        if os.time() - mem.last < 12 and mem.fail >= 2 then
+            base -= 12
+        end
+    end
+
+    return math.max(base, 1)
+end
+
+
+------------------------------------------------------------
+-- 🔍 CEK EVENT AKTIF
+------------------------------------------------------------
+local function IsEventSpawned(name)
+    local menu = workspace:FindFirstChild("!!! MENU RINGS")
+    if not menu then return false end
+
+    for _, x in ipairs(menu:GetChildren()) do
+        if x:FindFirstChild(name) then
+            return true
+        end
+    end
+
+    return false
+end
+
+
+------------------------------------------------------------
+-- 🧠 AI LOOP — TANPA GANGGU SISTEM LAMA
+------------------------------------------------------------
+local function Start_AI_Controller()
+    if AI_THREAD then task.cancel(AI_THREAD) end
+
+    AI_THREAD = task.spawn(function()
+        WindUI:Notify({
+            Title = "PRO AI MODE",
+            Content = "Smart Event Brain Activated 🔥",
+            Duration = 4,
+            Icon = "brain"
+        })
+
+        while PRO_AI_MODE do
+            task.wait(AI_SCAN_DELAY)
+
+            -- Ambil semua event yang sedang spawn
+            local candidates = {}
+            for _, ev in ipairs(eventsList) do
+                if IsEventSpawned(ev) then
+                    table.insert(candidates, ev)
+                end
+            end
+
+            if #candidates == 0 then
+                continue
+            end
+
+            -- Tentukan event terbaik
+            table.sort(candidates, function(a,b)
+                return GetScore(a) > GetScore(b)
+            end)
+
+            local best = candidates[1]
+
+            if best and best ~= autoEventTargetName then
+                -- AI take control
+                StopAutoEvent()
+                autoEventTargetName = best
+                StartAutoEvent()
+
+                WindUI:Notify({
+                    Title = "AI Decision",
+                    Content = "Berpindah ke event: " .. best,
+                    Duration = 4,
+                    Icon = "bot"
+                })
+                
+                TouchMemory(best, true)
+            end
+        end
+
+        WindUI:Notify({
+            Title = "PRO AI MODE",
+            Content = "AI Dimatikan — kembali ke mode manual",
+            Duration = 3,
+            Icon = "power"
+        })
+    end)
+end
+
+
+------------------------------------------------------------
+-- ⚙️ WINDUI — SECTION AI MODE
+------------------------------------------------------------
+local aiSec = televent:Section({
+    Title = "PRO AI Mode",
+    TextSize = 20
+})
+
+aiSec:Paragraph({
+    Title = "Smart Event Controller",
+    Content = "AI akan memilih event terbaik, auto switch, tidak ganggu sistem lama."
+})
+
+aiSec:Toggle({
+    Title = "Enable PRO AI Mode",
+    Value = false,
+    Callback = function(state)
+        PRO_AI_MODE = state
+        if state then
+            Start_AI_Controller()
+        else
+            if AI_THREAD then task.cancel(AI_THREAD) AI_THREAD = nil end
+        end
+    end
+})
+
 end
 
 do
