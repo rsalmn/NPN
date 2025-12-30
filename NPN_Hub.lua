@@ -2155,13 +2155,12 @@ do
 
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Shark", "Great White"}, 
+        ["Shark Hunt"] = {"Shark Hunt", "Blob Shark"}, 
         ["Ghost Shark Hunt"] = {"Ghost"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost"},
         ["Treasure Event"] = {"Chest", "Crate", "Supply"},
         ["Meteor Rain"] = {"Meteor"},
-        ["Lochness Hunt"] = {"Ness", "Loch"},
     }
 
     -- =========================================================
