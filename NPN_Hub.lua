@@ -980,388 +980,59 @@ end
 -- =================================================================
 local farm = Window:Tab({ Title = "Fishing", Icon = "fish" })
 
--- [[ BLATANT FISHING - FINAL OPTIMIZED VERSION ]] --
+-- [[ BLATANT FISHING - HIGH PERFORMANCE VERSION ]] --
 do
     -- =========================================================
-    -- CENTRALIZED REMOTE REFERENCES
+    -- SIMPLE REMOTE REFERENCES (NO VALIDATION OVERHEAD)
     -- =========================================================
-    local FishingRemotes = {
-        EquipTool = GetRemote(RPath, "RE/EquipToolFromHotbar"),
-        Charge = GetRemote(RPath, "RF/ChargeFishingRod"),
-        StartMinigame = GetRemote(RPath, "RF/RequestFishingMinigameStarted"),
-        Complete = GetRemote(RPath, "RE/FishingCompleted"),
-        Cancel = GetRemote(RPath, "RF/CancelFishingInputs"),
-        UpdateState = GetRemote(RPath, "RF/UpdateAutoFishingState"),
-        MinigameChanged = GetRemote(RPath, "RE/FishingMinigameChanged")
-    }
+    local RE_EquipTool = GetRemote(RPath, "RE/EquipToolFromHotbar")
+    local RF_Charge = GetRemote(RPath, "RF/ChargeFishingRod")
+    local RF_StartMinigame = GetRemote(RPath, "RF/RequestFishingMinigameStarted")
+    local RE_Complete = GetRemote(RPath, "RE/FishingCompleted")
+    local RF_Cancel = GetRemote(RPath, "RF/CancelFishingInputs")
+    local RF_UpdateState = GetRemote(RPath, "RF/UpdateAutoFishingState")
+    local RE_MinigameChanged = GetRemote(RPath, "RE/FishingMinigameChanged")
 
-    local function validateRemotes()
-        for name, remote in pairs(FishingRemotes) do
-            if not remote then
-                WindUI:Notify({ 
-                    Title = "Remote Error", 
-                    Content = "Missing: " .. name,
-                    Duration = 5, 
-                    Icon = "x" 
-                })
-                return false
-            end
-        end
-        return true
+    -- =========================================================
+    -- SIMPLE STATE VARIABLES (FAST ACCESS)
+    -- =========================================================
+    local legitActive = false
+    local normalActive = false
+    local v1Active = false
+    local v2Active = false
+    local hybridActive = false
+
+    local legitThread, normalThread, v1Thread, v2Thread, hybridThread
+    local equipThread
+
+    -- =========================================================
+    -- FAST MODE DISABLER
+    -- =========================================================
+    local function stopAllModes()
+        legitActive = false
+        normalActive = false
+        v1Active = false
+        v2Active = false
+        hybridActive = false
+        
+        if legitThread then task.cancel(legitThread) end
+        if normalThread then task.cancel(normalThread) end
+        if v1Thread then task.cancel(v1Thread) end
+        if v2Thread then task.cancel(v2Thread) end
+        if hybridThread then task.cancel(hybridThread) end
+        if equipThread then task.cancel(equipThread) end
     end
 
     -- =========================================================
-    -- CENTRALIZED STATE MANAGEMENT
+    -- AUTO EQUIP (SHARED)
     -- =========================================================
-    local FishingState = {
-        currentMode = "None",
-        activeThread = nil,
-        equipThread = nil,
-        
-        config = {
-            Legit = { speed = 0.05 },
-            Normal = { delay = 1.5 },
-            BlatantV1 = { completeDelay = 0.72, cancelDelay = 0.28, recastDelay = 0.001 },
-            BlatantV2 = { completeDelay = 0.79, cancelDelay = 0.329, recastDelay = 0.0 },
-            Hybrid = { completeDelay = 0.75, cancelDelay = 0.25, recastDelay = 0.0 }
-        }
-    }
-
-    function FishingState:SetMode(newMode)
-        if self.currentMode == newMode then return end
-        
-        print("🔄 [FISHING] Switching from", self.currentMode, "to", newMode)
-        
-        -- Stop current mode
-        self:StopCurrentMode()
-        
-        -- Start new mode
-        self.currentMode = newMode
-        if newMode ~= "None" then
-            self:StartMode(newMode)
-        end
-    end
-
-    function FishingState:StopCurrentMode()
-        if self.activeThread then
-            task.cancel(self.activeThread)
-            self.activeThread = nil
-        end
-        
-        if self.equipThread then
-            task.cancel(self.equipThread)
-            self.equipThread = nil
-        end
-        
-        -- Reset server state
-        pcall(function()
-            FishingRemotes.Cancel:InvokeServer()
-            FishingRemotes.UpdateState:InvokeServer(false)
-        end)
-        
-        print("✅ [FISHING] Stopped mode:", self.currentMode)
-    end
-
-    function FishingState:StartMode(mode)
-        if not validateRemotes() then return false end
-        
-        local config = self.config[mode]
-        if not config then 
-            print("❌ [FISHING] Unknown mode:", mode)
-            return false 
-        end
-        
-        -- Start auto-equip thread for all modes
-        self.equipThread = task.spawn(function()
-            while self.currentMode == mode do
-                pcall(function() 
-                    FishingRemotes.EquipTool:FireServer(1) 
-                end)
+    local function startAutoEquip()
+        if equipThread then task.cancel(equipThread) end
+        equipThread = task.spawn(function()
+            while legitActive or normalActive or v1Active or v2Active or hybridActive do
+                pcall(function() RE_EquipTool:FireServer(1) end)
                 task.wait(0.5)
             end
-        end)
-        
-        -- Start mode-specific logic
-        if mode == "Legit" then
-            self:StartLegitMode(config)
-        elseif mode == "Normal" then
-            self:StartNormalMode(config)
-        elseif mode == "BlatantV1" then
-            self:StartBlatantV1(config)
-        elseif mode == "BlatantV2" then
-            self:StartBlatantV2(config)
-        elseif mode == "Hybrid" then
-            self:StartHybridMode(config)
-        end
-        
-        print("✅ [FISHING] Started mode:", mode)
-        return true
-    end
-
-    -- =========================================================
-    -- MODE IMPLEMENTATIONS
-    -- =========================================================
-    
-    function FishingState:StartLegitMode(config)
-        local FishingController = require(RepStorage.Controllers.FishingController)
-        
-        -- Hook fishing rod started
-        local oldRodStarted = FishingController.FishingRodStarted
-        FishingController.FishingRodStarted = function(controller, ...)
-            oldRodStarted(controller, ...)
-            if self.currentMode == "Legit" then
-                self.activeThread = task.spawn(function()
-                    while self.currentMode == "Legit" do
-                        FishingController:RequestFishingMinigameClick()
-                        task.wait(config.speed)
-                    end
-                end)
-            end
-        end
-    end
-
-    function FishingState:StartNormalMode(config)
-        self.activeThread = task.spawn(function()
-            while self.currentMode == "Normal" do
-                local ts = os.time() + os.clock()
-                pcall(function() FishingRemotes.Charge:InvokeServer(ts) end)
-                pcall(function() FishingRemotes.StartMinigame:InvokeServer(-139.6, 0.99) end)
-                task.wait(config.delay)
-                pcall(function() FishingRemotes.Complete:FireServer() end)
-                task.wait(0.3)
-                pcall(function() FishingRemotes.Cancel:InvokeServer() end)
-                task.wait(0.1)
-            end
-        end)
-    end
-
-    function FishingState:StartBlatantV1(config)
-        -- Set server state
-        pcall(function() 
-            FishingRemotes.UpdateState:InvokeServer(true) 
-        end)
-        
-        local State = {
-            lastComplete = 0,
-            cooldown = 0.35,
-            doingCycle = false
-        }
-
-        local function ProtectedComplete()
-            local now = tick()
-            if now - State.lastComplete < State.cooldown then
-                return false
-            end
-
-            State.lastComplete = now
-            pcall(function()
-                FishingRemotes.Complete:FireServer()
-            end)
-            return true
-        end
-
-        local function PerformCast()
-            local t = tick()
-            pcall(function()
-                FishingRemotes.Charge:InvokeServer({[1] = t})
-            end)
-            task.wait(0.008)
-            pcall(function()
-                FishingRemotes.StartMinigame:InvokeServer(1, 0, t)
-            end)
-        end
-
-        self.activeThread = task.spawn(function()
-            while self.currentMode == "BlatantV1" do
-                State.doingCycle = true
-
-                PerformCast()
-                task.wait(config.completeDelay)
-
-                if self.currentMode == "BlatantV1" then
-                    ProtectedComplete()
-                end
-
-                task.wait(config.cancelDelay)
-
-                if self.currentMode == "BlatantV1" then
-                    pcall(function()
-                        FishingRemotes.Cancel:InvokeServer()
-                    end)
-                end
-
-                State.doingCycle = false
-                task.wait(config.recastDelay)
-            end
-        end)
-
-        -- Failsafe listener
-        FishingRemotes.MinigameChanged.OnClientEvent:Connect(function()
-            if self.currentMode ~= "BlatantV1" then return end
-
-            local now = tick()
-            if now - State.lastComplete < 0.25 then return end
-
-            task.spawn(function()
-                task.wait(config.completeDelay)
-                if ProtectedComplete() then
-                    task.wait(config.cancelDelay)
-                    pcall(function()
-                        FishingRemotes.Cancel:InvokeServer()
-                    end)
-                end
-            end)
-        end)
-    end
-
-    function FishingState:StartBlatantV2(config)
-        -- Set server state
-        pcall(function() 
-            FishingRemotes.UpdateState:InvokeServer(true) 
-        end)
-
-        self.activeThread = task.spawn(function()
-            while self.currentMode == "BlatantV2" do
-                local t = tick()
-
-                -- CAST
-                pcall(function()
-                    FishingRemotes.Charge:InvokeServer({[5] = t})
-                end)
-                pcall(function()
-                    FishingRemotes.StartMinigame:InvokeServer(5, 0, t)
-                end)
-
-                -- COMPLETE
-                task.wait(config.completeDelay)
-                if self.currentMode ~= "BlatantV2" then break end
-
-                pcall(function()
-                    FishingRemotes.Complete:FireServer()
-                end)
-
-                -- CANCEL
-                task.wait(config.cancelDelay)
-                if self.currentMode ~= "BlatantV2" then break end
-
-                pcall(function()
-                    FishingRemotes.Cancel:InvokeServer()
-                end)
-
-                task.wait(config.recastDelay)
-            end
-        end)
-
-        -- Backup failsafe listener
-        FishingRemotes.MinigameChanged.OnClientEvent:Connect(function()
-            if self.currentMode ~= "BlatantV2" then return end
-
-            task.spawn(function()
-                task.wait(config.completeDelay)
-                pcall(function()
-                    FishingRemotes.Complete:FireServer()
-                end)
-                task.wait(config.cancelDelay)
-                pcall(function()
-                    FishingRemotes.Cancel:InvokeServer()
-                end)
-            end)
-        end)
-    end
-
-    function FishingState:StartHybridMode(config)
-        -- Set server state
-        pcall(function() 
-            FishingRemotes.UpdateState:InvokeServer(true) 
-        end)
-        
-        self.activeThread = task.spawn(function()
-            local State = {
-                lastComplete = 0,
-                cooldownTime = 0.1,
-                cycleCount = 0
-            }
-            
-            while self.currentMode == "Hybrid" do
-                local cycleStart = tick()
-                State.cycleCount = State.cycleCount + 1
-                
-                -- [PHASE 1] CAST WITH TIMING VALIDATION
-                local castTime = tick()
-                local success1 = pcall(function() 
-                    FishingRemotes.Charge:InvokeServer({[1] = castTime}) 
-                end)
-                
-                task.wait(0.005) -- Micro delay for packet ordering
-                
-                local success2 = pcall(function() 
-                    FishingRemotes.StartMinigame:InvokeServer(1, 0, castTime) 
-                end)
-                
-                if not (success1 and success2) then
-                    print("⚠️ [HYBRID] Cast failed, cycle:", State.cycleCount)
-                    task.wait(0.5) -- Recovery delay
-                    continue
-                end
-                
-                -- [PHASE 2] WAIT FOR CATCH
-                task.wait(config.completeDelay)
-                if self.currentMode ~= "Hybrid" then break end
-                
-                -- [PHASE 3] COMPLETE WITH COOLDOWN CHECK
-                local now = tick()
-                if now - State.lastComplete >= State.cooldownTime then
-                    local success3 = pcall(function() 
-                        FishingRemotes.Complete:FireServer() 
-                    end)
-                    
-                    if success3 then
-                        State.lastComplete = now
-                    else
-                        print("⚠️ [HYBRID] Complete failed, cycle:", State.cycleCount)
-                    end
-                end
-                
-                -- [PHASE 4] WAIT FOR ANIMATION
-                task.wait(config.cancelDelay)
-                if self.currentMode ~= "Hybrid" then break end
-                
-                -- [PHASE 5] CANCEL/RESET
-                pcall(function() 
-                    FishingRemotes.Cancel:InvokeServer() 
-                end)
-                
-                -- [PHASE 6] RECAST DELAY
-                if config.recastDelay > 0 then
-                    task.wait(config.recastDelay)
-                end
-                
-                -- Performance monitoring
-                local cycleTime = tick() - cycleStart
-                if State.cycleCount % 50 == 0 then
-                    print(string.format("🔄 [HYBRID] Cycle %d completed in %.3fs", 
-                        State.cycleCount, cycleTime))
-                end
-            end
-            
-            print("🛑 [HYBRID] Loop ended. Total cycles:", State.cycleCount)
-        end)
-
-        -- Failsafe listener
-        FishingRemotes.MinigameChanged.OnClientEvent:Connect(function()
-            if self.currentMode ~= "Hybrid" then return end
-            
-            task.delay(config.completeDelay, function()
-                if self.currentMode == "Hybrid" then 
-                    pcall(function() FishingRemotes.Complete:FireServer() end) 
-                end
-                
-                task.delay(config.cancelDelay, function()
-                    if self.currentMode == "Hybrid" then 
-                        pcall(function() FishingRemotes.Cancel:InvokeServer() end) 
-                    end
-                end)
-            end)
         end)
     end
 
@@ -1371,70 +1042,91 @@ do
     local fishMancing = farm:Section({ Title = "Fishing", TextSize = 20})
     local autofish = fishMancing:Section({ Title = "1. Auto Fishing", TextSize = 20 })
 
-    -- 1. LEGIT MODE
+    -- =========================================================
+    -- 1. LEGIT MODE (MINIMAL OVERHEAD)
+    -- =========================================================
     Reg("legit", autofish:Toggle({
         Title = "Auto Fish (Legit)", 
         Value = false,
         Callback = function(state)
+            stopAllModes()
+            legitActive = state
+            
             if state then
-                FishingState:SetMode("Legit")
-                WindUI:Notify({
-                    Title = "Legit Mode ON",
-                    Content = "Safe auto-clicking enabled",
-                    Duration = 3,
-                    Icon = "check"
-                })
-            else
-                FishingState:SetMode("None")
-                WindUI:Notify({ Title = "Legit Mode OFF", Duration = 2 })
+                startAutoEquip()
+                
+                local FishingController = require(RepStorage.Controllers.FishingController)
+                local oldRodStarted = FishingController.FishingRodStarted
+                
+                FishingController.FishingRodStarted = function(self, ...)
+                    oldRodStarted(self, ...)
+                    if legitActive then
+                        legitThread = task.spawn(function()
+                            while legitActive do
+                                FishingController:RequestFishingMinigameClick()
+                                task.wait(0.05)
+                            end
+                        end)
+                    end
+                end
             end
         end
     }))
 
-    -- 2. NORMAL INSTANT MODE
+    -- =========================================================
+    -- 2. NORMAL MODE (MINIMAL OVERHEAD)
+    -- =========================================================
     Reg("tognorm", autofish:Toggle({
         Title = "Normal Instant Fish", 
         Value = false,
         Callback = function(state)
+            stopAllModes()
+            normalActive = state
+            
             if state then
-                FishingState:SetMode("Normal")
-                WindUI:Notify({
-                    Title = "Normal Mode ON",
-                    Content = "Instant fishing enabled",
-                    Duration = 3,
-                    Icon = "zap"
-                })
-            else
-                FishingState:SetMode("None")
-                WindUI:Notify({ Title = "Normal Mode OFF", Duration = 2 })
+                startAutoEquip()
+                
+                normalThread = task.spawn(function()
+                    while normalActive do
+                        local ts = os.time() + os.clock()
+                        pcall(function() RF_Charge:InvokeServer(ts) end)
+                        pcall(function() RF_StartMinigame:InvokeServer(-139.6, 0.99) end)
+                        task.wait(1.5)
+                        pcall(function() RE_Complete:FireServer() end)
+                        task.wait(0.3)
+                        pcall(function() RF_Cancel:InvokeServer() end)
+                        task.wait(0.1)
+                    end
+                end)
             end
         end
     }))
 
-    -- 3. BLATANT V1
+    -- =========================================================
+    -- 3. BLATANT V1 (ORIGINAL PERFORMANCE)
+    -- =========================================================
     local v1 = fishMancing:Section({ Title = "2. Blatant V1", TextSize = 20 })
+
+    local V1_CompleteDelay = 0.72
+    local V1_CancelDelay = 0.28
 
     Reg("v1_complete", v1:Input({
         Title = "Complete Delay",
-        Value = tostring(FishingState.config.BlatantV1.completeDelay),
+        Value = "0.72",
         Placeholder = "0.72",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0.1 then
-                FishingState.config.BlatantV1.completeDelay = n
-            end
+            if n and n >= 0.1 then V1_CompleteDelay = n end
         end
     }))
 
     Reg("v1_cancel", v1:Input({
-        Title = "Cancel Delay",
-        Value = tostring(FishingState.config.BlatantV1.cancelDelay),
+        Title = "Cancel Delay", 
+        Value = "0.28",
         Placeholder = "0.28",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0.1 then
-                FishingState.config.BlatantV1.cancelDelay = n
-            end
+            if n and n >= 0.1 then V1_CancelDelay = n end
         end
     }))
 
@@ -1442,45 +1134,75 @@ do
         Title = "Enable Blatant V1",
         Value = false,
         Callback = function(state)
+            stopAllModes()
+            v1Active = state
+
             if state then
-                FishingState:SetMode("BlatantV1")
-                WindUI:Notify({
-                    Title = "Blatant V1 ON",
-                    Content = "Stable blatant mode activated",
-                    Duration = 4,
-                    Icon = "zap"
-                })
+                startAutoEquip()
+                pcall(function() RF_UpdateState:InvokeServer(true) end)
+
+                local lastComplete = 0
+                local cooldown = 0.35
+
+                v1Thread = task.spawn(function()
+                    while v1Active do
+                        local t = tick()
+
+                        -- CAST
+                        pcall(function() RF_Charge:InvokeServer({[1]=t}) end)
+                        task.wait(0.008)
+                        pcall(function() RF_StartMinigame:InvokeServer(1, 0, t) end)
+
+                        -- COMPLETE
+                        task.wait(V1_CompleteDelay)
+                        if v1Active then
+                            local now = tick()
+                            if now - lastComplete >= cooldown then
+                                lastComplete = now
+                                pcall(function() RE_Complete:FireServer() end)
+                            end
+                        end
+
+                        -- CANCEL
+                        task.wait(V1_CancelDelay)
+                        if v1Active then
+                            pcall(function() RF_Cancel:InvokeServer() end)
+                        end
+
+                        task.wait(0.001) -- Minimal recast delay
+                    end
+                end)
             else
-                FishingState:SetMode("None")
-                WindUI:Notify({ Title = "Blatant V1 OFF", Duration = 2 })
+                pcall(function() RF_Cancel:InvokeServer() end)
             end
         end
     }))
 
-    -- 4. BLATANT V2
+    -- =========================================================
+    -- 4. BLATANT V2 (ULTRA FAST - NO SAFETY)
+    -- =========================================================
     local v2 = fishMancing:Section({ Title = "3. Blatant V2", TextSize = 20 })
+
+    local V2_CompleteDelay = 0.79
+    local V2_CancelDelay = 0.329
 
     Reg("v2_complete", v2:Input({
         Title = "Complete Delay",
-        Value = tostring(FishingState.config.BlatantV2.completeDelay),
+        Value = "0.79",
         Placeholder = "0.79",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then
-                FishingState.config.BlatantV2.completeDelay = n
-            end
+            if n and n >= 0 then V2_CompleteDelay = n end
         end
     }))
 
     Reg("v2_cancel", v2:Input({
         Title = "Cancel Delay",
-        Value = tostring(FishingState.config.BlatantV2.cancelDelay),
+        Value = "0.329", 
         Placeholder = "0.329",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then
-                FishingState.config.BlatantV2.cancelDelay = n
-            end
+            if n and n >= 0 then V2_CancelDelay = n end
         end
     }))
 
@@ -1488,58 +1210,79 @@ do
         Title = "Enable Blatant V2",
         Value = false,
         Callback = function(state)
+            stopAllModes()
+            v2Active = state
+
             if state then
-                FishingState:SetMode("BlatantV2")
-                WindUI:Notify({
-                    Title = "Blatant V2 ON",
-                    Content = "Ultra spam mode activated",
-                    Duration = 4,
-                    Icon = "zap"
-                })
+                startAutoEquip()
+                pcall(function() RF_UpdateState:InvokeServer(true) end)
+
+                v2Thread = task.spawn(function()
+                    while v2Active do
+                        local t = tick()
+
+                        -- ULTRA FAST CAST
+                        pcall(function() RF_Charge:InvokeServer({[5] = t}) end)
+                        pcall(function() RF_StartMinigame:InvokeServer(5, 0, t) end)
+
+                        -- COMPLETE
+                        task.wait(V2_CompleteDelay)
+                        if v2Active then
+                            pcall(function() RE_Complete:FireServer() end)
+                        end
+
+                        -- CANCEL
+                        task.wait(V2_CancelDelay)
+                        if v2Active then
+                            pcall(function() RF_Cancel:InvokeServer() end)
+                        end
+                        
+                        -- NO RECAST DELAY - MAXIMUM SPEED
+                    end
+                end)
             else
-                FishingState:SetMode("None")
-                WindUI:Notify({ Title = "Blatant V2 OFF", Duration = 2 })
+                pcall(function() RF_Cancel:InvokeServer() end)
             end
         end
     }))
 
-    -- 5. HYBRID MODE
+    -- =========================================================
+    -- 5. HYBRID MODE (OPTIMIZED FOR SPEED + STABILITY)
+    -- =========================================================
     local hybrid = fishMancing:Section({ Title = "4. Blatant Hybrid (Best)", TextSize = 20 })
+
+    local H_CompleteDelay = 0.75
+    local H_CancelDelay = 0.25
+    local H_RecastDelay = 0.0
 
     Reg("hybrid_comp", hybrid:Input({
         Title = "Complete Delay",
-        Value = tostring(FishingState.config.Hybrid.completeDelay),
+        Value = "0.75",
         Placeholder = "0.75",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then 
-                FishingState.config.Hybrid.completeDelay = n 
-            end
+            if n and n >= 0 then H_CompleteDelay = n end
         end
     }))
 
     Reg("hybrid_canc", hybrid:Input({
         Title = "Cancel Delay",
-        Value = tostring(FishingState.config.Hybrid.cancelDelay),
-        Placeholder = "0.25",
+        Value = "0.25",
+        Placeholder = "0.25", 
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then 
-                FishingState.config.Hybrid.cancelDelay = n 
-            end
+            if n and n >= 0 then H_CancelDelay = n end
         end
     }))
 
     Reg("hybrid_recast", hybrid:Input({
         Title = "Recast Delay",
-        Value = tostring(FishingState.config.Hybrid.recastDelay),
+        Value = "0.0",
         Placeholder = "0.0",
         Desc = "Delay before next cast (0 = Spam)",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then 
-                FishingState.config.Hybrid.recastDelay = n 
-            end
+            if n and n >= 0 then H_RecastDelay = n end
         end
     }))
 
@@ -1547,34 +1290,47 @@ do
         Title = "Enable Blatant Hybrid",
         Value = false,
         Callback = function(state)
+            stopAllModes()
+            hybridActive = state
+
             if state then
-                FishingState:SetMode("Hybrid")
-                WindUI:Notify({
-                    Title = "Hybrid Mode ON",
-                    Content = "Best of V1+V2 combined",
-                    Duration = 3,
-                    Icon = "zap"
-                })
+                startAutoEquip()
+                pcall(function() RF_UpdateState:InvokeServer(true) end)
+                pcall(function() RF_Cancel:InvokeServer() end)
+
+                hybridThread = task.spawn(function()
+                    while hybridActive do
+                        local t = tick()
+
+                        -- FAST CAST (V2 Style)
+                        pcall(function() RF_Charge:InvokeServer({[1] = t}) end)
+                        task.wait(0.005) -- Minimal packet ordering delay
+                        pcall(function() RF_StartMinigame:InvokeServer(1, 0, t) end)
+
+                        -- COMPLETE
+                        task.wait(H_CompleteDelay)
+                        if hybridActive then
+                            pcall(function() RE_Complete:FireServer() end)
+                        end
+
+                        -- CANCEL
+                        task.wait(H_CancelDelay)
+                        if hybridActive then
+                            pcall(function() RF_Cancel:InvokeServer() end)
+                        end
+
+                        -- RECAST DELAY
+                        if H_RecastDelay > 0 then
+                            task.wait(H_RecastDelay)
+                        end
+                    end
+                end)
             else
-                FishingState:SetMode("None")
-                WindUI:Notify({ Title = "Hybrid Mode OFF", Duration = 2 })
+                pcall(function() RF_UpdateState:InvokeServer(false) end)
+                pcall(function() RF_Cancel:InvokeServer() end)
             end
         end
     }))
-
-    -- =========================================================
-    -- CLEANUP ON SCRIPT END
-    -- =========================================================
-    local function cleanup()
-        FishingState:StopCurrentMode()
-        print("🧹 [FISHING] Cleanup completed")
-    end
-
-    -- Register cleanup
-    if getgenv().fishingCleanup then
-        getgenv().fishingCleanup()
-    end
-    getgenv().fishingCleanup = cleanup
 
 end
 
