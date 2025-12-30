@@ -2051,9 +2051,6 @@ do
     -- =========================================================
 -- ROTATION SYSTEM (FIXED TIMING)
 -- =========================================================
--- =========================================================
--- FIXED ROTATION SYSTEM (GHOST SHARK BUG SOLVED)
--- =========================================================
 local RotationSystem = {
     interval = 10,
     priorityBonus = 0.5,
@@ -2062,8 +2059,7 @@ local RotationSystem = {
     rotationQueue = {},
     stayDuration = 8,
     lastEventChange = 0,
-    forceNextRotation = false,
-    ghostSharkPriority = true  -- NEW: Special handling for Ghost Shark
+    forceNextRotation = false  -- NEW: Force flag instead of resetting timer
 }
 
 function RotationSystem:BuildQueue()
@@ -2084,9 +2080,6 @@ function RotationSystem:BuildQueue()
     local eventNames = getTableKeys(allEvents)
     print("🔄 [ROTATION] Building queue from cached events:", table.concat(eventNames, ", "))
     
-    -- SPECIAL HANDLING FOR GHOST SHARK
-    local hasGhostShark = false
-    
     -- Add priority events first (with multiple entries for more frequent visits)
     if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
         for eventName, data in pairs(allEvents) do
@@ -2096,12 +2089,6 @@ function RotationSystem:BuildQueue()
                 end)
                 
                 if success and isActive then
-                    -- Check if it's Ghost Shark
-                    if eventName == "Ghost Shark Hunt" then
-                        hasGhostShark = true
-                        print("👻 [ROTATION] Ghost Shark Hunt detected as priority!")
-                    end
-                    
                     -- Priority events appear twice in queue
                     table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
                     table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
@@ -2119,12 +2106,6 @@ function RotationSystem:BuildQueue()
             end)
             
             if success and isActive then
-                -- Check if it's Ghost Shark
-                if eventName == "Ghost Shark Hunt" then
-                    hasGhostShark = true
-                    print("👻 [ROTATION] Ghost Shark Hunt detected as normal event!")
-                end
-                
                 table.insert(self.rotationQueue, {name = eventName, data = data, priority = false})
                 print("📋 [ROTATION] Added normal event:", eventName)
             end
@@ -2136,24 +2117,61 @@ function RotationSystem:BuildQueue()
         print("   ", i .. ".", event.name, event.priority and "🎯" or "📋")
     end
     
-    -- FIXED: Immediate rotation logic for Ghost Shark and new events
+    -- IMPROVED: Don't reset timer, just mark for next rotation
     if #self.rotationQueue > 0 then
-        -- Force immediate rotation for Ghost Shark or first time
-        if hasGhostShark or self.lastRotation == 0 then
+        -- Only force immediate rotation if no last rotation recorded
+        if self.lastRotation == 0 then
             self.forceNextRotation = true
-            self.lastRotation = 0  -- RESET to ensure immediate rotation
-            print("🚀 [ROTATION] Forcing immediate rotation -", hasGhostShark and "Ghost Shark priority" or "First rotation")
+            print("🔄 [ROTATION] No previous rotation - will start immediately")
         else
-            -- For other events, respect normal timing
-            print("🔄 [ROTATION] Queue ready - normal timing will apply")
+            print("🔄 [ROTATION] Queue ready - respecting interval timing")
         end
     end
+end
+
+function RotationSystem:GetNextEvent()
+    if #self.rotationQueue == 0 then
+        print("⚠️ [ROTATION] Queue is empty, rebuilding...")
+        pcall(function()
+            self:BuildQueue()
+        end)
+    end
+    
+    if #self.rotationQueue == 0 then
+        print("❌ [ROTATION] No events available in queue")
+        return nil
+    end
+    
+    -- Move to next event in queue
+    self.currentEventIndex = self.currentEventIndex + 1
+    if self.currentEventIndex > #self.rotationQueue then
+        self.currentEventIndex = 1
+        print("🔄 [ROTATION] Queue completed, restarting from beginning")
+    end
+    
+    local event = self.rotationQueue[self.currentEventIndex]
+    
+    -- Verify event is still active
+    local success, stillActive = pcall(function()
+        return ActiveEventsCache:IsEventStillActive(event.name)
+    end)
+    
+    if not success or not stillActive then
+        print("⚠️ [ROTATION] Event", event.name, "no longer active, rebuilding queue...")
+        pcall(function()
+            self:BuildQueue()
+        end)
+        return self:GetNextEvent() -- Recursive call to get next valid event
+    end
+    
+    print("🎯 [ROTATION] Selected event", self.currentEventIndex .. "/" .. #self.rotationQueue .. ":", event.name)
+    return event
 end
 
 function RotationSystem:ShouldRotate()
     local now = tick()
     
-    -- ALWAYS honor force flag immediately
+    -- Force rotation if flag is set
     if self.forceNextRotation then
         print("🚀 [ROTATION] Force flag set - rotating immediately")
         return true
@@ -2167,47 +2185,16 @@ function RotationSystem:ShouldRotate()
     
     local timeSinceLastRotation = now - self.lastRotation
     
-    -- SPECIAL: Shorter interval for Ghost Shark
-    local currentInterval = self.interval
-    if #self.rotationQueue > 0 then
-        for _, event in ipairs(self.rotationQueue) do
-            if event.name == "Ghost Shark Hunt" then
-                currentInterval = math.max(3, self.interval * 0.5)  -- Half interval for Ghost Shark
-                print("👻 [ROTATION] Using Ghost Shark priority interval:", currentInterval, "s")
-                break
-            end
-        end
-    end
+    print("⏰ [ROTATION] Time since last rotation:", math.floor(timeSinceLastRotation), "s / Required:", self.interval, "s")
     
-    print("⏰ [ROTATION] Time since last rotation:", math.floor(timeSinceLastRotation), "s / Required:", currentInterval, "s")
-    
-    return timeSinceLastRotation >= currentInterval
+    return timeSinceLastRotation >= self.interval
 end
 
 function RotationSystem:MarkRotated()
     self.lastRotation = tick()
     self.forceNextRotation = false  -- Clear force flag
     print("🔄 [ROTATION] Marked rotation at", os.date("%H:%M:%S", self.lastRotation))
-    
-    -- Calculate next rotation time (with Ghost Shark consideration)
-    local nextInterval = self.interval
-    if #self.rotationQueue > 0 then
-        for _, event in ipairs(self.rotationQueue) do
-            if event.name == "Ghost Shark Hunt" then
-                nextInterval = math.max(3, self.interval * 0.5)
-                break
-            end
-        end
-    end
-    
-    print("⏰ [ROTATION] Next rotation allowed in", nextInterval, "seconds")
-end
-
--- NEW: Special function to handle Ghost Shark immediate processing
-function RotationSystem:HandleGhostSharkImmediate()
-    print("👻 [GHOST SHARK] Immediate processing triggered")
-    self.forceNextRotation = true
-    self.lastRotation = 0  -- Reset to force immediate
+    print("⏰ [ROTATION] Next rotation allowed in", self.interval, "seconds")
 end
 
 function RotationSystem:GetTimeUntilNextRotation()
@@ -2216,25 +2203,20 @@ function RotationSystem:GetTimeUntilNextRotation()
     end
     
     local elapsed = tick() - self.lastRotation
-    local currentInterval = self.interval
-    
-    -- Use shorter interval for Ghost Shark
-    if #self.rotationQueue > 0 then
-        for _, event in ipairs(self.rotationQueue) do
-            if event.name == "Ghost Shark Hunt" then
-                currentInterval = math.max(3, self.interval * 0.5)
-                break
-            end
-        end
-    end
-    
-    return math.max(0, currentInterval - elapsed)
+    return math.max(0, self.interval - elapsed)
+end
+
+function RotationSystem:SetInterval(seconds)
+    self.interval = math.max(5, math.min(60, seconds))
+    print("🔄 [ROTATION] Interval set to", self.interval, "seconds")
 end
 
 function RotationSystem:ForceNextRotation()
     self.forceNextRotation = true
     print("🚀 [ROTATION] Next rotation will be immediate")
 end
+
+
     -- =========================================================
     -- LOCHNESS TIMING SYSTEM
     -- =========================================================
@@ -3204,8 +3186,6 @@ SmartEventThread = task.spawn(function()
                 else
                     print("❌ [SCAN] No", eventName, "found")
                 end
-                
-                
                 
                 task.wait(1)
             end
