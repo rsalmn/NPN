@@ -2252,142 +2252,173 @@ do
     end
 
     -- =========================================================
-    -- ROTATION SYSTEM (MOVED AFTER CACHE)
-    -- =========================================================
-    local RotationSystem = {
-        interval = 10,
-        priorityBonus = 0.5,
-        lastRotation = 0,
-        currentEventIndex = 0,
-        rotationQueue = {},
-        stayDuration = 8,
-        lastEventChange = 0
-    }
+-- ROTATION SYSTEM (FIXED TIMING)
+-- =========================================================
+local RotationSystem = {
+    interval = 10,
+    priorityBonus = 0.5,
+    lastRotation = 0,
+    currentEventIndex = 0,
+    rotationQueue = {},
+    stayDuration = 8,
+    lastEventChange = 0,
+    forceNextRotation = false  -- NEW: Force flag instead of resetting timer
+}
 
-    function RotationSystem:BuildQueue()
-        self.rotationQueue = {}
-        
-        local allEvents = {}
-        local success, result = pcall(function()
-            return ActiveEventsCache:GetAll() or {}
-        end)
-        
-        if success and result then
-            allEvents = result
-        else
-            print("⚠️ [ROTATION] Failed to get events from cache")
-            return
-        end
-        
-        local eventNames = getTableKeys(allEvents)
-        print("🔄 [ROTATION] Building queue from cached events:", table.concat(eventNames, ", "))
-        
-        -- Add priority events first (with multiple entries for more frequent visits)
-        if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
-            for eventName, data in pairs(allEvents) do
-                if eventName == SelectedPriorityEvent then
-                    local success, isActive = pcall(function()
-                        return ActiveEventsCache:IsEventStillActive(eventName)
-                    end)
-                    
-                    if success and isActive then
-                        -- Priority events appear twice in queue
-                        table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
-                        table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
-                        print("🎯 [ROTATION] Added priority event:", eventName, "(2x)")
-                    end
-                end
-            end
-        end
-        
-        -- Add normal events
+function RotationSystem:BuildQueue()
+    self.rotationQueue = {}
+    
+    local allEvents = {}
+    local success, result = pcall(function()
+        return ActiveEventsCache:GetAll() or {}
+    end)
+    
+    if success and result then
+        allEvents = result
+    else
+        print("⚠️ [ROTATION] Failed to get events from cache")
+        return
+    end
+    
+    local eventNames = getTableKeys(allEvents)
+    print("🔄 [ROTATION] Building queue from cached events:", table.concat(eventNames, ", "))
+    
+    -- Add priority events first (with multiple entries for more frequent visits)
+    if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
         for eventName, data in pairs(allEvents) do
-            if eventName ~= SelectedPriorityEvent then
+            if eventName == SelectedPriorityEvent then
                 local success, isActive = pcall(function()
                     return ActiveEventsCache:IsEventStillActive(eventName)
                 end)
                 
                 if success and isActive then
-                    table.insert(self.rotationQueue, {name = eventName, data = data, priority = false})
-                    print("📋 [ROTATION] Added normal event:", eventName)
+                    -- Priority events appear twice in queue
+                    table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
+                    table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
+                    print("🎯 [ROTATION] Added priority event:", eventName, "(2x)")
                 end
             end
         end
-        
-        print("🔄 [ROTATION] Built queue with", #self.rotationQueue, "events")
-        for i, event in ipairs(self.rotationQueue) do
-            print("   ", i .. ".", event.name, event.priority and "🎯" or "📋")
-        end
-        
-        -- Reset rotation to start immediately if we have events
-        if #self.rotationQueue > 0 then
-            self.lastRotation = 0 -- Force immediate rotation
-            print("🔄 [ROTATION] Queue ready! Will start rotating immediately.")
+    end
+    
+    -- Add normal events
+    for eventName, data in pairs(allEvents) do
+        if eventName ~= SelectedPriorityEvent then
+            local success, isActive = pcall(function()
+                return ActiveEventsCache:IsEventStillActive(eventName)
+            end)
+            
+            if success and isActive then
+                table.insert(self.rotationQueue, {name = eventName, data = data, priority = false})
+                print("📋 [ROTATION] Added normal event:", eventName)
+            end
         end
     end
+    
+    print("🔄 [ROTATION] Built queue with", #self.rotationQueue, "events")
+    for i, event in ipairs(self.rotationQueue) do
+        print("   ", i .. ".", event.name, event.priority and "🎯" or "📋")
+    end
+    
+    -- IMPROVED: Don't reset timer, just mark for next rotation
+    if #self.rotationQueue > 0 then
+        -- Only force immediate rotation if no last rotation recorded
+        if self.lastRotation == 0 then
+            self.forceNextRotation = true
+            print("🔄 [ROTATION] No previous rotation - will start immediately")
+        else
+            print("🔄 [ROTATION] Queue ready - respecting interval timing")
+        end
+    end
+end
 
-    function RotationSystem:GetNextEvent()
-        if #self.rotationQueue == 0 then
-            print("⚠️ [ROTATION] Queue is empty, rebuilding...")
-            pcall(function()
-                self:BuildQueue()
-            end)
-        end
-        
-        if #self.rotationQueue == 0 then
-            print("❌ [ROTATION] No events available in queue")
-            return nil
-        end
-        
-        -- Move to next event in queue
-        self.currentEventIndex = self.currentEventIndex + 1
-        if self.currentEventIndex > #self.rotationQueue then
-            self.currentEventIndex = 1
-            print("🔄 [ROTATION] Queue completed, restarting from beginning")
-        end
-        
-        local event = self.rotationQueue[self.currentEventIndex]
-        
-        -- Verify event is still active
-        local success, stillActive = pcall(function()
-            return ActiveEventsCache:IsEventStillActive(event.name)
+function RotationSystem:GetNextEvent()
+    if #self.rotationQueue == 0 then
+        print("⚠️ [ROTATION] Queue is empty, rebuilding...")
+        pcall(function()
+            self:BuildQueue()
         end)
-        
-        if not success or not stillActive then
-            print("⚠️ [ROTATION] Event", event.name, "no longer active, rebuilding queue...")
-            pcall(function()
-                self:BuildQueue()
-            end)
-            return self:GetNextEvent() -- Recursive call to get next valid event
-        end
-        
-        print("🎯 [ROTATION] Selected event", self.currentEventIndex .. "/" .. #self.rotationQueue .. ":", event.name)
-        return event
     end
+    
+    if #self.rotationQueue == 0 then
+        print("❌ [ROTATION] No events available in queue")
+        return nil
+    end
+    
+    -- Move to next event in queue
+    self.currentEventIndex = self.currentEventIndex + 1
+    if self.currentEventIndex > #self.rotationQueue then
+        self.currentEventIndex = 1
+        print("🔄 [ROTATION] Queue completed, restarting from beginning")
+    end
+    
+    local event = self.rotationQueue[self.currentEventIndex]
+    
+    -- Verify event is still active
+    local success, stillActive = pcall(function()
+        return ActiveEventsCache:IsEventStillActive(event.name)
+    end)
+    
+    if not success or not stillActive then
+        print("⚠️ [ROTATION] Event", event.name, "no longer active, rebuilding queue...")
+        pcall(function()
+            self:BuildQueue()
+        end)
+        return self:GetNextEvent() -- Recursive call to get next valid event
+    end
+    
+    print("🎯 [ROTATION] Selected event", self.currentEventIndex .. "/" .. #self.rotationQueue .. ":", event.name)
+    return event
+end
 
-    function RotationSystem:ShouldRotate()
-        local now = tick()
-        local timeSinceLastRotation = now - self.lastRotation
-        
-        print("⏰ [ROTATION] Time since last rotation:", math.floor(timeSinceLastRotation), "s / Required:", self.interval, "s")
-        
-        return timeSinceLastRotation >= self.interval
+function RotationSystem:ShouldRotate()
+    local now = tick()
+    
+    -- Force rotation if flag is set
+    if self.forceNextRotation then
+        print("🚀 [ROTATION] Force flag set - rotating immediately")
+        return true
     end
+    
+    -- Initialize lastRotation if not set
+    if self.lastRotation == 0 then
+        print("🚀 [ROTATION] No previous rotation - rotating immediately")
+        return true
+    end
+    
+    local timeSinceLastRotation = now - self.lastRotation
+    
+    print("⏰ [ROTATION] Time since last rotation:", math.floor(timeSinceLastRotation), "s / Required:", self.interval, "s")
+    
+    return timeSinceLastRotation >= self.interval
+end
 
-    function RotationSystem:MarkRotated()
-        self.lastRotation = tick()
-        print("🔄 [ROTATION] Marked rotation at", os.date("%H:%M:%S", self.lastRotation))
-    end
+function RotationSystem:MarkRotated()
+    self.lastRotation = tick()
+    self.forceNextRotation = false  -- Clear force flag
+    print("🔄 [ROTATION] Marked rotation at", os.date("%H:%M:%S", self.lastRotation))
+    print("⏰ [ROTATION] Next rotation allowed in", self.interval, "seconds")
+end
 
-    function RotationSystem:GetTimeUntilNextRotation()
-        local elapsed = tick() - self.lastRotation
-        return math.max(0, self.interval - elapsed)
+function RotationSystem:GetTimeUntilNextRotation()
+    if self.forceNextRotation or self.lastRotation == 0 then
+        return 0
     end
+    
+    local elapsed = tick() - self.lastRotation
+    return math.max(0, self.interval - elapsed)
+end
 
-    function RotationSystem:SetInterval(seconds)
-        self.interval = math.max(5, math.min(60, seconds))
-        print("🔄 [ROTATION] Interval set to", self.interval, "seconds")
-    end
+function RotationSystem:SetInterval(seconds)
+    self.interval = math.max(5, math.min(60, seconds))
+    print("🔄 [ROTATION] Interval set to", self.interval, "seconds")
+end
+
+function RotationSystem:ForceNextRotation()
+    self.forceNextRotation = true
+    print("🚀 [ROTATION] Next rotation will be immediate")
+end
+
 
     -- =========================================================
     -- LOCHNESS TIMING SYSTEM
@@ -3017,167 +3048,183 @@ end
                     WalkOnWaterToggleElement:Set(true) 
                 end
 
-                SmartEventThread = task.spawn(function()
-                    while SmartEventState do
-                        local success, err = pcall(function()
-                            
-                            local cachedEvents = {}
-                            local hasActiveEvents = false
-                            
-                            local getSuccess, getAllResult = pcall(function()
-                                return ActiveEventsCache:GetAll()
-                            end)
-                            
-                            if getSuccess and getAllResult then
-                                cachedEvents = getAllResult
-                            else
-                                print("⚠️ [MAIN] Failed to get cached events, reinitializing...")
-                                ActiveEventsCache.events = {}
-                                cachedEvents = {}
-                            end
-                            
-                            -- Count ACTIVE events (not just cached)
-                            local activeEventCount = 0
-                            for eventName, _ in pairs(cachedEvents) do
-                                local activeSuccess, isActive = pcall(function()
-                                    return ActiveEventsCache:IsEventStillActive(eventName)
-                                end)
-                                
-                                if activeSuccess and isActive then
-                                    hasActiveEvents = true
-                                    activeEventCount = activeEventCount + 1
-                                end
-                            end
-                            
-                            print("🔍 [MAIN] Cached events:", #getTableKeys(cachedEvents), "| Active events:", activeEventCount)
-                            
-                            if hasActiveEvents then
-                                local eventNames = getTableKeys(cachedEvents)
-                                print("\n🔄 [ROTATION MODE] Managing", table.concat(eventNames, ", "))
-                                
-                                -- REBUILD QUEUE EACH TIME TO ENSURE IT'S UP TO DATE
-                                pcall(function()
-                                    RotationSystem:BuildQueue()
-                                end)
-                                
-                                if RotationSystem:ShouldRotate() then
-                                    local nextEvent = nil
-                                    
-                                    pcall(function()
-                                        nextEvent = RotationSystem:GetNextEvent()
-                                    end)
-                                    
-                                    if nextEvent then
-                                        print("📍 [ROTATION] Switching to:", nextEvent.name)
-                                        print("   Position:", nextEvent.data.position)
-                                        
-                                        local tpSuccess = TeleportManager:Teleport(nextEvent.data.position)
-                                        if tpSuccess then
-                                            pcall(function()
-                                                ActiveEventsCache:MarkVisited(nextEvent.name)
-                                            end)
-                                            RotationSystem:MarkRotated()
-                                            print("✅ [ROTATION] Successfully rotated to", nextEvent.name)
-                                        else
-                                            print("❌ [ROTATION] Failed to teleport to", nextEvent.name)
-                                        end
-                                    else
-                                        print("⚠️ [ROTATION] No next event available")
-                                    end
-                                else
-                                    local timeLeft = RotationSystem:GetTimeUntilNextRotation()
-                                    print("⏳ [ROTATION] Next rotation in", math.ceil(timeLeft), "seconds")
-                                end
-                                
-                                task.wait(2)
-                                return
-                            end
-                            
-                            if not ActiveEventsCache:ShouldScanForNewEvents() then
-                                print("\n💤 [IDLE MODE] Waiting at idle area...")
-                                
-                                if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
-                                    local data = FishingAreass[Loch_Return_SelectedArea]
-                                    
-                                    local char = Players.LocalPlayer.Character
-                                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                                    
-                                    if hrp and (hrp.Position - data.Pos).Magnitude > 60 then 
-                                        TeleportManager:Teleport(data.Pos)
-                                    end
-                                end
-                                
-                                task.wait(10)
-                                return
-                            end
-                            
-                            print("\n📡 [SCANNING MODE] Looking for new events...")
-                            ActiveEventsCache:MarkScanned()
-                            
-                            local eventsToCheck = {}
-                            
-                            if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
-                                table.insert(eventsToCheck, {name = SelectedPriorityEvent, priority = true})
-                            end
-                            
-                            for _, eventName in ipairs(SelectedNormalEvents) do
-                                table.insert(eventsToCheck, {name = eventName, priority = false})
-                            end
-                            
-                            local availableEvents = GetAvailableEvents(eventsToCheck)
-                            
-                            if #availableEvents == 0 then
-                                print("⏰ No events available")
-                                task.wait(5)
-                                return
-                            end
-                            
-                            local foundAnyEvent = false
-                            
-                            for _, eventInfo in ipairs(availableEvents) do
-                                local eventName = eventInfo.name
-                                print("🔍 [SCAN] Probing for:", eventName)
-                                
-                                local found, position, model = ProbeAndFindEvent(eventName)
-                                
-                                if found and position and model then
-                                    print("✅ [SCAN] Found", eventName, "at", position)
-                                    ActiveEventsCache:Add(eventName, position, model)
-                                    foundAnyEvent = true
-                                    
-                                    -- Force immediate rotation by resetting lastRotation
-                                    RotationSystem.lastRotation = 0
-                                    print("🔄 [SCAN] Reset rotation timer for immediate rotation")
-                                else
-                                    print("❌ [SCAN] No", eventName, "found")
-                                end
-                                
-                                task.wait(1)
-                            end
-                            
-                            if foundAnyEvent then
-                                print("\n✅ Events found! Starting rotation system...")
-                                -- BUILD QUEUE IMMEDIATELY AFTER FINDING EVENTS
-                                pcall(function()
-                                    RotationSystem:BuildQueue()
-                                end)
-                            else
-                                print("❌ [SCAN] No events found this cycle")
-                            end
-                        end)
-                        
-                        if not success then
-                            if not ErrorHandler:Handle(err) then
-                                break
-                            end
-                            task.wait(5)
-                        else
-                            ErrorHandler.ErrorCount = math.max(0, ErrorHandler.ErrorCount - 1)
-                        end
-                        
-                        task.wait(2)
-                    end
+                -- MAIN SMART EVENT LOOP (di dalam Toggle Callback)
+SmartEventThread = task.spawn(function()
+    while SmartEventState do
+        local success, err = pcall(function()
+            
+            local cachedEvents = {}
+            local hasActiveEvents = false
+            
+            local getSuccess, getAllResult = pcall(function()
+                return ActiveEventsCache:GetAll()
+            end)
+            
+            if getSuccess and getAllResult then
+                cachedEvents = getAllResult
+            else
+                print("⚠️ [MAIN] Failed to get cached events, reinitializing...")
+                ActiveEventsCache.events = {}
+                cachedEvents = {}
+            end
+            
+            -- Count ACTIVE events (not just cached)
+            local activeEventCount = 0
+            for eventName, _ in pairs(cachedEvents) do
+                local activeSuccess, isActive = pcall(function()
+                    return ActiveEventsCache:IsEventStillActive(eventName)
                 end)
+                
+                if activeSuccess and isActive then
+                    hasActiveEvents = true
+                    activeEventCount = activeEventCount + 1
+                end
+            end
+            
+            print("🔍 [MAIN] Cached events:", #getTableKeys(cachedEvents), "| Active events:", activeEventCount)
+            
+            if hasActiveEvents then
+                local eventNames = getTableKeys(cachedEvents)
+                print("\n🔄 [ROTATION MODE] Managing", table.concat(eventNames, ", "))
+                
+                -- REBUILD QUEUE ONLY IF NEEDED
+                if #RotationSystem.rotationQueue == 0 then
+                    pcall(function()
+                        RotationSystem:BuildQueue()
+                    end)
+                end
+                
+                -- CHECK TIMING MORE STRICTLY
+                if RotationSystem:ShouldRotate() then
+                    local nextEvent = nil
+                    
+                    pcall(function()
+                        nextEvent = RotationSystem:GetNextEvent()
+                    end)
+                    
+                    if nextEvent then
+                        print("📍 [ROTATION] Switching to:", nextEvent.name)
+                        print("   Position:", nextEvent.data.position)
+                        
+                        local tpSuccess = TeleportManager:Teleport(nextEvent.data.position)
+                        if tpSuccess then
+                            pcall(function()
+                                ActiveEventsCache:MarkVisited(nextEvent.name)
+                            end)
+                            RotationSystem:MarkRotated()  -- PROPER TIMING MARK
+                            print("✅ [ROTATION] Successfully rotated to", nextEvent.name)
+                            
+                            -- WAIT FOR STAY DURATION BEFORE NEXT CHECK
+                            print("⏳ [ROTATION] Staying for", RotationSystem.stayDuration, "seconds")
+                            task.wait(RotationSystem.stayDuration)
+                            return
+                        else
+                            print("❌ [ROTATION] Failed to teleport to", nextEvent.name)
+                        end
+                    else
+                        print("⚠️ [ROTATION] No next event available")
+                    end
+                else
+                    local timeLeft = RotationSystem:GetTimeUntilNextRotation()
+                    print("⏳ [ROTATION] Next rotation in", math.ceil(timeLeft), "seconds")
+                    
+                    -- WAIT PROPORTIONAL TO TIME LEFT
+                    local waitTime = math.min(2, math.max(0.5, timeLeft / 2))
+                    task.wait(waitTime)
+                    return
+                end
+                
+                task.wait(2)
+                return
+            end
+            
+            -- SCANNING MODE LOGIC (unchanged)
+            if not ActiveEventsCache:ShouldScanForNewEvents() then
+                print("\n💤 [IDLE MODE] Waiting at idle area...")
+                
+                if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
+                    local data = FishingAreass[Loch_Return_SelectedArea]
+                    
+                    local char = Players.LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    
+                    if hrp and (hrp.Position - data.Pos).Magnitude > 60 then 
+                        TeleportManager:Teleport(data.Pos)
+                    end
+                end
+                
+                task.wait(10)
+                return
+            end
+            
+            print("\n📡 [SCANNING MODE] Looking for new events...")
+            ActiveEventsCache:MarkScanned()
+            
+            local eventsToCheck = {}
+            
+            if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
+                table.insert(eventsToCheck, {name = SelectedPriorityEvent, priority = true})
+            end
+            
+            for _, eventName in ipairs(SelectedNormalEvents) do
+                table.insert(eventsToCheck, {name = eventName, priority = false})
+            end
+            
+            local availableEvents = GetAvailableEvents(eventsToCheck)
+            
+            if #availableEvents == 0 then
+                print("⏰ No events available")
+                task.wait(5)
+                return
+            end
+            
+            local foundAnyEvent = false
+            
+            for _, eventInfo in ipairs(availableEvents) do
+                local eventName = eventInfo.name
+                print("🔍 [SCAN] Probing for:", eventName)
+                
+                local found, position, model = ProbeAndFindEvent(eventName)
+                
+                if found and position and model then
+                    print("✅ [SCAN] Found", eventName, "at", position)
+                    ActiveEventsCache:Add(eventName, position, model)
+                    foundAnyEvent = true
+                    
+                    -- FORCE NEXT ROTATION INSTEAD OF RESETTING TIMER
+                    RotationSystem:ForceNextRotation()
+                    print("🚀 [SCAN] Set force flag for immediate rotation")
+                else
+                    print("❌ [SCAN] No", eventName, "found")
+                end
+                
+                task.wait(1)
+            end
+            
+            if foundAnyEvent then
+                print("\n✅ Events found! Starting rotation system...")
+                -- BUILD QUEUE IMMEDIATELY AFTER FINDING EVENTS
+                pcall(function()
+                    RotationSystem:BuildQueue()
+                end)
+            else
+                print("❌ [SCAN] No events found this cycle")
+            end
+        end)
+        
+        if not success then
+            if not ErrorHandler:Handle(err) then
+                break
+            end
+            task.wait(5)
+        else
+            ErrorHandler.ErrorCount = math.max(0, ErrorHandler.ErrorCount - 1)
+        end
+        
+        task.wait(1) -- REDUCED FROM 2 for better responsiveness
+    end
+end)
+
             else
                 if SmartEventThread then 
                     task.cancel(SmartEventThread) 
