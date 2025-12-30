@@ -2082,7 +2082,7 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event (V5 PROBE SYSTEM)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event System (V6 LOCK)", TextSize = 20 })
 
     -- =========================================================
     -- 1. DATA FISHING AREA (Idle Map)
@@ -2116,6 +2116,7 @@ do
     for name, _ in pairs(FishingAreass) do table.insert(AreaNamess, name) end
     table.sort(AreaNamess)
 
+    -- Variables
     local SelectedPriorityEvent = nil
     local SelectedNormalEvents = {}
     local Loch_Return_SelectedArea = nil 
@@ -2147,121 +2148,136 @@ do
             Vector3.new(2190, -1.3, 97), Vector3.new(-2450, -1.3, 139),
             Vector3.new(-267, -1.3, 5188)
         },
-        ["Meteor Rain"] = { -- Meteor Random, kita coba area umum
+        ["Meteor Rain"] = {
             Vector3.new(1.6, 0, 2095), Vector3.new(-1585, 0, 1242)
         }
     }
 
-    -- KEYWORD UNTUK VERIFIKASI SETELAH TELEPORT
     local EventKeywords = {
         ["Megalodon Hunt"] = {"Megalodon"},
-        ["Shark Hunt"] = {"Shark Hunt", "Blob Shark"}, 
+        ["Shark Hunt"] = {"Shark", "Great White"}, 
         ["Ghost Shark Hunt"] = {"Ghost"},
         ["Worm Hunt"] = {"Worm"},
         ["Ghost Worm"] = {"Ghost"},
         ["Treasure Event"] = {"Chest", "Crate", "Supply"},
         ["Meteor Rain"] = {"Meteor"},
+        ["Lochness Hunt"] = {"Ness", "Loch"},
     }
 
     -- =========================================================
-    -- 3. HELPER FUNCTIONS
+    -- 3. LOGIC FUNCTIONS
     -- =========================================================
     
-    -- Fungsi Teleport Aman (Dengan WalkOnWater logic)
     local function SafeTeleportTo(pos)
         local char = Players.LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            char:PivotTo(CFrame.new(pos + Vector3.new(0, 15, 0))) -- +15 Agar jatuh ke platform air
+            char:PivotTo(CFrame.new(pos + Vector3.new(0, 15, 0)))
             hrp.Anchored = false 
             hrp.Velocity = Vector3.zero
             hrp.AssemblyLinearVelocity = Vector3.zero
         end
     end
 
-    -- FUNGSI PROBE (TELEPORT & CHECK)
-    local function ProbeAndFindEvent(targetName)
-        if not targetName then return false end
-        
-        -- [A] KHUSUS LOCHNESS (Logic Beda)
+    -- [SCAN LOKAL] Cek apakah event ada di sekitar player (Tanpa Teleport)
+    local function CheckLocalPresence(targetName)
+        local char = Players.LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
+
+        -- 1. Lochness Logic
         if targetName == "Lochness Hunt" then
             local _, _, active = getLochNextTimes()
             if active then
-                -- Cek Fisik Global (Lochness biasanya besar dan dirender jauh)
                 for _, obj in ipairs(workspace:GetDescendants()) do
                     if obj:IsA("Model") and (string.find(obj.Name, "Nessie") or string.find(obj.Name, "Lochness")) then
-                        print("✅ [Lochness] FOUND!")
-                        SafeTeleportTo(obj:GetPivot().Position)
-                        return true
+                        if (obj:GetPivot().Position - hrp.Position).Magnitude < 500 then
+                            return true -- Masih ada di dekat kita
+                        end
                     end
                 end
-                print("⏳ [Lochness] Waiting...")
-                -- Teleport ke Safe Land untuk menunggu
-                SafeTeleportTo(SAFE_LAND_POSITION) 
-                return true -- Return True biar ga pindah ke Idle
+                -- Jika waktu aktif, kita anggap "Ada" biar ga pindah
+                return true 
             end
             return false
         end
 
-        -- [B] EVENT BIASA: PROBE SYSTEM
-        local coords = EventCoords[targetName]
-        if not coords then 
-            print("⚠️ [System] No coords for " .. targetName)
-            return false 
-        end
-
+        -- 2. Event Biasa Logic
         local keywords = EventKeywords[targetName] or {targetName}
+        local overlapParams = OverlapParams.new()
+        overlapParams.FilterDescendantsInstances = {char, workspace.Terrain}
+        overlapParams.FilterType = Enum.RaycastFilterType.Exclude
         
-        print("🕵️ [Probe] Memeriksa lokasi untuk: " .. targetName)
-
-        for i, pos in ipairs(coords) do
-            -- 1. BLIND TELEPORT (Paksa Load Chunk)
-            SafeTeleportTo(pos)
+        -- Scan radius 500 studs dari posisi player saat ini
+        local parts = workspace:GetPartBoundsInBox(hrp.CFrame, Vector3.new(500, 200, 500), overlapParams)
+        
+        for _, part in ipairs(parts) do
+            local pName = part.Name
+            local mName = part.Parent and part.Parent.Name or ""
             
-            -- 2. TUNGGU LOADING (Penting!)
-            -- Kita tunggu sebentar agar StreamingEnabled memuat monster
-            task.wait(1.5) 
-            
-            -- 3. SCAN LOKAL (Radius 500 Studs)
-            local overlapParams = OverlapParams.new()
-            overlapParams.FilterDescendantsInstances = {Players.LocalPlayer.Character, workspace.Terrain}
-            overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-            
-            local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(500, 200, 500), overlapParams)
-            
-            for _, part in ipairs(parts) do
-                local pName = part.Name
-                local mName = part.Parent and part.Parent.Name or ""
-                
-                for _, key in ipairs(keywords) do
-                    if string.find(pName, key) or string.find(mName, key) then
-                        -- VALIDASI MODEL HIDUP
-                        local model = part:FindFirstAncestorOfClass("Model")
-                        if model then
-                            if model:FindFirstChild("Humanoid") or model:FindFirstChild("Health") or targetName == "Treasure Event" then
-                                print("✅ [FOUND] " .. targetName .. " at Spot #" .. i)
-                                
-                                -- Re-adjust posisi tepat di atas monster
-                                SafeTeleportTo(part.Position)
-                                return true
-                            end
+            for _, key in ipairs(keywords) do
+                if string.find(pName, key) or string.find(mName, key) then
+                    local model = part:FindFirstAncestorOfClass("Model")
+                    if model then
+                        if model:FindFirstChild("Humanoid") or model:FindFirstChild("Health") or targetName == "Treasure Event" then
+                            return true -- YES, Event masih ada di sini!
                         end
-                        -- Fallback Check
-                        print("✅ [FOUND-Part] " .. targetName .. " detected via Part.")
-                        return true 
                     end
                 end
             end
-            
-            -- Jika tidak ketemu di titik ini, loop akan lanjut ke titik berikutnya
+        end
+        
+        return false -- Tidak ada event di sekitar kita
+    end
+
+    -- [SCAN GLOBAL/PROBE] Teleport keliling mencari event
+    local function ProbeAndFindEvent(targetName)
+        if not targetName then return false end
+        
+        -- A. Khusus Lochness
+        if targetName == "Lochness Hunt" then
+            local _, _, active = getLochNextTimes()
+            if active then
+                -- Cari di seluruh map
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("Model") and (string.find(obj.Name, "Nessie") or string.find(obj.Name, "Lochness")) then
+                        SafeTeleportTo(obj:GetPivot().Position)
+                        print("✅ [Probe] Lochness Found Global")
+                        return true
+                    end
+                end
+                -- Kalau ga ketemu fisiknya tapi waktu aktif, ke Safe Zone
+                SafeTeleportTo(SAFE_LAND_POSITION)
+                return true
+            end
+            return false
         end
 
-        print("❌ [ZONK] " .. targetName .. " tidak ditemukan di semua titik spawn.")
+        -- B. Event Biasa
+        local coords = EventCoords[targetName]
+        if not coords then return false end
+        local keywords = EventKeywords[targetName] or {targetName}
+
+        print("🚀 [Probe] Scanning " .. targetName)
+
+        for _, pos in ipairs(coords) do
+            -- 1. Teleport Buta
+            SafeTeleportTo(pos)
+            task.wait(1.5) -- Tunggu loading
+            
+            -- 2. Cek apakah ada di lokasi ini?
+            -- Kita pakai fungsi CheckLocalPresence yang sudah kita buat tadi
+            if CheckLocalPresence(targetName) then
+                print("✅ [Probe] Found " .. targetName)
+                return true
+            end
+        end
+        
         return false
     end
 
     -- =========================================================
-    -- 4. UI SETUP
+    -- 4. UI ELEMENTS
     -- =========================================================
     televent:Dropdown({
         Title = "1. Set Event Priority",
@@ -2290,63 +2306,81 @@ do
     })
 
     -- =========================================================
-    -- 5. MAIN LOGIC (PROBE LOOP)
+    -- 5. MAIN LOGIC (LOCK & STAY SYSTEM)
     -- =========================================================
     televent:Toggle({
         Title = "Enable Smart Event System",
-        Desc = "Blind Probe + Auto Verify",
+        Desc = "V6: Lock Position (Anti-Jump)",
         Value = false,
         Callback = function(state)
             SmartEventState = state
 
             if SmartEventState then
-                WindUI:Notify({ Title = "Smart System", Content = "Probing Locations...", Duration = 3, Icon = "cpu" })
-                print("\n=== PROBE SYSTEM STARTED ===")
-                
+                WindUI:Notify({ Title = "Smart System V6", Content = "Started", Duration = 3, Icon = "cpu" })
                 pcall(function() if EventTP and EventTP.Stop then EventTP.Stop() end end)
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(true) end
 
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
-                        local foundActive = false
+                        local priorityFound = false
+                        local normalFound = false
                         
-                        -- [PHASE 1] PRIORITY PROBE
+                        -- [PHASE 1] CEK PRIORITY
                         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
-                            if ProbeAndFindEvent(SelectedPriorityEvent) then
-                                foundActive = true
-                                print("⭐ Priority Active. Holding position.")
-                                task.wait(3) -- Refresh rate saat diam di event
+                            -- A. Cek Lokal Dulu (LOCK MECHANISM)
+                            if CheckLocalPresence(SelectedPriorityEvent) then
+                                priorityFound = true
+                                print("🔒 [Lock] Staying at Priority: " .. SelectedPriorityEvent)
+                                task.wait(3) -- Diam farming
+                            else
+                                -- B. Kalau ga ada di dekat kita, baru Probe
+                                if ProbeAndFindEvent(SelectedPriorityEvent) then
+                                    priorityFound = true
+                                    task.wait(2)
+                                end
                             end
                         end
 
-                        if foundActive then
-                            -- Skip Phase 2 & 3
+                        if priorityFound then
+                            -- Skip Normal Check
                         else
-                            -- [PHASE 2] NORMAL EVENTS PROBE (ROTATION)
+                            -- [PHASE 2] CEK NORMAL EVENTS (ROTASI)
                             local normalCount = #SelectedNormalEvents
                             if normalCount > 0 then
+                                
+                                -- Tentukan Target
                                 if CurrentCheckIndex > normalCount then CurrentCheckIndex = 1 end
                                 local targetEvent = SelectedNormalEvents[CurrentCheckIndex]
-                                CurrentCheckIndex = CurrentCheckIndex + 1 
                                 
-                                -- Debug
-                                -- WindUI:Notify({Title="Checking...", Content=targetEvent, Duration=1})
+                                -- A. Cek Lokal (LOCK MECHANISM)
+                                -- "Apakah kita sedang berada di salah satu event normal?"
+                                local isAlreadyAtTarget = CheckLocalPresence(targetEvent)
                                 
-                                if ProbeAndFindEvent(targetEvent) then
-                                    foundActive = true
-                                    print("⚔️ Farming: " .. targetEvent .. ". Waiting 5s...")
-                                    task.wait(5)
+                                if isAlreadyAtTarget then
+                                    normalFound = true
+                                    print("🔒 [Lock] Staying at: " .. targetEvent)
+                                    
+                                    -- Kalau masih ada, JANGAN PINDAH INDEX
+                                    -- Biarkan dia farming di sini terus sampai event habis
+                                    task.wait(3) 
                                 else
-                                    -- Kalau tidak ketemu, dia sudah otomatis teleport ke semua titik spawn.
-                                    -- Jadi tidak perlu delay tambahan, langsung cek event berikutnya di loop depan.
-                                    task.wait(0.2)
+                                    -- B. Kalau tidak ada di sini, baru Probe (Teleport Cari)
+                                    -- Geser index HANYA jika kita melakukan pencarian baru
+                                    CurrentCheckIndex = CurrentCheckIndex + 1
+                                    
+                                    if ProbeAndFindEvent(targetEvent) then
+                                        normalFound = true
+                                        task.wait(2)
+                                    else
+                                        -- Zonk
+                                        task.wait(0.1)
+                                    end
                                 end
                             end
                         end
 
                         -- [PHASE 3] IDLE
-                        if not foundActive then
-                            print("💤 All Events Checked. Going Idle.")
+                        if not priorityFound and not normalFound then
                             if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
                                 local data = FishingAreass[Loch_Return_SelectedArea]
                                 local char = Players.LocalPlayer.Character
@@ -2360,7 +2394,6 @@ do
                                     end
                                 end
                             end
-                            -- Tunggu agak lama sebelum mulai cycle checking lagi
                             task.wait(2)
                         end
                     end
@@ -2368,8 +2401,6 @@ do
             else
                 if SmartEventThread then task.cancel(SmartEventThread) SmartEventThread = nil end
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then WalkOnWaterToggleElement:Set(false) end
-                
-                print("=== SYSTEM STOPPED ===")
                 WindUI:Notify({ Title = "Smart System", Content = "Stopped.", Duration = 3, Icon = "x" })
             end
         end
