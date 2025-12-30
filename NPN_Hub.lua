@@ -3205,23 +3205,7 @@ SmartEventThread = task.spawn(function()
                     print("❌ [SCAN] No", eventName, "found")
                 end
                 
-                if eventName == "Ghost Shark Hunt" then
-                    print("👻 [GHOST SHARK] Special immediate processing")
-                    RotationSystem:HandleGhostSharkImmediate()
-                    
-                    -- BUILD QUEUE IMMEDIATELY FOR GHOST SHARK
-                    pcall(function()
-                        RotationSystem:BuildQueue()
-                    end)
-                    
-                    print("🚀 [GHOST SHARK] Immediate rotation setup complete")
-                    task.wait(0.5)  -- Short wait then continue to rotation
-                    return  -- Exit scan loop to start rotation immediately
-                else
-                    -- NORMAL FORCE FLAG FOR OTHER EVENTS
-                    RotationSystem:ForceNextRotation()
-                    print("🚀 [SCAN] Set force flag for immediate rotation")
-                end
+                
                 
                 task.wait(1)
             end
