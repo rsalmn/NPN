@@ -980,691 +980,604 @@ end
 -- =================================================================
 local farm = Window:Tab({ Title = "Fishing", Icon = "fish" })
 
--- [[ 1. X7 SPEED (BETA) ]] --
+-- [[ BLATANT FISHING - FINAL OPTIMIZED VERSION ]] --
 do
-    -- Variables for Fishing
-    local legitAutoState = false
-    local normalInstantState = false
-    local blatantInstantState = false
-    local normalLoopThread, normalEquipThread
-    local blatantLoopThread, blatantEquipThread
-    local legitClickThread, legitEquipThread
-    
-    -- Remotes
-    local RE_EquipToolFromHotbar = GetRemote(RPath, "RE/EquipToolFromHotbar")
-    local RF_ChargeFishingRod = GetRemote(RPath, "RF/ChargeFishingRod")
-    local RF_RequestFishingMinigameStarted = GetRemote(RPath, "RF/RequestFishingMinigameStarted")
-    local RE_FishingCompleted = GetRemote(RPath, "RE/FishingCompleted")
-    local RF_CancelFishingInputs = GetRemote(RPath, "RF/CancelFishingInputs")
-    local RF_UpdateAutoFishingState = GetRemote(RPath, "RF/UpdateAutoFishingState")
+    -- =========================================================
+    -- CENTRALIZED REMOTE REFERENCES
+    -- =========================================================
+    local FishingRemotes = {
+        EquipTool = GetRemote(RPath, "RE/EquipToolFromHotbar"),
+        Charge = GetRemote(RPath, "RF/ChargeFishingRod"),
+        StartMinigame = GetRemote(RPath, "RF/RequestFishingMinigameStarted"),
+        Complete = GetRemote(RPath, "RE/FishingCompleted"),
+        Cancel = GetRemote(RPath, "RF/CancelFishingInputs"),
+        UpdateState = GetRemote(RPath, "RF/UpdateAutoFishingState"),
+        MinigameChanged = GetRemote(RPath, "RE/FishingMinigameChanged")
+    }
 
-    local function checkFishingRemotes()
-        if not (RE_EquipToolFromHotbar and RF_ChargeFishingRod and RF_RequestFishingMinigameStarted and RE_FishingCompleted) then
-            WindUI:Notify({ Title = "Error", Content = "Fishing Remotes not found!", Duration = 5, Icon = "x" })
-            return false
+    local function validateRemotes()
+        for name, remote in pairs(FishingRemotes) do
+            if not remote then
+                WindUI:Notify({ 
+                    Title = "Remote Error", 
+                    Content = "Missing: " .. name,
+                    Duration = 5, 
+                    Icon = "x" 
+                })
+                return false
+            end
         end
         return true
     end
 
-    local function disableOtherModes()
-        legitAutoState = false; normalInstantState = false; blatantInstantState = false
-        if legitClickThread then task.cancel(legitClickThread) end
-        if normalLoopThread then task.cancel(normalLoopThread) end
-        if blatantLoopThread then task.cancel(blatantLoopThread) end
+    -- =========================================================
+    -- CENTRALIZED STATE MANAGEMENT
+    -- =========================================================
+    local FishingState = {
+        currentMode = "None",
+        activeThread = nil,
+        equipThread = nil,
+        
+        config = {
+            Legit = { speed = 0.05 },
+            Normal = { delay = 1.5 },
+            BlatantV1 = { completeDelay = 0.72, cancelDelay = 0.28, recastDelay = 0.001 },
+            BlatantV2 = { completeDelay = 0.79, cancelDelay = 0.329, recastDelay = 0.0 },
+            Hybrid = { completeDelay = 0.75, cancelDelay = 0.25, recastDelay = 0.0 }
+        }
+    }
+
+    function FishingState:SetMode(newMode)
+        if self.currentMode == newMode then return end
+        
+        print("🔄 [FISHING] Switching from", self.currentMode, "to", newMode)
+        
+        -- Stop current mode
+        self:StopCurrentMode()
+        
+        -- Start new mode
+        self.currentMode = newMode
+        if newMode ~= "None" then
+            self:StartMode(newMode)
+        end
     end
 
-    -- SECTION: AUTO FISHING
-    local fishMancing = farm:Section({ Title = "Fishing", TextSize = 20})
+    function FishingState:StopCurrentMode()
+        if self.activeThread then
+            task.cancel(self.activeThread)
+            self.activeThread = nil
+        end
+        
+        if self.equipThread then
+            task.cancel(self.equipThread)
+            self.equipThread = nil
+        end
+        
+        -- Reset server state
+        pcall(function()
+            FishingRemotes.Cancel:InvokeServer()
+            FishingRemotes.UpdateState:InvokeServer(false)
+        end)
+        
+        print("✅ [FISHING] Stopped mode:", self.currentMode)
+    end
 
-    local autofish = fishMancing:Section({ Title = "1. Auto Fishing", TextSize = 20 })
+    function FishingState:StartMode(mode)
+        if not validateRemotes() then return false end
+        
+        local config = self.config[mode]
+        if not config then 
+            print("❌ [FISHING] Unknown mode:", mode)
+            return false 
+        end
+        
+        -- Start auto-equip thread for all modes
+        self.equipThread = task.spawn(function()
+            while self.currentMode == mode do
+                pcall(function() 
+                    FishingRemotes.EquipTool:FireServer(1) 
+                end)
+                task.wait(0.5)
+            end
+        end)
+        
+        -- Start mode-specific logic
+        if mode == "Legit" then
+            self:StartLegitMode(config)
+        elseif mode == "Normal" then
+            self:StartNormalMode(config)
+        elseif mode == "BlatantV1" then
+            self:StartBlatantV1(config)
+        elseif mode == "BlatantV2" then
+            self:StartBlatantV2(config)
+        elseif mode == "Hybrid" then
+            self:StartHybridMode(config)
+        end
+        
+        print("✅ [FISHING] Started mode:", mode)
+        return true
+    end
 
-    -- 1. LEGIT MODE
-    local SPEED_LEGIT = 0.05
-    Reg("legit", autofish:Toggle({
-        Title = "Auto Fish (Legit)", Value = false,
-        Callback = function(state)
-            if not checkFishingRemotes() then return end
-            disableOtherModes()
-            legitAutoState = state
+    -- =========================================================
+    -- MODE IMPLEMENTATIONS
+    -- =========================================================
+    
+    function FishingState:StartLegitMode(config)
+        local FishingController = require(RepStorage.Controllers.FishingController)
+        
+        -- Hook fishing rod started
+        local oldRodStarted = FishingController.FishingRodStarted
+        FishingController.FishingRodStarted = function(controller, ...)
+            oldRodStarted(controller, ...)
+            if self.currentMode == "Legit" then
+                self.activeThread = task.spawn(function()
+                    while self.currentMode == "Legit" do
+                        FishingController:RequestFishingMinigameClick()
+                        task.wait(config.speed)
+                    end
+                end)
+            end
+        end
+    end
+
+    function FishingState:StartNormalMode(config)
+        self.activeThread = task.spawn(function()
+            while self.currentMode == "Normal" do
+                local ts = os.time() + os.clock()
+                pcall(function() FishingRemotes.Charge:InvokeServer(ts) end)
+                pcall(function() FishingRemotes.StartMinigame:InvokeServer(-139.6, 0.99) end)
+                task.wait(config.delay)
+                pcall(function() FishingRemotes.Complete:FireServer() end)
+                task.wait(0.3)
+                pcall(function() FishingRemotes.Cancel:InvokeServer() end)
+                task.wait(0.1)
+            end
+        end)
+    end
+
+    function FishingState:StartBlatantV1(config)
+        -- Set server state
+        pcall(function() 
+            FishingRemotes.UpdateState:InvokeServer(true) 
+        end)
+        
+        local State = {
+            lastComplete = 0,
+            cooldown = 0.35,
+            doingCycle = false
+        }
+
+        local function ProtectedComplete()
+            local now = tick()
+            if now - State.lastComplete < State.cooldown then
+                return false
+            end
+
+            State.lastComplete = now
+            pcall(function()
+                FishingRemotes.Complete:FireServer()
+            end)
+            return true
+        end
+
+        local function PerformCast()
+            local t = tick()
+            pcall(function()
+                FishingRemotes.Charge:InvokeServer({[1] = t})
+            end)
+            task.wait(0.008)
+            pcall(function()
+                FishingRemotes.StartMinigame:InvokeServer(1, 0, t)
+            end)
+        end
+
+        self.activeThread = task.spawn(function()
+            while self.currentMode == "BlatantV1" do
+                State.doingCycle = true
+
+                PerformCast()
+                task.wait(config.completeDelay)
+
+                if self.currentMode == "BlatantV1" then
+                    ProtectedComplete()
+                end
+
+                task.wait(config.cancelDelay)
+
+                if self.currentMode == "BlatantV1" then
+                    pcall(function()
+                        FishingRemotes.Cancel:InvokeServer()
+                    end)
+                end
+
+                State.doingCycle = false
+                task.wait(config.recastDelay)
+            end
+        end)
+
+        -- Failsafe listener
+        FishingRemotes.MinigameChanged.OnClientEvent:Connect(function()
+            if self.currentMode ~= "BlatantV1" then return end
+
+            local now = tick()
+            if now - State.lastComplete < 0.25 then return end
+
+            task.spawn(function()
+                task.wait(config.completeDelay)
+                if ProtectedComplete() then
+                    task.wait(config.cancelDelay)
+                    pcall(function()
+                        FishingRemotes.Cancel:InvokeServer()
+                    end)
+                end
+            end)
+        end)
+    end
+
+    function FishingState:StartBlatantV2(config)
+        -- Set server state
+        pcall(function() 
+            FishingRemotes.UpdateState:InvokeServer(true) 
+        end)
+
+        self.activeThread = task.spawn(function()
+            while self.currentMode == "BlatantV2" do
+                local t = tick()
+
+                -- CAST
+                pcall(function()
+                    FishingRemotes.Charge:InvokeServer({[5] = t})
+                end)
+                pcall(function()
+                    FishingRemotes.StartMinigame:InvokeServer(5, 0, t)
+                end)
+
+                -- COMPLETE
+                task.wait(config.completeDelay)
+                if self.currentMode ~= "BlatantV2" then break end
+
+                pcall(function()
+                    FishingRemotes.Complete:FireServer()
+                end)
+
+                -- CANCEL
+                task.wait(config.cancelDelay)
+                if self.currentMode ~= "BlatantV2" then break end
+
+                pcall(function()
+                    FishingRemotes.Cancel:InvokeServer()
+                end)
+
+                task.wait(config.recastDelay)
+            end
+        end)
+
+        -- Backup failsafe listener
+        FishingRemotes.MinigameChanged.OnClientEvent:Connect(function()
+            if self.currentMode ~= "BlatantV2" then return end
+
+            task.spawn(function()
+                task.wait(config.completeDelay)
+                pcall(function()
+                    FishingRemotes.Complete:FireServer()
+                end)
+                task.wait(config.cancelDelay)
+                pcall(function()
+                    FishingRemotes.Cancel:InvokeServer()
+                end)
+            end)
+        end)
+    end
+
+    function FishingState:StartHybridMode(config)
+        -- Set server state
+        pcall(function() 
+            FishingRemotes.UpdateState:InvokeServer(true) 
+        end)
+        
+        self.activeThread = task.spawn(function()
+            local State = {
+                lastComplete = 0,
+                cooldownTime = 0.1,
+                cycleCount = 0
+            }
             
-            local FishingController = require(RepStorage.Controllers.FishingController)
-            
-            if state then
-                -- Hook logic simple
-                local oldRodStarted = FishingController.FishingRodStarted
-                FishingController.FishingRodStarted = function(self, ...)
-                    oldRodStarted(self, ...)
-                    if legitAutoState then
-                        legitClickThread = task.spawn(function()
-                            while legitAutoState do
-                                FishingController:RequestFishingMinigameClick()
-                                task.wait(SPEED_LEGIT)
-                            end
-                        end)
+            while self.currentMode == "Hybrid" do
+                local cycleStart = tick()
+                State.cycleCount = State.cycleCount + 1
+                
+                -- [PHASE 1] CAST WITH TIMING VALIDATION
+                local castTime = tick()
+                local success1 = pcall(function() 
+                    FishingRemotes.Charge:InvokeServer({[1] = castTime}) 
+                end)
+                
+                task.wait(0.005) -- Micro delay for packet ordering
+                
+                local success2 = pcall(function() 
+                    FishingRemotes.StartMinigame:InvokeServer(1, 0, castTime) 
+                end)
+                
+                if not (success1 and success2) then
+                    print("⚠️ [HYBRID] Cast failed, cycle:", State.cycleCount)
+                    task.wait(0.5) -- Recovery delay
+                    continue
+                end
+                
+                -- [PHASE 2] WAIT FOR CATCH
+                task.wait(config.completeDelay)
+                if self.currentMode ~= "Hybrid" then break end
+                
+                -- [PHASE 3] COMPLETE WITH COOLDOWN CHECK
+                local now = tick()
+                if now - State.lastComplete >= State.cooldownTime then
+                    local success3 = pcall(function() 
+                        FishingRemotes.Complete:FireServer() 
+                    end)
+                    
+                    if success3 then
+                        State.lastComplete = now
+                    else
+                        print("⚠️ [HYBRID] Complete failed, cycle:", State.cycleCount)
                     end
                 end
                 
-                -- Auto Equip Loop
-                legitEquipThread = task.spawn(function()
-                    while legitAutoState do
-                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                        task.wait(0.5)
+                -- [PHASE 4] WAIT FOR ANIMATION
+                task.wait(config.cancelDelay)
+                if self.currentMode ~= "Hybrid" then break end
+                
+                -- [PHASE 5] CANCEL/RESET
+                pcall(function() 
+                    FishingRemotes.Cancel:InvokeServer() 
+                end)
+                
+                -- [PHASE 6] RECAST DELAY
+                if config.recastDelay > 0 then
+                    task.wait(config.recastDelay)
+                end
+                
+                -- Performance monitoring
+                local cycleTime = tick() - cycleStart
+                if State.cycleCount % 50 == 0 then
+                    print(string.format("🔄 [HYBRID] Cycle %d completed in %.3fs", 
+                        State.cycleCount, cycleTime))
+                end
+            end
+            
+            print("🛑 [HYBRID] Loop ended. Total cycles:", State.cycleCount)
+        end)
+
+        -- Failsafe listener
+        FishingRemotes.MinigameChanged.OnClientEvent:Connect(function()
+            if self.currentMode ~= "Hybrid" then return end
+            
+            task.delay(config.completeDelay, function()
+                if self.currentMode == "Hybrid" then 
+                    pcall(function() FishingRemotes.Complete:FireServer() end) 
+                end
+                
+                task.delay(config.cancelDelay, function()
+                    if self.currentMode == "Hybrid" then 
+                        pcall(function() FishingRemotes.Cancel:InvokeServer() end) 
                     end
                 end)
+            end)
+        end)
+    end
+
+    -- =========================================================
+    -- UI SECTIONS
+    -- =========================================================
+    local fishMancing = farm:Section({ Title = "Fishing", TextSize = 20})
+    local autofish = fishMancing:Section({ Title = "1. Auto Fishing", TextSize = 20 })
+
+    -- 1. LEGIT MODE
+    Reg("legit", autofish:Toggle({
+        Title = "Auto Fish (Legit)", 
+        Value = false,
+        Callback = function(state)
+            if state then
+                FishingState:SetMode("Legit")
+                WindUI:Notify({
+                    Title = "Legit Mode ON",
+                    Content = "Safe auto-clicking enabled",
+                    Duration = 3,
+                    Icon = "check"
+                })
             else
-                if legitClickThread then task.cancel(legitClickThread) end
-                if legitEquipThread then task.cancel(legitEquipThread) end
+                FishingState:SetMode("None")
+                WindUI:Notify({ Title = "Legit Mode OFF", Duration = 2 })
             end
         end
     }))
 
     -- 2. NORMAL INSTANT MODE
-    local normalDelay = 1.5
     Reg("tognorm", autofish:Toggle({
-        Title = "Normal Instant Fish", Value = false,
+        Title = "Normal Instant Fish", 
+        Value = false,
         Callback = function(state)
-            if not checkFishingRemotes() then return end
-            disableOtherModes()
-            normalInstantState = state
-            
             if state then
-                normalLoopThread = task.spawn(function()
-                    while normalInstantState do
-                        local ts = os.time() + os.clock()
-                        pcall(function() RF_ChargeFishingRod:InvokeServer(ts) end)
-                        pcall(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6, 0.99) end)
-                        task.wait(normalDelay)
-                        pcall(function() RE_FishingCompleted:FireServer() end)
-                        task.wait(0.3)
-                        pcall(function() RF_CancelFishingInputs:InvokeServer() end)
-                        task.wait(0.1)
-                    end
-                end)
-                
-                normalEquipThread = task.spawn(function()
-                    while normalInstantState do
-                        pcall(function() RE_EquipToolFromHotbar:FireServer(1) end)
-                        task.wait(0.5)
-                    end
-                end)
+                FishingState:SetMode("Normal")
+                WindUI:Notify({
+                    Title = "Normal Mode ON",
+                    Content = "Instant fishing enabled",
+                    Duration = 3,
+                    Icon = "zap"
+                })
             else
-                if normalLoopThread then task.cancel(normalLoopThread) end
-                if normalEquipThread then task.cancel(normalEquipThread) end
+                FishingState:SetMode("None")
+                WindUI:Notify({ Title = "Normal Mode OFF", Duration = 2 })
             end
         end
     }))
 
-    local v4 = fishMancing:Section({
-        Title = "2. Blatant V1",
-        TextSize = 20
-    })
+    -- 3. BLATANT V1
+    local v1 = fishMancing:Section({ Title = "2. Blatant V1", TextSize = 20 })
 
-    local RF_ChargeFishingRod = NetFolder["RF/ChargeFishingRod"]
-    local RF_RequestFishingMinigameStarted = NetFolder["RF/RequestFishingMinigameStarted"]
-    local RF_CancelFishingInputs = NetFolder["RF/CancelFishingInputs"]
-    local RF_UpdateAutoFishingState = NetFolder["RF/UpdateAutoFishingState"]
-    local RE_FishingCompleted = NetFolder["RE/FishingCompleted"]
-    local RE_MinigameChanged = NetFolder["RE/FishingMinigameChanged"]
-
-    ------------------------------------------------------------
-    -- STATE
-    ------------------------------------------------------------
-    local V4_Active = false
-    local V4_LoopThread = nil
-
-    local State = {
-        lastComplete = 0,
-        cooldown = 0.35,
-        doingCycle = false,
-        lastCast = 0
-    }
-
-    ------------------------------------------------------------
-    -- DEFAULT CONFIG (SAFE + FAST)
-    ------------------------------------------------------------
-    local V4_CompleteDelay = 0.72
-    local V4_CancelDelay = 0.28
-    local V4_RecastDelay = 0.001
-
-    ------------------------------------------------------------
-    -- SAFE WRAPPER
-    ------------------------------------------------------------
-    local function safe(fn)
-        task.spawn(function()
-            pcall(fn)
-        end)
-    end
-
-    ------------------------------------------------------------
-    -- INTERNAL LOGIC
-    ------------------------------------------------------------
-    local function ProtectedComplete()
-        local now = tick()
-        if now - State.lastComplete < State.cooldown then
-            return false
-        end
-
-        State.lastComplete = now
-        safe(function()
-            RE_FishingCompleted:FireServer()
-        end)
-
-        return true
-    end
-
-    local function PerformCast()
-        local t = tick()
-        State.lastCast = t
-
-        safe(function()
-            RF_ChargeFishingRod:InvokeServer({[1]=t})
-        end)
-
-        task.wait(0.008)
-
-        safe(function()
-            RF_RequestFishingMinigameStarted:InvokeServer(
-                1,
-                0,
-                t
-            )
-        end)
-    end
-
-    ------------------------------------------------------------
-    -- MAIN LOOP
-    ------------------------------------------------------------
-    local function V4_Loop()
-        while V4_Active do
-            State.doingCycle = true
-
-            PerformCast()
-
-            task.wait(V4_CompleteDelay)
-
-            if V4_Active then
-                ProtectedComplete()
-            end
-
-            task.wait(V4_CancelDelay)
-
-            if V4_Active then
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-            end
-
-            State.doingCycle = false
-            task.wait(V4_RecastDelay)
-        end
-
-        State.doingCycle = false
-    end
-
-    ------------------------------------------------------------
-    -- REALTIME FAILSAFE SYNC
-    ------------------------------------------------------------
-    local lastEvent = 0
-
-    RE_MinigameChanged.OnClientEvent:Connect(function()
-        if not V4_Active then return end
-
-        local now = tick()
-        if now - lastEvent < 0.15 then return end
-        lastEvent = now
-
-        if now - State.lastComplete < 0.25 then return end
-
-        task.spawn(function()
-            task.wait(V4_CompleteDelay)
-
-            if ProtectedComplete() then
-                task.wait(V4_CancelDelay)
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-            end
-        end)
-    end)
-
-    ------------------------------------------------------------
-    -- UI INPUTS
-    ------------------------------------------------------------
-    Reg("v4_complete", v4:Input({
-        Title="Complete Delay",
-        Value=tostring(V4_CompleteDelay),
-        Placeholder="0.72",
-        Callback=function(v)
+    Reg("v1_complete", v1:Input({
+        Title = "Complete Delay",
+        Value = tostring(FishingState.config.BlatantV1.completeDelay),
+        Placeholder = "0.72",
+        Callback = function(v)
             local n = tonumber(v)
             if n and n >= 0.1 then
-                V4_CompleteDelay = n
+                FishingState.config.BlatantV1.completeDelay = n
             end
         end
     }))
 
-    Reg("v4_cancel", v4:Input({
-        Title="Cancel Delay",
-        Value=tostring(V4_CancelDelay),
-        Placeholder="0.28",
-        Callback=function(v)
+    Reg("v1_cancel", v1:Input({
+        Title = "Cancel Delay",
+        Value = tostring(FishingState.config.BlatantV1.cancelDelay),
+        Placeholder = "0.28",
+        Callback = function(v)
             local n = tonumber(v)
             if n and n >= 0.1 then
-                V4_CancelDelay = n
+                FishingState.config.BlatantV1.cancelDelay = n
             end
         end
     }))
 
-    ------------------------------------------------------------
-    -- TOGGLE
-    ------------------------------------------------------------
-    Reg("v4toggle", v4:Toggle({
+    Reg("v1toggle", v1:Toggle({
         Title = "Enable Blatant V1",
         Value = false,
         Callback = function(state)
-
-            if not checkFishingRemotes() then
-                WindUI:Notify({
-                    Title="Missing Remotes",
-                    Content="Fishing Remotes Not Found",
-                    Duration=3
-                })
-                return
-            end
-
-            V4_Active = state
-
             if state then
-                if v2Active ~= nil then v2Active = false end
-                if blatantInstantState ~= nil then blatantInstantState = false end
-
-                safe(function()
-                    RF_UpdateAutoFishingState:InvokeServer(true)
-                end)
-
-                V4_LoopThread = task.spawn(V4_Loop)
-
+                FishingState:SetMode("BlatantV1")
                 WindUI:Notify({
-                    Title="Blatant V1 Enabled",
-                    Content="Final Stable Mode Activated",
-                    Duration=4,
-                    Icon="zap"
-                })
-
-            else
-                V4_Active = false
-                
-                if V4_LoopThread then
-                    task.cancel(V4_LoopThread)
-                    V4_LoopThread = nil
-                end
-
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-
-                WindUI:Notify({
-                    Title="Blatant V1 Stopped",
-                    Duration=3
-                })
-            end
-        end
-    }))
-
-    ------------------------------------------------------------
-    -- BLATANT V5 (TESTER)
-    -- Ultra Spam Mode (Gila Cepat, tapi Experimental)
-    ------------------------------------------------------------
-    local v5 = fishMancing:Section({
-        Title = "3. Blatant v2",
-        TextSize = 20
-    })
-
-    local RF_ChargeFishingRod = NetFolder["RF/ChargeFishingRod"]
-    local RF_RequestFishingMinigameStarted = NetFolder["RF/RequestFishingMinigameStarted"]
-    local RF_CancelFishingInputs = NetFolder["RF/CancelFishingInputs"]
-    local RF_UpdateAutoFishingState = NetFolder["RF/UpdateAutoFishingState"]
-    local RE_FishingCompleted = NetFolder["RE/FishingCompleted"]
-    local RE_MinigameChanged = NetFolder["RE/FishingMinigameChanged"]
-
-    ------------------------------------------------------------
-    -- STATE
-    ------------------------------------------------------------
-    local V5_Active = false
-    local V5_Thread = nil
-
-    local V5_CompleteDelay = 0.79
-    local V5_CancelDelay = 0.329
-
-    ------------------------------------------------------------
-    -- SAFE WRAPPER
-    ------------------------------------------------------------
-    local function safe(fn)
-        task.spawn(function()
-            pcall(fn)
-        end)
-    end
-
-
-    ------------------------------------------------------------
-    -- CORE SPAM ENGINE
-    ------------------------------------------------------------
-    local function V5_Loop()
-        while V5_Active do
-            local t = tick()
-
-            -- CAST
-            safe(function()
-                RF_ChargeFishingRod:InvokeServer({[5] = t})
-            end)
-
-            safe(function()
-                RF_RequestFishingMinigameStarted:InvokeServer(5, 0, t)
-            end)
-
-            -- COMPLETE
-            task.wait(V5_CompleteDelay)
-
-            if not V5_Active then break end
-
-            safe(function()
-                RE_FishingCompleted:FireServer()
-            end)
-
-            -- CANCEL
-            task.wait(V5_CancelDelay)
-
-            if not V5_Active then break end
-
-            safe(function()
-                RF_CancelFishingInputs:InvokeServer()
-            end)
-        end
-    end
-
-
-    ------------------------------------------------------------
-    -- BACKUP FAILSAFE LISTENER
-    ------------------------------------------------------------
-    RE_MinigameChanged.OnClientEvent:Connect(function()
-        if not V5_Active then return end
-
-        task.spawn(function()
-            task.wait(V5_CompleteDelay)
-
-            safe(function()
-                RE_FishingCompleted:FireServer()
-            end)
-
-            task.wait(V5_CancelDelay)
-
-            safe(function()
-                RF_CancelFishingInputs:InvokeServer()
-            end)
-        end)
-    end)
-
-
-    ------------------------------------------------------------
-    -- UI INPUTS
-    ------------------------------------------------------------
-    Reg("v5_complete", v5:Input({
-        Title = "Complete Delay",
-        Value = tostring(V5_CompleteDelay),
-        Placeholder = "0.001",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then
-                V5_CompleteDelay = n
-            end
-        end
-    }))
-
-    Reg("v5_cancel", v5:Input({
-        Title = "Cancel Delay",
-        Value = tostring(V5_CancelDelay),
-        Placeholder = "0.001",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then
-                V5_CancelDelay = n
-            end
-        end
-    }))
-
-
-    ------------------------------------------------------------
-    -- TOGGLE
-    ------------------------------------------------------------
-    Reg("v5toggle", v5:Toggle({
-        Title = "Enable Blatant v2",
-        Value = false,
-        Callback = function(state)
-
-            if not checkFishingRemotes() then
-                WindUI:Notify({
-                    Title = "Missing Remotes",
-                    Content = "Fishing Remotes Not Found",
-                    Duration = 3
-                })
-                return
-            end
-
-            V5_Active = state
-
-            if state then
-                -- disable other modes
-                if v2Active ~= nil then v2Active = false end
-                if V4_Active ~= nil then V4_Active = false end
-                if blatantInstantState ~= nil then blatantInstantState = false end
-
-                safe(function()
-                    RF_UpdateAutoFishingState:InvokeServer(true)
-                end)
-
-                V5_Thread = task.spawn(V5_Loop)
-
-                WindUI:Notify({
-                    Title = "Blatant v2 Enabled",
-                    Content = "Ultra Spam Tester Activated",
+                    Title = "Blatant V1 ON",
+                    Content = "Stable blatant mode activated",
                     Duration = 4,
                     Icon = "zap"
                 })
-
             else
-                V5_Active = false
-
-                if V5_Thread then
-                    task.cancel(V5_Thread)
-                    V5_Thread = nil
-                end
-
-                safe(function()
-                    RF_UpdateAutoFishingState:InvokeServer(true)
-                end)
-
-                task.wait(0.2)
-
-                safe(function()
-                    RF_CancelFishingInputs:InvokeServer()
-                end)
-
-                WindUI:Notify({
-                    Title = "Blatant v2 Stopped",
-                    Duration = 3
-                })
+                FishingState:SetMode("None")
+                WindUI:Notify({ Title = "Blatant V1 OFF", Duration = 2 })
             end
         end
     }))
 
+    -- 4. BLATANT V2
+    local v2 = fishMancing:Section({ Title = "3. Blatant V2", TextSize = 20 })
 
-    ------------------------------------------------------------
-    -- BLATANT HYBRID (V4 & V5 COMBINED)
-    -- Logika: Struktur V4 (Stabil) + Eksekusi V5 (Cepat/Tanpa Safety)
-    ------------------------------------------------------------
-    local hybrid = fishMancing:Section({
-        Title = "3. Blatant Hybrid (Best)",
-        TextSize = 20
-    })
-
-    -- Mengambil referensi remote dari NetFolder global yang sudah didefinisikan di atas
-    local RF_Charge = NetFolder["RF/ChargeFishingRod"]
-    local RF_Start = NetFolder["RF/RequestFishingMinigameStarted"]
-    local RF_Cancel = NetFolder["RF/CancelFishingInputs"]
-    local RF_UpdateState = NetFolder["RF/UpdateAutoFishingState"]
-    local RE_Finish = NetFolder["RE/FishingCompleted"]
-    local RE_Changed = NetFolder["RE/FishingMinigameChanged"]
-
-    ------------------------------------------------------------
-    -- STATE & VARIABLES
-    ------------------------------------------------------------
-    local Hybrid_Active = false
-    local Hybrid_Thread = nil
-
-    -- Default Config (Agresif tapi flow tetap terjaga)
-    local H_CompleteDelay = 0.75
-    local H_CancelDelay = 0.25
-    local H_RecastDelay = 0.0
-
-    ------------------------------------------------------------
-    -- SAFE WRAPPER (Prevents Script Crash)
-    ------------------------------------------------------------
-    local function safe(fn)
-        task.spawn(function()
-            pcall(fn)
-        end)
-    end
-
-    ------------------------------------------------------------
-    -- MAIN HYBRID LOOP
-    ------------------------------------------------------------
-    local function Hybrid_Loop()
-        while Hybrid_Active do
-            local t = tick()
-
-            -- [1] CAST PHASE
-            -- Kita eksekusi Charge & Start hampir bersamaan (Style V5)
-            -- Namun diberi micro-wait 5ms agar paket data terurut (Style V4)
-            safe(function() RF_Charge:InvokeServer({[1]=t}) end)
-            safe(function() RF_Start:InvokeServer(1, 0, t) end)
-
-            -- [2] WAITING TO CATCH
-            task.wait(H_CompleteDelay)
-            if not Hybrid_Active then break end
-
-            -- [3] COMPLETE PHASE
-            -- Tanpa safety cooldown, langsung tembak (Style V5)
-            safe(function() RE_Finish:FireServer() end)
-
-            -- [4] WAITING TO CANCEL/ANIMATION
-            task.wait(H_CancelDelay)
-            if not Hybrid_Active then break end
-
-            -- [5] CANCEL PHASE (Reset Rod)
-            safe(function() RF_Cancel:InvokeServer() end)
-        end
-    end
-
-    ------------------------------------------------------------
-    -- FAILSAFE LISTENER
-    -- Berguna jika main loop telat karena lag, event ini akan memaksa finish
-    ------------------------------------------------------------
-    RE_Changed.OnClientEvent:Connect(function()
-        if not Hybrid_Active then return end
-        
-        -- Logic: Jika minigame muncul (mungkin karena desync), kita antrikan penyelesaian
-        task.delay(H_CompleteDelay, function()
-            if Hybrid_Active then 
-                safe(function() RE_Finish:FireServer() end) 
+    Reg("v2_complete", v2:Input({
+        Title = "Complete Delay",
+        Value = tostring(FishingState.config.BlatantV2.completeDelay),
+        Placeholder = "0.79",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0 then
+                FishingState.config.BlatantV2.completeDelay = n
             end
-            
-            task.delay(H_CancelDelay, function()
-                if Hybrid_Active then 
-                    safe(function() RF_Cancel:InvokeServer() end) 
-                end
-            end)
-        end)
-    end)
+        end
+    }))
 
-    ------------------------------------------------------------
-    -- UI INPUTS
-    ------------------------------------------------------------
+    Reg("v2_cancel", v2:Input({
+        Title = "Cancel Delay",
+        Value = tostring(FishingState.config.BlatantV2.cancelDelay),
+        Placeholder = "0.329",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0 then
+                FishingState.config.BlatantV2.cancelDelay = n
+            end
+        end
+    }))
+
+    Reg("v2toggle", v2:Toggle({
+        Title = "Enable Blatant V2",
+        Value = false,
+        Callback = function(state)
+            if state then
+                FishingState:SetMode("BlatantV2")
+                WindUI:Notify({
+                    Title = "Blatant V2 ON",
+                    Content = "Ultra spam mode activated",
+                    Duration = 4,
+                    Icon = "zap"
+                })
+            else
+                FishingState:SetMode("None")
+                WindUI:Notify({ Title = "Blatant V2 OFF", Duration = 2 })
+            end
+        end
+    }))
+
+    -- 5. HYBRID MODE
+    local hybrid = fishMancing:Section({ Title = "4. Blatant Hybrid (Best)", TextSize = 20 })
+
     Reg("hybrid_comp", hybrid:Input({
         Title = "Complete Delay",
-        Value = tostring(H_CompleteDelay),
+        Value = tostring(FishingState.config.Hybrid.completeDelay),
         Placeholder = "0.75",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then H_CompleteDelay = n end
+            if n and n >= 0 then 
+                FishingState.config.Hybrid.completeDelay = n 
+            end
         end
     }))
 
     Reg("hybrid_canc", hybrid:Input({
         Title = "Cancel Delay",
-        Value = tostring(H_CancelDelay),
+        Value = tostring(FishingState.config.Hybrid.cancelDelay),
         Placeholder = "0.25",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then H_CancelDelay = n end
+            if n and n >= 0 then 
+                FishingState.config.Hybrid.cancelDelay = n 
+            end
         end
     }))
 
     Reg("hybrid_recast", hybrid:Input({
         Title = "Recast Delay",
-        Value = tostring(H_RecastDelay),
+        Value = tostring(FishingState.config.Hybrid.recastDelay),
         Placeholder = "0.0",
-        Desc = "Jeda sebelum melempar kail lagi (0 = Spam)",
+        Desc = "Delay before next cast (0 = Spam)",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0 then H_RecastDelay = n end
+            if n and n >= 0 then 
+                FishingState.config.Hybrid.recastDelay = n 
+            end
         end
     }))
 
-    ------------------------------------------------------------
-    -- TOGGLE
-    ------------------------------------------------------------
     Reg("hybrid_toggle", hybrid:Toggle({
         Title = "Enable Blatant Hybrid",
         Value = false,
         Callback = function(state)
-            if not (RF_Charge and RF_Start and RE_Finish) then
-                WindUI:Notify({Title="Error", Content="Remotes not found!", Duration=3, Icon="alert-triangle"})
-                return
-            end
-
-            Hybrid_Active = state
-
             if state then
-                -- Matikan mode lain jika aktif
-                if legitAutoState ~= nil then legitAutoState = false end
-                if normalInstantState ~= nil then normalInstantState = false end
-                if blatantInstantState ~= nil then blatantInstantState = false end
-                
-                -- Set Server State ke True (Biar dikira mancing beneran)
-                safe(function() RF_UpdateState:InvokeServer(true) end)
-                safe(function() RF_Cancel:InvokeServer() end)
-
-                Hybrid_Thread = task.spawn(Hybrid_Loop)
-
+                FishingState:SetMode("Hybrid")
                 WindUI:Notify({
                     Title = "Hybrid Mode ON",
-                    Content = "Mode V4+V5 Combined Active",
+                    Content = "Best of V1+V2 combined",
                     Duration = 3,
                     Icon = "zap"
                 })
             else
-                Hybrid_Active = false
-                if Hybrid_Thread then task.cancel(Hybrid_Thread) Hybrid_Thread = nil end
-
-                -- Reset State
-                safe(function() RF_UpdateState:InvokeServer(false) end)
-                safe(function() RF_Cancel:InvokeServer() end)
-
+                FishingState:SetMode("None")
                 WindUI:Notify({ Title = "Hybrid Mode OFF", Duration = 2 })
             end
         end
     }))
 
+    -- =========================================================
+    -- CLEANUP ON SCRIPT END
+    -- =========================================================
+    local function cleanup()
+        FishingState:StopCurrentMode()
+        print("🧹 [FISHING] Cleanup completed")
+    end
+
+    -- Register cleanup
+    if getgenv().fishingCleanup then
+        getgenv().fishingCleanup()
+    end
+    getgenv().fishingCleanup = cleanup
+
 end
+
 
 -- FISHING SUPPORT
 
