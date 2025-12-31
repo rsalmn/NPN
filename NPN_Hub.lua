@@ -1468,6 +1468,481 @@ end
 do
     farm:Divider()
     local fishingSupport = farm:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
+    
+    do
+        -- =========================================================
+        -- FISHING ANIMATION CHANGER SECTION
+        -- =========================================================
+        
+        local animSection = fishingSupport:Section({ 
+            Title = "Fishing Animation Changer", 
+            TextSize = 20 
+        })
+        
+        -- =========================================================
+        -- SERVICES & SETUP
+        -- =========================================================
+        
+        local RunService = game:GetService("RunService")
+        local player = Players.LocalPlayer
+        local char = player.Character or player.CharacterAdded:Wait()
+        local humanoid = char:WaitForChild("Humanoid")
+        
+        local Animator = humanoid:FindFirstChildOfClass("Animator")
+        if not Animator then
+            Animator = Instance.new("Animator", humanoid)
+        end
+        
+        -- =========================================================
+        -- SKIN DATABASE
+        -- =========================================================
+        
+        local SkinDatabase = {
+            ["Eclipse"] = "rbxassetid://107940819382815",
+            ["Holy Trident"] = "rbxassetid://128167068291703",
+            ["Soul Scythe"] = "rbxassetid://82259219343456",
+            ["Oceanic Harpoon"] = "rbxassetid://76325124055693",
+            ["Binary Edge"] = "rbxassetid://109653945741202",
+            ["Vanquisher"] = "rbxassetid://93884986836266",
+            ["Krampus Scythe"] = "rbxassetid://134934781977605",
+            ["Ban Hammer"] = "rbxassetid://96285280763544",
+            ["Corruption Edge"] = "rbxassetid://126613975718573",
+            ["Princess Parasol"] = "rbxassetid://99143072029495"
+        }
+        
+        -- Get skin names for dropdown
+        local SkinNames = {}
+        for name, _ in pairs(SkinDatabase) do
+            table.insert(SkinNames, name)
+        end
+        table.sort(SkinNames)
+        
+        -- =========================================================
+        -- VARIABLES
+        -- =========================================================
+        
+        local CurrentSkin = nil
+        local AnimationPool = {}
+        local IsEnabled = false
+        local POOL_SIZE = 3
+        
+        local killedTracks = {}
+        local replaceCount = 0
+        local currentPoolIndex = 1
+        
+        local AnimChangeConnection1 = nil
+        local AnimChangeConnection2 = nil
+        local AnimChangeConnection3 = nil
+        local AnimChangeConnection4 = nil
+        
+        -- =========================================================
+        -- UTILITY FUNCTIONS
+        -- =========================================================
+        
+        local function IsFishCaughtAnimation(track)
+            if not track or not track.Animation then return false end
+            
+            local trackName = string.lower(track.Name or "")
+            local animName = string.lower(track.Animation.Name or "")
+            
+            if string.find(trackName, "fishcaught") or 
+               string.find(animName, "fishcaught") or
+               string.find(trackName, "caught") or 
+               string.find(animName, "caught") then
+                return true
+            end
+            
+            return false
+        end
+        
+        local function GetNextTrack()
+            for i = 1, POOL_SIZE do
+                local track = AnimationPool[i]
+                if track and not track.IsPlaying then
+                    return track
+                end
+            end
+            
+            currentPoolIndex = currentPoolIndex % POOL_SIZE + 1
+            return AnimationPool[currentPoolIndex]
+        end
+        
+        -- =========================================================
+        -- ANIMATION POOL MANAGEMENT
+        -- =========================================================
+        
+        local function LoadAnimationPool(skinId)
+            local animId = SkinDatabase[skinId]
+            if not animId then
+                return false
+            end
+            
+            print("🎨 [ANIM] Loading animation pool for:", skinId)
+            
+            -- Clear old pool
+            for _, track in ipairs(AnimationPool) do
+                pcall(function()
+                    track:Stop(0)
+                    track:Destroy()
+                end)
+            end
+            AnimationPool = {}
+            
+            -- Create animation
+            local anim = Instance.new("Animation")
+            anim.AnimationId = animId
+            anim.Name = "CUSTOM_SKIN_ANIM"
+            
+            -- Load pool of tracks
+            for i = 1, POOL_SIZE do
+                local track = Animator:LoadAnimation(anim)
+                track.Priority = Enum.AnimationPriority.Action4
+                track.Looped = false
+                track.Name = "SKIN_POOL_" .. i
+                
+                -- Pre-cache
+                task.spawn(function()
+                    pcall(function()
+                        track:Play(0, 1, 0)
+                        task.wait(0.05)
+                        track:Stop(0)
+                    end)
+                end)
+                
+                table.insert(AnimationPool, track)
+            end
+            
+            currentPoolIndex = 1
+            print("✅ [ANIM] Pool loaded with", #AnimationPool, "tracks")
+            return true
+        end
+        
+        -- =========================================================
+        -- INSTANT REPLACE
+        -- =========================================================
+        
+        local function InstantReplace(originalTrack)
+            local nextTrack = GetNextTrack()
+            if not nextTrack then return end
+            
+            replaceCount = replaceCount + 1
+            killedTracks[originalTrack] = tick()
+            
+            print("⚡ [ANIM] Replacing animation (#" .. replaceCount .. ")")
+            
+            -- Kill original
+            task.spawn(function()
+                for i = 1, 10 do
+                    pcall(function()
+                        if originalTrack.IsPlaying then
+                            originalTrack:Stop(0)
+                            originalTrack:AdjustSpeed(0)
+                            originalTrack.TimePosition = 0
+                        end
+                    end)
+                    task.wait()
+                end
+            end)
+            
+            -- Play custom
+            pcall(function()
+                if nextTrack.IsPlaying then
+                    nextTrack:Stop(0)
+                end
+                nextTrack:Play(0, 1, 1)
+                nextTrack:AdjustSpeed(1)
+            end)
+            
+            -- Cleanup
+            task.delay(1, function()
+                killedTracks[originalTrack] = nil
+            end)
+        end
+        
+        -- =========================================================
+        -- MONITORING SYSTEM
+        -- =========================================================
+        
+        local function StartMonitoring()
+            -- Disconnect existing connections
+            if AnimChangeConnection1 then AnimChangeConnection1:Disconnect() end
+            if AnimChangeConnection2 then AnimChangeConnection2:Disconnect() end
+            if AnimChangeConnection3 then AnimChangeConnection3:Disconnect() end
+            if AnimChangeConnection4 then AnimChangeConnection4:Disconnect() end
+            
+            print("🔍 [ANIM] Starting animation monitoring...")
+            
+            -- AnimationPlayed Hook
+            AnimChangeConnection1 = humanoid.AnimationPlayed:Connect(function(track)
+                if not IsEnabled then return end
+                
+                if IsFishCaughtAnimation(track) then
+                    task.spawn(function()
+                        InstantReplace(track)
+                    end)
+                end
+            end)
+            
+            -- RenderStepped Monitor
+            AnimChangeConnection2 = RunService.RenderStepped:Connect(function()
+                if not IsEnabled then return end
+                
+                local tracks = humanoid:GetPlayingAnimationTracks()
+                
+                for _, track in ipairs(tracks) do
+                    if string.find(string.lower(track.Name or ""), "skin_pool") then
+                        continue
+                    end
+                    
+                    if killedTracks[track] then
+                        if track.IsPlaying then
+                            pcall(function()
+                                track:Stop(0)
+                                track:AdjustSpeed(0)
+                            end)
+                        end
+                        continue
+                    end
+                    
+                    if track.IsPlaying and IsFishCaughtAnimation(track) then
+                        task.spawn(function()
+                            InstantReplace(track)
+                        end)
+                    end
+                end
+            end)
+            
+            -- Heartbeat Backup
+            AnimChangeConnection3 = RunService.Heartbeat:Connect(function()
+                if not IsEnabled then return end
+                
+                local tracks = humanoid:GetPlayingAnimationTracks()
+                
+                for _, track in ipairs(tracks) do
+                    if string.find(string.lower(track.Name or ""), "skin_pool") then
+                        continue
+                    end
+                    
+                    if killedTracks[track] and track.IsPlaying then
+                        pcall(function()
+                            track:Stop(0)
+                            track:AdjustSpeed(0)
+                        end)
+                    end
+                end
+            end)
+            
+            -- Stepped Ultra Aggressive
+            AnimChangeConnection4 = RunService.Stepped:Connect(function()
+                if not IsEnabled then return end
+                
+                for track, _ in pairs(killedTracks) do
+                    if track and track.IsPlaying then
+                        pcall(function()
+                            track:Stop(0)
+                            track:AdjustSpeed(0)
+                        end)
+                    end
+                end
+            end)
+            
+            print("✅ [ANIM] Monitoring started")
+        end
+        
+        local function StopMonitoring()
+            if AnimChangeConnection1 then AnimChangeConnection1:Disconnect() end
+            if AnimChangeConnection2 then AnimChangeConnection2:Disconnect() end
+            if AnimChangeConnection3 then AnimChangeConnection3:Disconnect() end
+            if AnimChangeConnection4 then AnimChangeConnection4:Disconnect() end
+            
+            AnimChangeConnection1 = nil
+            AnimChangeConnection2 = nil
+            AnimChangeConnection3 = nil
+            AnimChangeConnection4 = nil
+            
+            print("🛑 [ANIM] Monitoring stopped")
+        end
+        
+        -- =========================================================
+        -- RESPAWN HANDLER
+        -- =========================================================
+        
+        player.CharacterAdded:Connect(function(newChar)
+            task.wait(1.5)
+            
+            print("🔄 [ANIM] Character respawned, reloading...")
+            
+            char = newChar
+            humanoid = char:WaitForChild("Humanoid")
+            Animator = humanoid:FindFirstChildOfClass("Animator")
+            if not Animator then
+                Animator = Instance.new("Animator", humanoid)
+            end
+            
+            killedTracks = {}
+            replaceCount = 0
+            
+            if IsEnabled and CurrentSkin then
+                task.wait(0.5)
+                LoadAnimationPool(CurrentSkin)
+                StartMonitoring()
+                
+                WindUI:Notify({ 
+                    Title = "Animation Changer", 
+                    Content = "Reloaded after respawn", 
+                    Duration = 3 
+                })
+            end
+        end)
+        
+        -- =========================================================
+        -- UI ELEMENTS
+        -- =========================================================
+        
+        animSection:Dropdown({
+            Title = "Select Skin Animation",
+            Values = SkinNames,
+            AllowNone = false,
+            Callback = function(selected)
+                CurrentSkin = selected
+                print("🎨 [ANIM] Selected skin:", selected)
+                
+                if IsEnabled then
+                    local success = LoadAnimationPool(selected)
+                    if success then
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Switched to " .. selected, 
+                            Duration = 3 
+                        })
+                    else
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Failed to load " .. selected, 
+                            Duration = 3 
+                        })
+                    end
+                end
+            end
+        })
+        
+        animSection:Toggle({
+            Title = "🎬 Enable Animation Changer",
+            Desc = "Replace fish caught animation with selected skin",
+            Value = false,
+            Callback = function(state)
+                IsEnabled = state
+                
+                if IsEnabled then
+                    if not CurrentSkin then
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Please select a skin first!", 
+                            Duration = 3 
+                        })
+                        IsEnabled = false
+                        return
+                    end
+                    
+                    local success = LoadAnimationPool(CurrentSkin)
+                    if success then
+                        StartMonitoring()
+                        killedTracks = {}
+                        replaceCount = 0
+                        
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Enabled with " .. CurrentSkin, 
+                            Duration = 3 
+                        })
+                    else
+                        IsEnabled = false
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Failed to load animation", 
+                            Duration = 3 
+                        })
+                    end
+                else
+                    StopMonitoring()
+                    killedTracks = {}
+                    replaceCount = 0
+                    
+                    for _, track in ipairs(AnimationPool) do
+                        pcall(function()
+                            track:Stop(0)
+                        end)
+                    end
+                    
+                    WindUI:Notify({ 
+                        Title = "Animation Changer", 
+                        Content = "Disabled", 
+                        Duration = 2 
+                    })
+                end
+            end
+        })
+        
+        animSection:Button({
+            Title = "📊 Show Statistics",
+            Callback = function()
+                local status = IsEnabled and "Enabled" or "Disabled"
+                local skin = CurrentSkin or "None"
+                local poolSize = #AnimationPool
+                
+                print("\n📊 [ANIM STATS]")
+                print("Status:", status)
+                print("Current Skin:", skin)
+                print("Pool Size:", poolSize)
+                print("Replacements:", replaceCount)
+                print("Killed Tracks:", #killedTracks)
+                
+                WindUI:Notify({ 
+                    Title = "Animation Stats", 
+                    Content = string.format(
+                        "Status: %s\nSkin: %s\nReplacements: %d",
+                        status, skin, replaceCount
+                    ),
+                    Duration = 5 
+                })
+            end
+        })
+        
+        animSection:Button({
+            Title = "🔄 Reset Statistics",
+            Callback = function()
+                replaceCount = 0
+                killedTracks = {}
+                
+                print("🔄 [ANIM] Statistics reset")
+                
+                WindUI:Notify({ 
+                    Title = "Animation Changer", 
+                    Content = "Statistics reset", 
+                    Duration = 2 
+                })
+            end
+        })
+        
+        -- =========================================================
+        -- STATUS DISPLAY
+        -- =========================================================
+        
+        task.spawn(function()
+            while true do
+                if IsEnabled then
+                    local activeKills = 0
+                    for _, _ in pairs(killedTracks) do
+                        activeKills = activeKills + 1
+                    end
+                    
+                    print("📊 [ANIM STATUS] Skin:", CurrentSkin, "| Replacements:", replaceCount, "| Active Kills:", activeKills)
+                end
+                task.wait(60) -- Update every 60 seconds
+            end
+        end)
+        
+    end
 
     local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
     local RunService = game:GetService("RunService")
