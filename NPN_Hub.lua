@@ -1272,6 +1272,42 @@ do
     -- MODE 4: BLATANT V2 (ULTRA FAST)
     -- =====================================================
     
+    local BlatantUltra = {
+        Running = false,
+        WaitingHook = false,
+        CurrentCycle = 0,
+        TotalFish = 0,
+        StartTime = 0,
+        LastCatch = 0,
+        
+        -- Ultra Speed Settings
+        Settings = {
+            FishingDelay = 0.05,
+            CancelDelay = 0.01,
+            HookWaitTime = 0.01,
+            CastDelay = 0.25,
+            TimeoutDelay = 0.8,
+            MaxCycles = 0,
+            AutoStop = false
+        },
+        
+        -- Statistics
+        Stats = {
+            TotalCasts = 0,
+            SuccessfulCatches = 0,
+            FailedCasts = 0,
+            CatchRate = 0,
+            FishPerMinute = 0,
+            Runtime = 0
+        },
+        
+        -- Event Connections
+        Connections = {},
+        
+        -- Remote references
+        Remotes = {}
+    }
+    
     local v5 = fishMancing:Section({ Title = "3. Blatant V2", TextSize = 20 })
     
     -- V5 Core Loop
@@ -1282,6 +1318,60 @@ do
             -- Ultra fast cast
             safe(function() Remotes.Charge:InvokeServer({[10] = t}) end)
             safe(function() Remotes.StartMinigame:InvokeServer(10, 0, t) end)
+            
+            BlatantUltra.CurrentCycle = BlatantUltra.CurrentCycle + 1
+            BlatantUltra.Stats.TotalCasts = BlatantUltra.Stats.TotalCasts + 1
+            
+            task.spawn(function()
+                local success = pcall(function()
+                    -- Ultra-fast batch casting (using correct remotes)
+                    Remotes.Charge:InvokeServer({[10] = tick()})
+                    task.wait(BlatantUltra.Settings.CastDelay)
+                    Remotes.StartMinigame:InvokeServer(10, 0, tick())
+                    
+                    BlatantUltra.WaitingHook = true
+                    print("⏳ [ULTRA] Waiting for hook...")
+                    
+                    -- Timeout handler
+                    task.delay(BlatantUltra.Settings.TimeoutDelay, function()
+                        if BlatantUltra.WaitingHook and BlatantUltra.Running then
+                            BlatantUltra.WaitingHook = false
+                            BlatantUltra.Stats.FailedCasts = BlatantUltra.Stats.FailedCasts + 1
+                            
+                            print("⏰ [ULTRA] Timeout - Force completing")
+                            
+                            pcall(function()
+                                if Remotes.Complete then
+                                    Remotes.Complete:FireServer()()
+                                end
+                            end)
+                            
+                            task.wait(Config.V5.cancelDelay)
+                            pcall(function() 
+                                if Remotes.Cancel then
+                                    Remotes.CancelFishingInputs:InvokeServer() 
+                                end
+                            end)
+                            
+                            task.wait(Config.V5.completeDelay)
+                            
+                            -- Continue casting if still running
+                            if BlatantUltra.Running and not BlatantUltra.CheckAutoStop() then
+                                BlatantUltra.Cast()
+                            end
+                        end
+                    end)
+                end)
+                
+                if not success then
+                    print("❌ [ULTRA] Cast failed, retrying...")
+                    BlatantUltra.Stats.FailedCasts = BlatantUltra.Stats.FailedCasts + 1
+                    task.wait(0.5)
+                    if BlatantUltra.Running then
+                        BlatantUltra.Cast()
+                    end
+                end
+            end)
             
             -- Complete phase
             task.wait(Config.V5.completeDelay)
