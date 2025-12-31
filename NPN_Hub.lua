@@ -1280,8 +1280,8 @@ do
             local t = tick()
             
             -- Ultra fast cast
-            safe(function() Remotes.Charge:InvokeServer({[5] = t}) end)
-            safe(function() Remotes.StartMinigame:InvokeServer(5, 0, t) end)
+            safe(function() Remotes.Charge:InvokeServer({[10] = t}) end)
+            safe(function() Remotes.StartMinigame:InvokeServer(10, 0, t) end)
             
             -- Complete phase
             task.wait(Config.V5.completeDelay)
