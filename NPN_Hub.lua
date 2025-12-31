@@ -1474,7 +1474,7 @@ do
     -- FISHING ANIMATION CHANGER SECTION (FULL ANIMATIONS)
     -- =========================================================
     
-    local animSection = fishingSuppor:Section({ 
+    local animSection = farm:Section({ 
         Title = "Fishing Animation Changer", 
         TextSize = 20 
     })
