@@ -1785,9 +1785,13 @@ do
     blatantUltraSection:Slider({
         Title = "⏱️ Fishing Delay (ms)",
         Desc = "Delay between casts (lower = faster = riskier)",
-        Min = 10,
-        Max = 200,
-        Value = 50,
+        Step = 0.1,
+        Value = {
+            Min = 10,
+            Max = 200,
+            Default = 50,
+        },
+        
         Callback = function(value)
             BlatantUltra.Settings.FishingDelay = value / 1000
             print("⚡ [ULTRA] Fishing delay:", BlatantUltra.Settings.FishingDelay)
@@ -1797,9 +1801,12 @@ do
     blatantUltraSection:Slider({
         Title = "🎣 Hook Response (ms)", 
         Desc = "Delay before hook response (lower = more obvious)",
-        Min = 1,
-        Max = 50,
-        Value = 10,
+        Step = 1,
+        Value = {
+            Min = 1,
+            Max = 50,
+            Default = 10,
+        },
         Callback = function(value)
             BlatantUltra.Settings.HookWaitTime = value / 1000
             print("🎣 [ULTRA] Hook wait time:", BlatantUltra.Settings.HookWaitTime)
@@ -1809,9 +1816,13 @@ do
     blatantUltraSection:Slider({
         Title = "⏰ Timeout (ms)",
         Desc = "Force timeout if no fish (lower = more aggressive)",
-        Min = 500,
-        Max = 2000,
-        Value = 800,
+        Step = 1,
+        Value = {
+            Min = 500,
+            Max = 2000,
+            Default = 800,
+        },
+        
         Callback = function(value)
             BlatantUltra.Settings.TimeoutDelay = value / 1000
             print("⏰ [ULTRA] Timeout delay:", BlatantUltra.Settings.TimeoutDelay)
