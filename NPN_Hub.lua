@@ -1911,9 +1911,14 @@ do
     }
     
     local AreaNamess = {}
-    for name, _ in pairs(FishingAreass) do table.insert(AreaNamess, name) end
+    for name, _ in pairs(FishingAreass) do 
+        table.insert(AreaNamess, name) 
+    end
     table.sort(AreaNamess)
 
+    -- =========================================================
+    -- VARIABLE DEFINITIONS
+    -- =========================================================
     local SelectedPriorityEvent = nil
     local SelectedNormalEvents = {}
     local Loch_Return_SelectedArea = nil 
@@ -1931,23 +1936,13 @@ do
         return keys
     end
 
-    local function IsEventAlive(obj)
-        if not obj then return false end
-        
-        local success = pcall(function()
-            return obj.Parent ~= nil and obj:IsDescendantOf(workspace)
-        end)
-        
-        return success
-    end
-
     -- =========================================================
-    -- ACTIVE EVENTS CACHE
+    -- ACTIVE EVENTS CACHE SYSTEM
     -- =========================================================
     local ActiveEventsCache = {
         events = {},
         lastFullScan = 0,
-        scanInterval = 300,
+        scanInterval = 300, -- 5 minutes
         lockDuration = 60,
     }
 
@@ -1984,14 +1979,6 @@ do
         
         if self.events[eventName] then
             print("🔓 [CACHE] Unlocking event:", eventName)
-            
-            local cached = self.events[eventName]
-            if cached.model and cached.model.Name == "WormHunt_ParticleDetection" then
-                pcall(function()
-                    cached.model:Destroy()
-                end)
-            end
-            
             self.events[eventName] = nil
         end
     end
@@ -2008,14 +1995,6 @@ do
         if not self.events then
             self.events = {}
             return
-        end
-        
-        for eventName, data in pairs(self.events) do
-            if data.model and data.model.Name == "WormHunt_ParticleDetection" then
-                pcall(function()
-                    data.model:Destroy()
-                end)
-            end
         end
         
         self.events = {}
@@ -2054,88 +2033,8 @@ do
         end
     end
 
-    function ActiveEventsCache:IsEventStillActive(eventName)
-        if not self.events then
-            self.events = {}
-            return false
-        end
-        
-        local cached = self.events[eventName]
-        if not cached then return false end
-        
-        if eventName == "Lochness Hunt" then
-            local isActive = LochnessSystem:IsActive()
-            if not isActive then
-                self:Remove(eventName)
-                return false
-            end
-            return true
-        end
-        
-        if eventName == "Worm Hunt" or eventName == "Ghost Worm" then
-            if cached.model and cached.model.Name:find("WormHunt_ParticleDetection") then
-                cached.model:SetAttribute("LastCheck", tick())
-                
-                if not cached.model.Parent or not cached.model:IsDescendantOf(workspace) then
-                    print("⚠️ [WORM] Marker model lost, re-scanning area...")
-                    
-                    local stillActive, newPos, newModel = FindWormParticleEffects(cached.position, 600)
-                    if stillActive then
-                        print("✅ [WORM] Re-detected at same location")
-                        cached.model = newModel
-                        cached.position = newPos
-                        cached.failedChecks = 0
-                        return true
-                    else
-                        cached.failedChecks = (cached.failedChecks or 0) + 1
-                        if cached.failedChecks >= 5 then
-                            print("❌ [WORM] Failed multiple checks, removing")
-                            self:Remove(eventName)
-                            return false
-                        end
-                        print("⏳ [WORM] Failed check", cached.failedChecks .. "/5")
-                        return true
-                    end
-                end
-                
-                cached.failedChecks = 0
-                return true
-            end
-        end
-        
-        local success, stillExists = pcall(function()
-            if not cached.model or not cached.model.Parent then return false end
-            if not cached.model:IsDescendantOf(workspace) then return false end
-            
-            if cached.model:IsA("Model") then
-                local hasParts = false
-                for _, child in ipairs(cached.model:GetDescendants()) do
-                    if child:IsA("BasePart") then
-                        hasParts = true
-                        break
-                    end
-                end
-                return hasParts
-            end
-            
-            return true
-        end)
-        
-        if not success or not stillExists then
-            cached.failedChecks = (cached.failedChecks or 0) + 1
-            if cached.failedChecks >= 3 then
-                self:Remove(eventName)
-                return false
-            end
-            return true
-        end
-        
-        cached.failedChecks = 0
-        return true
-    end
-
     -- =========================================================
-    -- ROTATION SYSTEM (FIXED)
+    -- ROTATION SYSTEM (FIXED TIMING)
     -- =========================================================
     local RotationSystem = {
         interval = 10,
@@ -2145,8 +2044,7 @@ do
         rotationQueue = {},
         stayDuration = 8,
         lastEventChange = 0,
-        forceNextRotation = false,
-        ghostSharkPriority = true
+        forceNextRotation = false
     }
 
     function RotationSystem:BuildQueue()
@@ -2167,8 +2065,7 @@ do
         local eventNames = getTableKeys(allEvents)
         print("🔄 [ROTATION] Building queue from cached events:", table.concat(eventNames, ", "))
         
-        local hasGhostShark = false
-        
+        -- Add priority events first (with multiple entries for more frequent visits)
         if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
             for eventName, data in pairs(allEvents) do
                 if eventName == SelectedPriorityEvent then
@@ -2177,11 +2074,7 @@ do
                     end)
                     
                     if success and isActive then
-                        if eventName == "Ghost Shark Hunt" then
-                            hasGhostShark = true
-                            print("👻 [ROTATION] Ghost Shark Hunt detected as priority!")
-                        end
-                        
+                        -- Priority events appear twice in queue
                         table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
                         table.insert(self.rotationQueue, {name = eventName, data = data, priority = true})
                         print("🎯 [ROTATION] Added priority event:", eventName, "(2x)")
@@ -2190,6 +2083,7 @@ do
             end
         end
         
+        -- Add normal events
         for eventName, data in pairs(allEvents) do
             if eventName ~= SelectedPriorityEvent then
                 local success, isActive = pcall(function()
@@ -2197,11 +2091,6 @@ do
                 end)
                 
                 if success and isActive then
-                    if eventName == "Ghost Shark Hunt" then
-                        hasGhostShark = true
-                        print("👻 [ROTATION] Ghost Shark Hunt detected as normal event!")
-                    end
-                    
                     table.insert(self.rotationQueue, {name = eventName, data = data, priority = false})
                     print("📋 [ROTATION] Added normal event:", eventName)
                 end
@@ -2214,12 +2103,11 @@ do
         end
         
         if #self.rotationQueue > 0 then
-            if hasGhostShark or self.lastRotation == 0 then
+            if self.lastRotation == 0 then
                 self.forceNextRotation = true
-                self.lastRotation = 0
-                print("🚀 [ROTATION] Forcing immediate rotation -", hasGhostShark and "Ghost Shark priority" or "First rotation")
+                print("🔄 [ROTATION] No previous rotation - will start immediately")
             else
-                print("🔄 [ROTATION] Queue ready - normal timing will apply")
+                print("🔄 [ROTATION] Queue ready - respecting interval timing")
             end
         end
     end
@@ -2276,44 +2164,16 @@ do
         
         local timeSinceLastRotation = now - self.lastRotation
         
-        local currentInterval = self.interval
-        if #self.rotationQueue > 0 then
-            for _, event in ipairs(self.rotationQueue) do
-                if event.name == "Ghost Shark Hunt" then
-                    currentInterval = math.max(3, self.interval * 0.5)
-                    print("👻 [ROTATION] Using Ghost Shark priority interval:", currentInterval, "s")
-                    break
-                end
-            end
-        end
+        print("⏰ [ROTATION] Time since last rotation:", math.floor(timeSinceLastRotation), "s / Required:", self.interval, "s")
         
-        print("⏰ [ROTATION] Time since last rotation:", math.floor(timeSinceLastRotation), "s / Required:", currentInterval, "s")
-        
-        return timeSinceLastRotation >= currentInterval
+        return timeSinceLastRotation >= self.interval
     end
 
     function RotationSystem:MarkRotated()
         self.lastRotation = tick()
         self.forceNextRotation = false
         print("🔄 [ROTATION] Marked rotation at", os.date("%H:%M:%S", self.lastRotation))
-        
-        local nextInterval = self.interval
-        if #self.rotationQueue > 0 then
-            for _, event in ipairs(self.rotationQueue) do
-                if event.name == "Ghost Shark Hunt" then
-                    nextInterval = math.max(3, self.interval * 0.5)
-                    break
-                end
-            end
-        end
-        
-        print("⏰ [ROTATION] Next rotation allowed in", nextInterval, "seconds")
-    end
-
-    function RotationSystem:HandleGhostSharkImmediate()
-        print("👻 [GHOST SHARK] Immediate processing triggered")
-        self.forceNextRotation = true
-        self.lastRotation = 0
+        print("⏰ [ROTATION] Next rotation allowed in", self.interval, "seconds")
     end
 
     function RotationSystem:GetTimeUntilNextRotation()
@@ -2322,18 +2182,7 @@ do
         end
         
         local elapsed = tick() - self.lastRotation
-        local currentInterval = self.interval
-        
-        if #self.rotationQueue > 0 then
-            for _, event in ipairs(self.rotationQueue) do
-                if event.name == "Ghost Shark Hunt" then
-                    currentInterval = math.max(3, self.interval * 0.5)
-                    break
-                end
-            end
-        end
-        
-        return math.max(0, currentInterval - elapsed)
+        return math.max(0, self.interval - elapsed)
     end
 
     function RotationSystem:SetInterval(seconds)
@@ -2454,304 +2303,217 @@ do
     end
 
     -- =========================================================
-    -- WORM DETECTION SYSTEM
+    -- HELPER FUNCTIONS
     -- =========================================================
-    local function FindWormParticleEffects(centerPos, radius)
-        print("  🌊 [WORM] Scanning for particle effects...")
+    local function IsEventAlive(obj)
+        if not obj then return false end
         
-        local particleCount = 0
-        local waterEffects = 0
-        local foundParticles = {}
-        local particlePositions = {}
+        local success = pcall(function()
+            return obj.Parent ~= nil and obj:IsDescendantOf(workspace)
+        end)
         
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            local success = pcall(function()
-                if obj:IsA("Model") and obj.Name:lower():find("worm") then
-                    local objPos = obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetBoundingBox().Position
-                    local distance = (objPos - centerPos).Magnitude
-                    
-                    if distance <= radius then
-                        print("🐛 [WORM] Found actual worm model:", obj.Name, "at", objPos)
-                        return true, objPos, obj
-                    end
-                end
-                
-                if obj:IsA("ParticleEmitter") and obj.Parent and obj.Parent:IsA("BasePart") then
-                    local partPos = obj.Parent.Position
-                    local distance = (partPos - centerPos).Magnitude
-                    
-                    if distance <= radius then
-                        local name = obj.Name:lower()
-                        local parentName = obj.Parent.Name:lower()
-                        
-                        particleCount = particleCount + 1
-                        
-                        local isWaterEffect = false
-                        
-                        if name:find("water") or name:find("splash") or name:find("ripple") or 
-                           name:find("wave") or name:find("bubble") or name:find("foam") or
-                           name:find("particle") or name:find("effect") or
-                           parentName:find("water") or parentName:find("wave") or 
-                           parentName:find("particle") or parentName:find("effect") then
-                            isWaterEffect = true
-                            waterEffects = waterEffects + 1
-                        end
-                        
-                        if isWaterEffect then
-                            table.insert(foundParticles, {
-                                type = "ParticleEmitter",
-                                position = partPos,
-                                distance = distance,
-                            })
-                            table.insert(particlePositions, partPos)
-                        end
-                    end
-                end
-            end)
-            
-            if success and success == true then
-                return success
-            end
-        end
-        
-        local isWormEvent = #foundParticles >= 3 or (waterEffects >= 2)
-        
-        if isWormEvent and #particlePositions > 0 then
-            local avgPos = Vector3.new(0, 0, 0)
-            for _, pos in ipairs(particlePositions) do
-                avgPos = avgPos + pos
-            end
-            avgPos = avgPos / #particlePositions
-            
-            local markerModel = Instance.new("Model")
-            markerModel.Name = "WormHunt_ParticleDetection_Persistent"
-            
-            local markerPart = Instance.new("Part")
-            markerPart.Name = "WormEventCenter"
-            markerPart.Position = avgPos
-            markerPart.Anchored = true
-            markerPart.CanCollide = false
-            markerPart.Transparency = 1
-            markerPart.Size = Vector3.new(10, 10, 10)
-            markerPart.Parent = markerModel
-            
-            markerModel:SetAttribute("ParticleCount", #foundParticles)
-            markerModel:SetAttribute("WaterEffects", waterEffects)
-            markerModel:SetAttribute("DetectionTime", tick())
-            markerModel:SetAttribute("IsPersistent", true)
-            markerModel:SetAttribute("LastCheck", tick())
-            
-            markerModel.PrimaryPart = markerPart
-            markerModel.Parent = workspace
-            
-            pcall(function()
-                markerModel:SetAttribute("Protected", true)
-            end)
-            
-            print("🏷️ [WORM] Created persistent marker at:", avgPos)
-            return true, avgPos, markerModel
-        end
-        
-        return false, nil, nil
+        return success
     end
 
     -- =========================================================
-    -- PROPS-BASED EVENT DETECTION (NEW!)
+    -- SIMPLIFIED EVENT DETECTION (WORKSPACE ONLY)
     -- =========================================================
-    local function GetEventFromProps(eventName)
-        print("🔍 [PROPS] Looking for:", eventName, "in Workspace.Props")
+    local WorkspaceEventPaths = {
+        ["Shark Hunt"] = "workspace.Props.Shark Hunt",
+        ["Megalodon Hunt"] = "workspace.Props.Megalodon Hunt", 
+        ["Worm Hunt"] = "workspace.Props.Model.BlackHole"
+    }
+
+    local function FindWorkspaceEvent(eventName)
+        print("🔍 [WORKSPACE] Looking for:", eventName)
         
-        if not workspace:FindFirstChild("Props") then
-            print("❌ [PROPS](Workspace.Props) not found")
+        local path = WorkspaceEventPaths[eventName]
+        if not path then
+            print("❌ [WORKSPACE] No path defined for:", eventName)
             return false, nil, nil
         end
         
-        local propsFolder = workspace.Props
+        local success, result = pcall(function()
+            -- Parse path and navigate to object
+            local current = workspace
+            local pathParts = {}
+            
+            for part in path:gmatch("[^%.]+") do
+                if part ~= "workspace" then
+                    table.insert(pathParts, part)
+                end
+            end
+            
+            for i, part in ipairs(pathParts) do
+                local found = current:FindFirstChild(part)
+                if not found then
+                    print("❌ [WORKSPACE] Path part not found:", part, "in", current.Name)
+                    return false, nil, nil
+                end
+                current = found
+                print("✅ [WORKSPACE] Found path part:", part)
+            end
+            
+            -- Check if the object exists and is valid
+            if current and current.Parent and IsEventAlive(current) then
+                local position
+                
+                if current:IsA("Model") then
+                    if current.PrimaryPart then
+                        position = current.PrimaryPart.Position
+                    else
+                        local cf, size = current:GetBoundingBox()
+                        position = cf.Position
+                    end
+                elseif current:IsA("BasePart") then
+                    position = current.Position
+                else
+                    print("⚠️ [WORKSPACE] Unknown object type:", current.ClassName)
+                    return false, nil, nil
+                end
+                
+                print("✅ [WORKSPACE] Found", eventName, "at:", position)
+                return true, position, current
+            else
+                print("❌ [WORKSPACE] Object exists but not valid for:", eventName)
+                return false, nil, nil
+            end
+        end)
         
-        local directMatch = propsFolder:FindFirstChild(eventName)
-        if directMatch and IsEventAlive(directMatch) then
-            local position = directMatch.PrimaryPart and directMatch.PrimaryPart.Position or directMatch:GetBoundingBox().Position
-            print("✅ [PROPS] Direct match found:", eventName, "at", position)
-            return true, position, directMatch
+        if success then
+            return result
+        else
+            print("❌ [WORKSPACE] Error accessing:", eventName, "Error:", result)
+            return false, nil, nil
+        end
+    end
+
+    -- =========================================================
+    -- EVENT VALIDATION
+    -- =========================================================
+    function ActiveEventsCache:IsEventStillActive(eventName)
+        if not self.events then
+            self.events = {}
+            return false
         end
         
-        for _, child in ipairs(propsFolder:GetChildren()) do
-            if child:IsA("Model") and IsEventAlive(child) then
-                local childName = child.Name:lower()
-                local targetName = eventName:lower()
+        local cached = self.events[eventName]
+        if not cached then return false end
+        
+        if eventName == "Lochness Hunt" then
+            local isActive = LochnessSystem:IsActive()
+            if not isActive then
+                self:Remove(eventName)
+                return false
+            end
+            return true
+        end
+        
+        -- For workspace events, re-check if they still exist
+        local success, stillExists = pcall(function()
+            if WorkspaceEventPaths[eventName] then
+                local found, pos, obj = FindWorkspaceEvent(eventName)
+                return found and obj and IsEventAlive(obj)
+            else
+                -- For other events, check the cached model
+                if not cached.model or not cached.model.Parent then return false end
+                if not cached.model:IsDescendantOf(workspace) then return false end
                 
-                if childName == targetName then
-                    local position = child.PrimaryPart and child.PrimaryPart.Position or child:GetBoundingBox().Position
-                    print("✅ [PROPS] Exact match found:", child.Name, "at", position)
-                    return true, position, child
+                if cached.model:IsA("Model") then
+                    local hasParts = false
+                    for _, child in ipairs(cached.model:GetDescendants()) do
+                        if child:IsA("BasePart") then
+                            hasParts = true
+                            break
+                        end
+                    end
+                    return hasParts
                 end
                 
-                local keywords = {}
-                for word in targetName:gmatch("%w+") do
-                    table.insert(keywords, word)
-                end
-                
-                local matchCount = 0
-                for _, keyword in ipairs(keywords) do
-                    if childName:find(keyword) then
-                        matchCount = matchCount + 1
+                return true
+            end
+        end)
+        
+        if not success or not stillExists then
+            cached.failedChecks = (cached.failedChecks or 0) + 1
+            if cached.failedChecks >= 3 then
+                self:Remove(eventName)
+                return false
+            end
+            return true
+        end
+        
+        cached.failedChecks = 0
+        return true
+    end
+
+    -- =========================================================
+    -- PROBE FUNCTION
+    -- =========================================================
+    local function ProbeAndFindEvent(targetName)
+        if not targetName then return false, nil, nil end
+        
+        print("🔍 [PROBE START] Looking for:", targetName)
+        
+        if targetName == "Lochness Hunt" then
+            local isLochActive = LochnessSystem:IsActive()
+            if not isLochActive then 
+                print("⏰ [PROBE] Lochness not active")
+                return false, nil, nil 
+            end
+            
+            for _, obj in ipairs(workspace:GetChildren()) do
+                if obj:IsA("Model") then
+                    local name = obj.Name:lower()
+                    if name:find("nessie") or name:find("loch") then
+                        if IsEventAlive(obj) then
+                            local pos = obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetBoundingBox().Position
+                            print("✅ [PROBE] Found Lochness at:", pos)
+                            return true, pos, obj
+                        end
                     end
                 end
+            end
+            print("❌ [PROBE] Lochness not found")
+            return false, nil, nil
+        end
+
+        -- Check workspace paths first
+        if WorkspaceEventPaths[targetName] then
+            print("🔍 [PROBE] Checking workspace path for:", targetName)
+            local found, position, model = FindWorkspaceEvent(targetName)
+            if found then
+                print("✅ [PROBE] Found", targetName, "via workspace path at:", position)
+                return true, position, model
+            else
+                print("❌ [PROBE] Not found via workspace path:", targetName)
+            end
+        end
+
+        -- Fallback: general workspace search
+        print("🔍 [PROBE] Fallback: Searching workspace for:", targetName)
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") then
+                local name = obj.Name:lower()
+                local targetLower = targetName:lower()
                 
-                if matchCount / #keywords >= 0.6 then
-                    local position = child.PrimaryPart and child.PrimaryPart.Position or child:GetBoundingBox().Position
-                    print("✅ [PROPS] Partial match found:", child.Name, "for", eventName, "at", position)
-                    print("   Matched", matchCount .. "/" .. #keywords, "keywords")
-                    return true, position, child
+                if name:find(targetLower:gsub(" hunt", "")) or name == targetLower then
+                    if IsEventAlive(obj) then
+                        local pos = obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetBoundingBox().Position
+                        print("✅ [PROBE] Found", targetName, "in workspace at:", pos)
+                        return true, pos, obj
+                    end
                 end
             end
         end
         
-        print("❌ [PROPS] No match found for:", eventName)
+        print("❌ [PROBE] No", targetName, "found anywhere")
         return false, nil, nil
     end
 
-    local function ScanAllPropsEvents()
-        print("📡 [PROPS SCAN] Scanning all events in Workspace.Props...")
-        
-        if not workspace:FindFirstChild("Props") then
-            print("❌ [PROPS SCAN](Workspace.Props) not found")
-            return {}
-        end
-        
-        local foundEvents = {}
-        local propsFolder = workspace.Props
-        
-        for _, child in ipairs(propsFolder:GetChildren()) do
-            if child:IsA("Model") and IsEventAlive(child) then
-                local eventName = child.Name
-                local position = child.PrimaryPart and child.PrimaryPart.Position or child:GetBoundingBox().Position
-                
-                local eventType = "Unknown"
-                local name = eventName:lower()
-                
-                if name:find("shark") and name:find("ghost") then
-                    eventType = "Ghost Shark Hunt"
-                elseif name:find("megalodon") then
-                    eventType = "Megalodon Hunt"
-                elseif name:find("shark") then
-                    eventType = "Shark Hunt"
-                elseif name:find("worm") and name:find("ghost") then
-                    eventType = "Ghost Worm"
-                elseif name:find("worm") then
-                    eventType = "Worm Hunt"
-                elseif name:find("meteor") then
-                    eventType = "Meteor Rain"
-                elseif name:find("loch") or name:find("nessie") then
-                    eventType = "Lochness Hunt"
-                else
-                    eventType = eventName
-                end
-                
-                foundEvents[eventType] = {
-                    originalName = eventName,
-                    position = position,
-                    model = child,
-                    foundAt = tick()
-                }
-                
-                print("🎯 [PROPS SCAN] Found:", eventType, "(" .. eventName .. ") at", position)
-            end
-        end
-        
-        print("📊 [PROPS SCAN] Total events found:", #getTableKeys(foundEvents))
-        return foundEvents
-    end
-
-    local function SmartBulkScan(eventsToCheck)
-        print("🚀 [BULK SCAN] Starting smart bulk scan...")
-        
-        local propsEvents = ScanAllPropsEvents()
-        local foundEvents = {}
-        
-        for _, eventInfo in ipairs(eventsToCheck) do
-            local eventName = eventInfo.name
-            
-            if propsEvents[eventName] then
-                foundEvents[eventName] = propsEvents[eventName]
-                print("✅ [BULK] Found", eventName, "in Props")
-            else
-                for propsEventName, data in pairs(propsEvents) do
-                    local match = false
-                    
-                    if propsEventName:lower():find(eventName:lower()) or
-                       eventName:lower():find(propsEventName:lower()) then
-                        match = true
-                    end
-                    
-                    if data.originalName:lower():find(eventName:lower()) or
-                       eventName:lower():find(data.originalName:lower()) then
-                        match = true
-                    end
-                    
-                    if match then
-                        foundEvents[eventName] = data
-                        print("✅ [BULK] Matched", eventName, "with", propsEventName)
-                        break
-                    end
-                end
-            end
-        end
-        
-        for _, eventInfo in ipairs(eventsToCheck) do
-            local eventName = eventInfo.name
-            
-            if not foundEvents[eventName] then
-                print("🔄 [BULK] Fallback detection for:", eventName)
-                
-                if eventName == "Lochness Hunt" then
-                    local isLochActive = LochnessSystem:IsActive()
-                    if isLochActive then
-                        local found, pos, model = GetEventFromProps(eventName)
-                        if found then
-                            foundEvents[eventName] = {
-                                originalName = eventName,
-                                position = pos,
-                                model = model,
-                                foundAt = tick()
-                            }
-                            print("✅ [BULK] Lochness found via Props")
-                        end
-                    end
-                elseif eventName == "Worm Hunt" or eventName == "Ghost Worm" then
-                    local coords = {
-                        Vector3.new(2190, -1.3, 97), 
-                        Vector3.new(-2450, -1.3, 139),
-                        Vector3.new(-267, -1.3, 5188)
-                    }
-                    
-                    for i, pos in ipairs(coords) do
-                        local tpSuccess = TeleportManager:Teleport(pos)
-                        if tpSuccess then
-                            task.wait(2)
-                            
-                            local foundParticles, particlePos, particleModel = FindWormParticleEffects(pos, 500)
-                            if foundParticles then
-                                foundEvents[eventName] = {
-                                    originalName = eventName,
-                                    position = particlePos,
-                                    model = particleModel,
-                                    foundAt = tick()
-                                }
-                                print("✅ [BULK] Worm found at location", i)
-                                break
-                            end
-                        end
-                        task.wait(0.5)
-                    end
-                end
-            end
-        end
-        
-        print("📊 [BULK SCAN] Complete! Found", #getTableKeys(foundEvents), "events")
-        return foundEvents
-    end
-
+    -- =========================================================
+    -- HELPER FUNCTIONS
+    -- =========================================================
     local function GetAvailableEvents(eventsToCheck)
         local availableEvents = {}
         
@@ -2872,6 +2634,9 @@ do
         end
     })
 
+    -- =========================================================
+    -- MAIN TOGGLE & LOOP
+    -- =========================================================
     televent:Toggle({
         Title = "🔄 Smart Event (ROTATION SYSTEM)",
         Desc = "Auto-rotate between all found events",
@@ -2889,14 +2654,16 @@ do
                 
                 WindUI:Notify({ 
                     Title = "Smart Event", 
-                    Content = "Started with Props detection + rotation system", 
+                    Content = "Started with rotation system", 
                     Duration = 4 
                 })
                 
+                -- Enable walk on water if available
                 if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then 
                     WalkOnWaterToggleElement:Set(true) 
                 end
 
+                -- MAIN SMART EVENT LOOP
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
                         local success, err = pcall(function()
@@ -2905,7 +2672,7 @@ do
                             local hasActiveEvents = false
                             
                             local getSuccess, getAllResult = pcall(function()
-                                return ActiveEventsCache:GetAll()
+                                return ActiveEventsCache:GetAll() or {}
                             end)
                             
                             if getSuccess and getAllResult then
@@ -2916,6 +2683,7 @@ do
                                 cachedEvents = {}
                             end
                             
+                            -- Count ACTIVE events
                             local activeEventCount = 0
                             for eventName, _ in pairs(cachedEvents) do
                                 local activeSuccess, isActive = pcall(function()
@@ -2934,12 +2702,14 @@ do
                                 local eventNames = getTableKeys(cachedEvents)
                                 print("\n🔄 [ROTATION MODE] Managing", table.concat(eventNames, ", "))
                                 
+                                -- Rebuild queue if needed
                                 if #RotationSystem.rotationQueue == 0 then
                                     pcall(function()
                                         RotationSystem:BuildQueue()
                                     end)
                                 end
                                 
+                                -- Check timing
                                 if RotationSystem:ShouldRotate() then
                                     local nextEvent = nil
                                     
@@ -2969,81 +2739,92 @@ do
                                         print("⚠️ [ROTATION] No next event available")
                                     end
                                 else
-                                    local timeLeft = RotationSystem:GetTimeUntilNextRotation()
-                                    print("⏳ [ROTATION] Next rotation in", math.ceil(timeLeft), "seconds")
-                                    
-                                    local waitTime = math.min(2, math.max(0.5, timeLeft / 2))
-                                    task.wait(waitTime)
+                                    local remaining = RotationSystem:GetTimeUntilNextRotation()
+                                    print("⏱️ [ROTATION] Waiting", math.ceil(remaining), "seconds until next rotation")
+                                    task.wait(2)
                                     return
                                 end
-                                
-                                task.wait(2)
-                                return
                             end
                             
-                            if not ActiveEventsCache:ShouldScanForNewEvents() then
-                                print("\n💤 [IDLE MODE] Waiting at idle area...")
-                                
-                                if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
-                                    local data = FishingAreass[Loch_Return_SelectedArea]
-                                    
-                                    local char = Players.LocalPlayer.Character
-                                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                                    
-                                    if hrp and (hrp.Position - data.Pos).Magnitude > 60 then 
-                                        TeleportManager:Teleport(data.Pos)
-                                    end
-                                end
-                                
-                                task.wait(10)
-                                return
-                            end
-                            
-                            print("\n📡 [SCANNING MODE] Looking for new events...")
-                            ActiveEventsCache:MarkScanned()
-                            
-                            local eventsToCheck = {}
-                            
-                            if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
-                                table.insert(eventsToCheck, {name = SelectedPriorityEvent, priority = true})
-                            end
-                            
-                            for _, eventName in ipairs(SelectedNormalEvents) do
-                                table.insert(eventsToCheck, {name = eventName, priority = false})
-                            end
-                            
-                            local availableEvents = GetAvailableEvents(eventsToCheck)
-                            
-                            if #availableEvents == 0 then
-                                print("⏰ No events available")
+                            if not hasActiveEvents or not ActiveEventsCache:ShouldScanForNewEvents() then
                                 task.wait(5)
                                 return
                             end
                             
-                            local bulkResults = SmartBulkScan(availableEvents)
+                            print("\n🔍 [SCAN MODE] Searching for new events...")
+                            local eventsToFind = {}
                             
-                            local foundAnyEvent = false
+                            -- Prepare search list
+                            if SelectedPriorityEvent and SelectedPriorityEvent ~= "" then
+                                table.insert(eventsToFind, {name = SelectedPriorityEvent, priority = true})
+                            end
                             
-                            for eventName, data in pairs(bulkResults) do
-                                print("✅ [BULK] Adding to cache:", eventName, "at", data.position)
-                                ActiveEventsCache:Add(eventName, data.position, data.model)
-                                foundAnyEvent = true
-                                
-                                if eventName == "Ghost Shark Hunt" then
-                                    print("👻 [GHOST SHARK] Special immediate processing")
-                                    RotationSystem:HandleGhostSharkImmediate()
+                            for _, eventName in ipairs(SelectedNormalEvents) do
+                                if eventName ~= SelectedPriorityEvent then
+                                    table.insert(eventsToFind, {name = eventName, priority = false})
                                 end
                             end
                             
-                            if foundAnyEvent then
-                                print("\n✅ Events found via Props detection! Starting rotation system...")
-                                RotationSystem:ForceNextRotation()
+                            local availableEvents = GetAvailableEvents(eventsToFind)
+                            print("🎯 [SCAN] Will search for", #availableEvents, "events")
+                            
+                            local newEventsFound = 0
+                            
+                            for _, eventInfo in ipairs(availableEvents) do
+                                if not SmartEventState then break end
                                 
-                                pcall(function()
-                                    RotationSystem:BuildQueue()
-                                end)
+                                local eventName = eventInfo.name
+                                local alreadyCached = ActiveEventsCache:Get(eventName)
+                                
+                                if alreadyCached then
+                                    local stillActiveSuccess, stillActive = pcall(function()
+                                        return ActiveEventsCache:IsEventStillActive(eventName)
+                                    end)
+                                    
+                                    if stillActiveSuccess and stillActive then
+                                        print("✅ [SCAN] Already cached and active:", eventName)
+                                    else
+                                        print("❌ [SCAN] Cached but no longer active:", eventName)
+                                    end
+                                else
+                                    print("🔍 [SCAN] Probing for new event:", eventName)
+                                    
+                                    local found, position, model = ProbeAndFindEvent(eventName)
+                                    if found then
+                                        ActiveEventsCache:Add(eventName, position, model)
+                                        newEventsFound = newEventsFound + 1
+                                        print("🎉 [SCAN] New event found:", eventName)
+                                        
+                                        if eventInfo.priority then
+                                            RotationSystem:ForceNextRotation()
+                                            print("⚡ [SCAN] Priority event found - will rotate immediately")
+                                        end
+                                    else
+                                        print("❌ [SCAN] Event not found:", eventName)
+                                    end
+                                    
+                                    task.wait(0.8)
+                                end
+                            end
+                            
+                            ActiveEventsCache:MarkScanned()
+                            
+                            if newEventsFound > 0 then
+                                print("🎊 [SCAN] Scan complete -", newEventsFound, "new events found")
+                                RotationSystem.rotationQueue = {}
+                                task.wait(1)
                             else
-                                print("❌ [BULK SCAN] No events found this cycle")
+                                print("📭 [SCAN] Scan complete - no new events found")
+                                
+                                if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
+                                    local idlePos = FishingAreass[Loch_Return_SelectedArea].Pos
+                                    print("🏠 [IDLE] Going to idle area:", Loch_Return_SelectedArea)
+                                    TeleportManager:Teleport(idlePos)
+                                else
+                                    print("🏠 [IDLE] No idle area set, staying in place")
+                                end
+                                
+                                task.wait(15)
                             end
                         end)
                         
@@ -3052,92 +2833,59 @@ do
                                 break
                             end
                             task.wait(5)
-                        else
-                            ErrorHandler.ErrorCount = math.max(0, ErrorHandler.ErrorCount - 1)
                         end
-                        
-                        task.wait(1)
                     end
                 end)
-
             else
-                if SmartEventThread then 
-                    task.cancel(SmartEventThread) 
-                    SmartEventThread = nil 
+                if SmartEventThread then
+                    task.cancel(SmartEventThread)
+                    SmartEventThread = nil
                 end
                 
                 ActiveEventsCache:Clear()
-                
-                if WalkOnWaterToggleElement and WalkOnWaterToggleElement.Set then 
-                    WalkOnWaterToggleElement:Set(false) 
-                end
+                print("🛑 [MAIN] Smart Event stopped")
                 
                 WindUI:Notify({ 
                     Title = "Smart Event", 
                     Content = "Stopped", 
-                    Duration = 3 
+                    Duration = 2 
                 })
             end
         end
     })
 
-    televent:Divider()
-    local statsText = televent:Paragraph({
-        Title = "🔄 Smart Event (Rotation System)",
-        Desc = "System offline"
-    })
-    
+    -- =========================================================
+    -- STATUS DISPLAY
+    -- =========================================================
     task.spawn(function()
         while true do
             if SmartEventState then
-                local cachedCount = 0
-                local rotationInfo = {}
+                local status = "🔄 Smart Event Active\n"
                 
-                local success, allEvents = pcall(function()
-                    return ActiveEventsCache:GetAll() or {}
-                end)
-                
-                if success and allEvents then
-                    for name, data in pairs(allEvents) do
-                        cachedCount = cachedCount + 1
-                        local visitCount = data.visitCount or 0
-                        local isPriority = name == SelectedPriorityEvent
-                        table.insert(rotationInfo, name .. (isPriority and " 🎯" or "") .. " (" .. visitCount .. ")")
-                    end
+                -- Rotation status
+                local timeUntilNext = RotationSystem:GetTimeUntilNextRotation()
+                if timeUntilNext > 0 then
+                    status = status .. "⏰ Next rotation: " .. math.ceil(timeUntilNext) .. "s\n"
+                else
+                    status = status .. "🔄 Rotation ready\n"
                 end
                 
-                local timeToRotation = RotationSystem:GetTimeUntilNextRotation()
-                local queueSize = #RotationSystem.rotationQueue
-                local currentIndex = RotationSystem.currentEventIndex
+                -- Event counts
+                local eventCount = #getTableKeys(ActiveEventsCache:GetAll() or {})
+                status = status .. "📊 Cached events: " .. eventCount .. "\n"
                 
-                local timeToNextScan = math.max(0, ActiveEventsCache.scanInterval - (tick() - ActiveEventsCache.lastFullScan))
-                local lochActive, lochStatus = LochnessSystem:GetStatus()
+                -- Lochness status
+                local isLochActive, lochStatus = LochnessSystem:GetStatus()
+                status = status .. "🐉 Lochness: " .. lochStatus .. "\n"
                 
-                local status = cachedCount > 0 and "🔄 ROTATING" or "📡 SCANNING"
-                statsText:SetTitle("🔄 Smart Event System - " .. status)
-                statsText:SetDesc("Active Events: %d | Queue: %d/%d\nNext Rotation: %ds | Interval: %ds\nNext Scan: %dm %ds\nLochness: %s\nErrors: %d | TPs: %d\n%s", 
-                        cachedCount,
-                        currentIndex,
-                        queueSize,
-                        math.ceil(timeToRotation),
-                        RotationSystem.interval,
-                        math.floor(timeToNextScan / 60),
-                        math.floor(timeToNextScan % 60),
-                        lochActive and "🟢 ACTIVE" or "🔴 " .. lochStatus,
-                        ErrorHandler.ErrorCount,
-                        TeleportManager.TeleportCount,
-                        cachedCount > 0 and "Events: " .. table.concat(rotationInfo, ", ") or "Idle Mode")
-                
-            else
-                statsText:SetTitle("🔄 Smart Event System")
-                statsText:SetDesc("Offline")
+                print(status)
             end
-            task.wait(1)
+            task.wait(30)
         end
     end)
 
-    print("🔄 [SMART EVENT] Loaded with fixed rotation system!")
 end
+
 
 do
     ------------------------------------------------------------
