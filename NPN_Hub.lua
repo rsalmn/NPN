@@ -1460,6 +1460,461 @@ do
             end
         end
     }))
+    
+    
+    
+    do
+    -- =========================================================
+    -- BLATANT ULTRA FISHING SECTION
+    -- =========================================================
+    
+    local blatantUltraSection = farm:Section({ 
+        Title = "🚀 Blatant Ultra Fishing", 
+        TextSize = 20 
+    })
+    
+    -- =========================================================
+    -- ULTRA SPEED SYSTEM
+    -- =========================================================
+    
+    local BlatantUltra = {
+        Running = false,
+        WaitingHook = false,
+        CurrentCycle = 0,
+        TotalFish = 0,
+        StartTime = 0,
+        LastCatch = 0,
+        
+        -- Ultra Speed Settings
+        Settings = {
+            FishingDelay = 0.05,
+            CancelDelay = 0.01,
+            HookWaitTime = 0.01,
+            CastDelay = 0.25,
+            TimeoutDelay = 0.8,
+            MaxCycles = 0, -- 0 = unlimited
+            AutoStop = false
+        },
+        
+        -- Statistics
+        Stats = {
+            TotalCasts = 0,
+            SuccessfulCatches = 0,
+            FailedCasts = 0,
+            CatchRate = 0,
+            FishPerMinute = 0,
+            Runtime = 0
+        },
+        
+        -- Event Connections
+        Connections = {}
+    }
+    
+    -- Make globally accessible
+    _G.BlatantUltra = BlatantUltra
+    
+    -- =========================================================
+    -- REMOTE REFERENCES (ULTRA SPEED METHOD)
+    -- =========================================================
+    
+    local function GetUltraSpeedRemotes()
+        local success, netFolder = pcall(function()
+            return ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index")
+                :WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net")
+        end)
+        
+        if not success then
+            print("❌ [ULTRA] Failed to get net folder")
+            return nil
+        end
+        
+        return {
+            RF_ChargeFishingRod = netFolder:WaitForChild("RF/ChargeFishingRod"),
+            RF_RequestMinigame = netFolder:WaitForChild("RF/RequestFishingMinigameStarted"),
+            RF_CancelFishingInputs = netFolder:WaitForChild("RF/CancelFishingInputs"),
+            RE_FishingCompleted = netFolder:WaitForChild("RE/FishingCompleted"),
+            RE_MinigameChanged = netFolder:WaitForChild("RE/FishingMinigameChanged"),
+            RE_FishCaught = netFolder:WaitForChild("RE/FishCaught")
+        }
+    end
+    
+    local UltraRemotes = GetUltraSpeedRemotes()
+    
+    -- =========================================================
+    -- ULTRA SPEED CORE FUNCTIONS
+    -- =========================================================
+    
+    function BlatantUltra.Cast()
+        if not BlatantUltra.Running or BlatantUltra.WaitingHook or not UltraRemotes then 
+            return 
+        end
+        
+        BlatantUltra.CurrentCycle = BlatantUltra.CurrentCycle + 1
+        BlatantUltra.Stats.TotalCasts = BlatantUltra.Stats.TotalCasts + 1
+        
+        print("🚀 [ULTRA] Cast #" .. BlatantUltra.CurrentCycle)
+        
+        task.spawn(function()
+            pcall(function()
+                -- Ultra-fast batch casting
+                UltraRemotes.RF_ChargeFishingRod:InvokeServer({[10] = tick()})
+                task.wait(BlatantUltra.Settings.CastDelay)
+                UltraRemotes.RF_RequestMinigame:InvokeServer(10, 0, tick())
+                
+                BlatantUltra.WaitingHook = true
+                
+                -- Aggressive timeout handler
+                task.delay(BlatantUltra.Settings.TimeoutDelay, function()
+                    if BlatantUltra.WaitingHook and BlatantUltra.Running then
+                        BlatantUltra.WaitingHook = false
+                        BlatantUltra.Stats.FailedCasts = BlatantUltra.Stats.FailedCasts + 1
+                        
+                        print("⏰ [ULTRA] Timeout - Force completing")
+                        
+                        pcall(function()
+                            UltraRemotes.RE_FishingCompleted:FireServer()
+                        end)
+                        
+                        task.wait(BlatantUltra.Settings.CancelDelay)
+                        pcall(function() 
+                            UltraRemotes.RF_CancelFishingInputs:InvokeServer() 
+                        end)
+                        
+                        task.wait(BlatantUltra.Settings.FishingDelay)
+                        
+                        -- Check auto-stop conditions
+                        if BlatantUltra.Running and not BlatantUltra.CheckAutoStop() then
+                            BlatantUltra.Cast()
+                        end
+                    end
+                end)
+            end)
+        end)
+    end
+    
+    function BlatantUltra.Start()
+        if BlatantUltra.Running then 
+            print("⚠️ [ULTRA] Already running!")
+            return 
+        end
+        
+        if not UltraRemotes then
+            WindUI:Notify({ 
+                Title = "Blatant Ultra", 
+                Content = "Failed to initialize remotes!", 
+                Duration = 3 
+            })
+            return
+        end
+        
+        print("🚀 [ULTRA] Starting ultra-speed fishing...")
+        
+        BlatantUltra.Running = true
+        BlatantUltra.WaitingHook = false
+        BlatantUltra.CurrentCycle = 0
+        BlatantUltra.TotalFish = 0
+        BlatantUltra.StartTime = tick()
+        BlatantUltra.LastCatch = tick()
+        
+        -- Reset stats
+        for key, _ in pairs(BlatantUltra.Stats) do
+            BlatantUltra.Stats[key] = 0
+        end
+        
+        -- Setup event handlers
+        BlatantUltra.SetupEvents()
+        
+        -- Start casting
+        BlatantUltra.Cast()
+        
+        WindUI:Notify({ 
+            Title = "Blatant Ultra", 
+            Content = "Started ultra-speed fishing!", 
+            Duration = 2 
+        })
+    end
+    
+    function BlatantUltra.Stop()
+        if not BlatantUltra.Running then return end
+        
+        print("🛑 [ULTRA] Stopping...")
+        
+        BlatantUltra.Running = false
+        BlatantUltra.WaitingHook = false
+        
+        -- Disconnect events
+        for _, conn in pairs(BlatantUltra.Connections) do
+            if conn then conn:Disconnect() end
+        end
+        BlatantUltra.Connections = {}
+        
+        -- Final stats
+        BlatantUltra.UpdateStats()
+        
+        WindUI:Notify({ 
+            Title = "Blatant Ultra", 
+            Content = string.format("Stopped! Caught %d fish in %d casts", 
+                BlatantUltra.TotalFish, BlatantUltra.CurrentCycle), 
+            Duration = 3 
+        })
+    end
+    
+    function BlatantUltra.CheckAutoStop()
+        if not BlatantUltra.Settings.AutoStop then return false end
+        
+        if BlatantUltra.Settings.MaxCycles > 0 and 
+           BlatantUltra.CurrentCycle >= BlatantUltra.Settings.MaxCycles then
+            print("🏁 [ULTRA] Max cycles reached, auto-stopping")
+            BlatantUltra.Stop()
+            return true
+        end
+        
+        return false
+    end
+    
+    function BlatantUltra.UpdateStats()
+        local runtime = tick() - BlatantUltra.StartTime
+        BlatantUltra.Stats.Runtime = runtime
+        BlatantUltra.Stats.CatchRate = BlatantUltra.Stats.TotalCasts > 0 and 
+            (BlatantUltra.Stats.SuccessfulCatches / BlatantUltra.Stats.TotalCasts * 100) or 0
+        BlatantUltra.Stats.FishPerMinute = runtime > 0 and 
+            (BlatantUltra.TotalFish / runtime * 60) or 0
+    end
+    
+    -- =========================================================
+    -- EVENT HANDLERS (ULTRA SPEED)
+    -- =========================================================
+    
+    function BlatantUltra.SetupEvents()
+        -- Clear existing connections
+        for _, conn in pairs(BlatantUltra.Connections) do
+            if conn then conn:Disconnect() end
+        end
+        BlatantUltra.Connections = {}
+        
+        if not UltraRemotes then return end
+        
+        -- Minigame hook handler (instant response)
+        table.insert(BlatantUltra.Connections, 
+            UltraRemotes.RE_MinigameChanged.OnClientEvent:Connect(function(state)
+                if BlatantUltra.WaitingHook and typeof(state) == "string" and 
+                   string.find(string.lower(state), "hook") then
+                    
+                    BlatantUltra.WaitingHook = false
+                    print("🎣 [ULTRA] Hook detected - instant response!")
+                    
+                    task.spawn(function()
+                        task.wait(BlatantUltra.Settings.HookWaitTime) -- Minimal delay
+                        
+                        pcall(function()
+                            UltraRemotes.RE_FishingCompleted:FireServer()
+                        end)
+                        
+                        task.wait(BlatantUltra.Settings.CancelDelay)
+                        pcall(function() 
+                            UltraRemotes.RF_CancelFishingInputs:InvokeServer() 
+                        end)
+                        
+                        task.wait(BlatantUltra.Settings.FishingDelay)
+                        
+                        if BlatantUltra.Running and not BlatantUltra.CheckAutoStop() then
+                            BlatantUltra.Cast()
+                        end
+                    end)
+                end
+            end)
+        )
+        
+        -- Fish caught handler (instant process)
+        table.insert(BlatantUltra.Connections,
+            UltraRemotes.RE_FishCaught.OnClientEvent:Connect(function(name, data)
+                if BlatantUltra.Running then
+                    BlatantUltra.WaitingHook = false
+                    BlatantUltra.TotalFish = BlatantUltra.TotalFish + 1
+                    BlatantUltra.Stats.SuccessfulCatches = BlatantUltra.Stats.SuccessfulCatches + 1
+                    BlatantUltra.LastCatch = tick()
+                    
+                    print("🐟 [ULTRA] Fish caught:", name, "| Total:", BlatantUltra.TotalFish)
+                    
+                    task.spawn(function()
+                        task.wait(BlatantUltra.Settings.CancelDelay)
+                        pcall(function() 
+                            UltraRemotes.RF_CancelFishingInputs:InvokeServer() 
+                        end)
+                        
+                        task.wait(BlatantUltra.Settings.FishingDelay)
+                        
+                        if BlatantUltra.Running and not BlatantUltra.CheckAutoStop() then
+                            BlatantUltra.Cast()
+                        end
+                    end)
+                end
+            end)
+        )
+        
+        print("✅ [ULTRA] Event handlers setup complete")
+    end
+    
+    -- =========================================================
+    -- UI ELEMENTS
+    -- =========================================================
+    
+    blatantUltraSection:Toggle({
+        Title = "🚀 Enable Blatant Ultra",
+        Desc = "Ultra-fast fishing (MAXIMUM SPEED - HIGHER DETECTION RISK)",
+        Value = false,
+        Callback = function(state)
+            if state then
+                -- Stop other fishing scripts first
+                if BlatantFishing and BlatantFishing.Running then
+                    BlatantFishing.Stop()
+                    WindUI:Notify({ 
+                        Title = "Blatant Ultra", 
+                        Content = "Stopped regular blatant for ultra mode", 
+                        Duration = 2 
+                    })
+                end
+                
+                BlatantUltra.Start()
+            else
+                BlatantUltra.Stop()
+            end
+        end
+    })
+    
+    blatantUltraSection:Slider({
+        Title = "⏱️ Fishing Delay (ms)",
+        Desc = "Delay between casts (lower = faster = riskier)",
+        Min = 10,
+        Max = 200,
+        Value = 50,
+        Callback = function(value)
+            BlatantUltra.Settings.FishingDelay = value / 1000
+            print("⚡ [ULTRA] Fishing delay:", BlatantUltra.Settings.FishingDelay)
+        end
+    })
+    
+    blatantUltraSection:Slider({
+        Title = "🎣 Hook Response (ms)", 
+        Desc = "Delay before hook response (lower = more obvious)",
+        Min = 1,
+        Max = 50,
+        Value = 10,
+        Callback = function(value)
+            BlatantUltra.Settings.HookWaitTime = value / 1000
+            print("🎣 [ULTRA] Hook wait time:", BlatantUltra.Settings.HookWaitTime)
+        end
+    })
+    
+    blatantUltraSection:Slider({
+        Title = "⏰ Timeout (ms)",
+        Desc = "Force timeout if no fish (lower = more aggressive)",
+        Min = 500,
+        Max = 2000,
+        Value = 800,
+        Callback = function(value)
+            BlatantUltra.Settings.TimeoutDelay = value / 1000
+            print("⏰ [ULTRA] Timeout delay:", BlatantUltra.Settings.TimeoutDelay)
+        end
+    })
+    
+    blatantUltraSection:Input({
+        Title = "🎯 Max Cycles (0 = unlimited)",
+        Placeholder = "Enter max cycles",
+        Callback = function(text)
+            local cycles = tonumber(text) or 0
+            BlatantUltra.Settings.MaxCycles = cycles
+            BlatantUltra.Settings.AutoStop = (cycles > 0)
+            
+            print("🎯 [ULTRA] Max cycles:", cycles)
+            WindUI:Notify({ 
+                Title = "Blatant Ultra", 
+                Content = cycles > 0 and ("Max cycles: " .. cycles) or "Unlimited cycles", 
+                Duration = 2 
+            })
+        end
+    })
+    
+    blatantUltraSection:Button({
+        Title = "📊 Show Ultra Statistics",
+        Callback = function()
+            BlatantUltra.UpdateStats()
+            
+            local stats = BlatantUltra.Stats
+            local runtime = math.floor(stats.Runtime)
+            
+            print("\n📊 [ULTRA STATS]")
+            print("Runtime:", runtime .. "s")
+            print("Total Fish:", BlatantUltra.TotalFish)
+            print("Total Casts:", stats.TotalCasts)
+            print("Success Rate:", string.format("%.1f%%", stats.CatchRate))
+            print("Fish/Min:", string.format("%.1f", stats.FishPerMinute))
+            print("Successful Catches:", stats.SuccessfulCatches)
+            print("Failed Casts:", stats.FailedCasts)
+            
+            WindUI:Notify({ 
+                Title = "Ultra Statistics", 
+                Content = string.format(
+                    "🐟 Fish: %d | ⏱️ Runtime: %ds\n📈 Success: %.1f%% | 🚀 Speed: %.1f/min",
+                    BlatantUltra.TotalFish, runtime, stats.CatchRate, stats.FishPerMinute
+                ),
+                Duration = 7 
+            })
+        end
+    })
+    
+    blatantUltraSection:Button({
+        Title = "🔄 Reset Ultra Stats",
+        Callback = function()
+            for key, _ in pairs(BlatantUltra.Stats) do
+                BlatantUltra.Stats[key] = 0
+            end
+            BlatantUltra.TotalFish = 0
+            BlatantUltra.CurrentCycle = 0
+            BlatantUltra.StartTime = tick()
+            
+            print("🔄 [ULTRA] Statistics reset")
+            WindUI:Notify({ 
+                Title = "Blatant Ultra", 
+                Content = "Statistics reset", 
+                Duration = 2 
+            })
+        end
+    })
+    
+    -- =========================================================
+    -- STATUS MONITORING
+    -- =========================================================
+    
+    task.spawn(function()
+        while true do
+            if BlatantUltra.Running then
+                BlatantUltra.UpdateStats()
+                
+                print("🚀 [ULTRA STATUS]", 
+                      "Fish:", BlatantUltra.TotalFish,
+                      "| Cycles:", BlatantUltra.CurrentCycle,
+                      "| Rate:", string.format("%.1f%%", BlatantUltra.Stats.CatchRate),
+                      "| Speed:", string.format("%.1f/min", BlatantUltra.Stats.FishPerMinute))
+            end
+            task.wait(30) -- Status update every 30 seconds
+        end
+    end)
+    
+    -- =========================================================
+    -- WARNING MESSAGE
+    -- =========================================================
+    
+    blatantUltraSection:Label({
+        Title = "⚠️ WARNING: Ultra mode uses aggressive timings!",
+        Desc = "Higher detection risk but maximum speed"
+    })
+    
+    print("✅ [ULTRA] Blatant Ultra fishing initialized")
+    
+end
+
+    
 
 end
 
