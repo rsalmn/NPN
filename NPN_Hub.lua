@@ -1477,17 +1477,7 @@ do
     -- REMOTE PATH SYSTEM (USING YOUR METHOD)
     -- =========================================================
     
-    local RPath = {"Packages", "_Index", "sleitnick_net@0.2.0", "net"}
-    
-    local function GetRemote(remotePath, name, timeout)
-        local currentInstance = ReplicatedStorage
-        for _, childName in ipairs(remotePath) do
-            currentInstance = currentInstance:WaitForChild(childName, timeout or 0.5)
-            if not currentInstance then return nil end
-        end
-        return currentInstance:FindFirstChild(name)
-    end
-    
+
     -- =========================================================
     -- ULTRA SPEED SYSTEM (UPDATED)
     -- =========================================================
