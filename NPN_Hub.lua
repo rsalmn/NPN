@@ -1879,7 +1879,7 @@ end
 
 do
     farm:Divider()
-    local televent = farm:Section({ Title = "Smart Event (WORKSPACE ONLY)", TextSize = 20 })
+    local televent = farm:Section({ Title = "Smart Event (MULTI PROPS)", TextSize = 20 })
 
     -- =========================================================
     -- FISHING AREAS
@@ -1926,13 +1926,14 @@ do
     local SmartEventThread = nil
 
     -- =========================================================
-    -- WORKSPACE PATHS (ONLY)
+    -- EVENT SEARCH PATTERNS
     -- =========================================================
-    local WorkspaceEventPaths = {
-        ["Shark Hunt"] = {"Props", "Shark Hunt"},
-        ["Megalodon Hunt"] = {"Props", "Megalodon Hunt"}, 
-        ["Worm Hunt"] = {"Props", "Model", "BlackHole"},
-        ["Ghost Shark Hunt"] = {"Props", "Ghost Shark Hunt"}
+    local EventSearchPatterns = {
+        ["Shark Hunt"] = {"Shark Hunt"},
+        ["Megalodon Hunt"] = {"Megalodon Hunt"}, 
+        ["Worm Hunt"] = {"BlackHole", "Model"}, -- Search for BlackHole OR Model
+        ["Ghost Shark Hunt"] = {"Ghost Shark Hunt", "Ghost"},
+        ["Treasure Event"] = {"Treasure"}
     }
 
     -- =========================================================
@@ -1957,62 +1958,117 @@ do
     end
 
     -- =========================================================
-    -- WORKSPACE ONLY DETECTION
+    -- MULTI PROPS SEARCH
     -- =========================================================
-    local function FindWorkspaceEventOnly(eventName)
-        print("🔍 [WORKSPACE] Checking:", eventName)
+    local function SearchInAllProps(eventName)
+        print("🔍 [MULTI-PROPS] Searching for:", eventName)
         
-        local pathParts = WorkspaceEventPaths[eventName]
-        if not pathParts then
-            print("❌ [WORKSPACE] No path defined for:", eventName)
+        local patterns = EventSearchPatterns[eventName]
+        if not patterns then
+            print("❌ [MULTI-PROPS] No patterns for:", eventName)
             return false, nil, nil
         end
         
-        local success, foundObj, foundPos = pcall(function()
-            local current = workspace
-            
-            -- Navigate through the path
-            for i, part in ipairs(pathParts) do
-                local found = current:FindFirstChild(part)
-                if not found then
-                    print("❌ [WORKSPACE] Path part '" .. part .. "' not found in", current.Name)
-                    return nil, nil
-                end
-                current = found
-                print("✅ [WORKSPACE] Found path part:", part)
-            end
-            
-            -- Validate the found object
-            if not current or not IsEventAlive(current) then
-                print("❌ [WORKSPACE] Object not valid for:", eventName)
-                return nil, nil
-            end
-            
-            -- Get position
-            local position
-            if current:IsA("Model") then
-                if current.PrimaryPart then
-                    position = current.PrimaryPart.Position
-                else
-                    local cf, size = current:GetBoundingBox()
-                    position = cf.Position
-                end
-            elseif current:IsA("BasePart") then
-                position = current.Position
-            else
-                print("⚠️ [WORKSPACE] Unknown object type:", current.ClassName)
-                return nil, nil
-            end
-            
-            print("✅ [WORKSPACE] Found", eventName, "at:", position)
-            return current, position
-        end)
+        print("🔍 [MULTI-PROPS] Patterns:", table.concat(patterns, ", "))
         
-        if success and foundObj and foundPos then
-            return true, foundPos, foundObj
+        -- Find all Props in workspace
+        local allProps = {}
+        for _, child in ipairs(workspace:GetChildren()) do
+            if child.Name == "Props" and child:IsA("Model") then
+                table.insert(allProps, child)
+            end
+        end
+        
+        print("📋 [MULTI-PROPS] Found", #allProps, "Props folders")
+        
+        -- Search in each Props
+        for i, props in ipairs(allProps) do
+            print("🔍 [MULTI-PROPS] Checking Props #" .. i)
+            
+            -- List children for debugging
+            local children = {}
+            for _, child in ipairs(props:GetChildren()) do
+                table.insert(children, child.Name)
+            end
+            print("   Children:", table.concat(children, ", "))
+            
+            -- Search for patterns in this Props
+            for _, pattern in ipairs(patterns) do
+                for _, child in ipairs(props:GetChildren()) do
+                    if child.Name == pattern and IsEventAlive(child) then
+                        local position
+                        
+                        if child:IsA("Model") then
+                            if child.PrimaryPart then
+                                position = child.PrimaryPart.Position
+                            else
+                                local cf, size = child:GetBoundingBox()
+                                position = cf.Position
+                            end
+                        elseif child:IsA("BasePart") then
+                            position = child.Position
+                        else
+                            print("⚠️ [MULTI-PROPS] Unknown type:", child.ClassName)
+                            continue
+                        end
+                        
+                        print("✅ [MULTI-PROPS] Found", eventName, "as", pattern, "in Props #" .. i, "at:", position)
+                        return true, position, child
+                    end
+                end
+            end
+        end
+        
+        print("❌ [MULTI-PROPS] Event not found:", eventName)
+        return false, nil, nil
+    end
+
+    -- =========================================================
+    -- DEBUG FUNCTION
+    -- =========================================================
+    local function DebugAllProps()
+        print("\n🔍 [DEBUG] Scanning ALL Props in workspace...")
+        
+        local propsCount = 0
+        for _, child in ipairs(workspace:GetChildren()) do
+            if child.Name == "Props" then
+                propsCount = propsCount + 1
+                print("📁 [DEBUG] Props #" .. propsCount .. ":")
+                
+                for i, subchild in ipairs(child:GetChildren()) do
+                    print("   " .. i .. ".", subchild.Name, "(" .. subchild.ClassName .. ")")
+                    
+                    -- Check if this looks like an event
+                    local name = subchild.Name:lower()
+                    if name:find("hunt") or name:find("shark") or name:find("mega") or 
+                       name:find("blackhole") or name:find("worm") or name:find("ghost") then
+                        print("      ⭐ POTENTIAL EVENT!")
+                        
+                        local pos
+                        if subchild:IsA("Model") then
+                            if subchild.PrimaryPart then
+                                pos = subchild.PrimaryPart.Position
+                            else
+                                local cf, size = subchild:GetBoundingBox()
+                                pos = cf.Position
+                            end
+                        elseif subchild:IsA("BasePart") then
+                            pos = subchild.Position
+                        end
+                        
+                        if pos then
+                            print("      📍 Position:", pos)
+                        end
+                    end
+                end
+                print("")
+            end
+        end
+        
+        if propsCount == 0 then
+            print("❌ [DEBUG] No Props found in workspace")
         else
-            print("❌ [WORKSPACE] Failed to find:", eventName)
-            return false, nil, nil
+            print("✅ [DEBUG] Total Props found:", propsCount)
         end
     end
 
@@ -2066,9 +2122,9 @@ do
             return false
         end
         
-        -- Re-check if the event still exists in workspace
+        -- Re-check if the event still exists
         local success, stillExists = pcall(function()
-            local found, pos, obj = FindWorkspaceEventOnly(eventName)
+            local found, pos, obj = SearchInAllProps(eventName)
             return found and obj and IsEventAlive(obj)
         end)
         
@@ -2179,8 +2235,7 @@ do
     -- =========================================================
     local TeleportManager = {
         lastTeleport = 0,
-        minInterval = 1.0,
-        lastPosition = nil
+        minInterval = 1.0
     }
 
     function TeleportManager:Teleport(pos)
@@ -2210,47 +2265,9 @@ do
             hrp.Velocity = Vector3.zero
             
             self.lastTeleport = now
-            self.lastPosition = finalPos
         end)
         
         return success
-    end
-
-    -- =========================================================
-    -- LOCHNESS SYSTEM
-    -- =========================================================
-    local LochnessSystem = {
-        startTime = 1734897600,
-        interval = 4 * 60 * 60,
-        activeWindow = 15 * 60
-    }
-
-    function LochnessSystem:IsActive()
-        local currentTime = os.time()
-        local timeSinceStart = currentTime - self.startTime
-        local timeInCycle = timeSinceStart % self.interval
-        
-        return timeInCycle >= 0 and timeInCycle <= self.activeWindow
-    end
-
-    -- =========================================================
-    -- DEBUG FUNCTION
-    -- =========================================================
-    local function DebugProps()
-        print("\n🔍 [DEBUG] Scanning workspace.Props...")
-        
-        local props = workspace:FindFirstChild("Props")
-        if not props then
-            print("❌ [DEBUG](workspace.Props) not found")
-            return
-        end
-        
-        print("✅ [DEBUG] Found workspace.Props")
-        print("📋 [DEBUG] Children:")
-        
-        for i, child in ipairs(props:GetChildren()) do
-            print("   " .. i .. ".", child.Name, "(" .. child.ClassName .. ")")
-        end
     end
 
     -- =========================================================
@@ -2297,9 +2314,9 @@ do
     })
 
     televent:Button({
-        Title = "🔍 Debug Props",
+        Title = "🔍 Debug All Props",
         Callback = function()
-            DebugProps()
+            DebugAllProps()
         end
     })
 
@@ -2307,8 +2324,8 @@ do
     -- MAIN LOOP
     -- =========================================================
     televent:Toggle({
-        Title = "🔄 Smart Event (Workspace Only)",
-        Desc = "Only uses workspace.Props paths",
+        Title = "🔄 Smart Event (Multi Props)",
+        Desc = "Searches all Props folders in workspace",
         Value = false,
         Callback = function(state)
             SmartEventState = state
@@ -2319,11 +2336,11 @@ do
                 RotationSystem.currentIndex = 0
                 RotationSystem.queue = {}
                 
-                DebugProps()  -- Auto debug on start
+                DebugAllProps()  -- Auto debug on start
                 
                 WindUI:Notify({ 
                     Title = "Smart Event", 
-                    Content = "Started (Workspace Only)", 
+                    Content = "Started (Multi Props Search)", 
                     Duration = 3 
                 })
 
@@ -2387,7 +2404,7 @@ do
                                     if not ActiveEventsCache:GetAll()[eventName] then
                                         print("🔍 [SCAN] Checking:", eventName)
                                         
-                                        local found, position, model = FindWorkspaceEventOnly(eventName)
+                                        local found, position, model = SearchInAllProps(eventName)
                                         if found then
                                             ActiveEventsCache:Add(eventName, position, model)
                                             newFound = newFound + 1
@@ -2442,21 +2459,6 @@ do
             end
         end
     })
-
-    -- =========================================================
-    -- STATUS DISPLAY
-    -- =========================================================
-    task.spawn(function()
-        while true do
-            if SmartEventState then
-                local eventCount = #getTableKeys(ActiveEventsCache:GetAll() or {})
-                local timeUntilRotation = RotationSystem.interval - (tick() - RotationSystem.lastRotation)
-                
-                print("📊 [STATUS] Events:", eventCount, "| Next rotation:", math.max(0, math.ceil(timeUntilRotation)) .. "s")
-            end
-            task.wait(30)
-        end
-    end)
 
 end
 
