@@ -1458,8 +1458,9 @@ do
             local t = tick()
             
             -- Cast phase (V5 style speed, V4 style timing)
-            safe(function() Remotes.Charge:InvokeServer({[10] = t}) end)
-            safe(function() Remotes.StartMinigame:InvokeServer(10, 0, t) end)
+            safe(function() Remotes.Charge:InvokeServer(t) end)
+            task.wait(0.001)
+            safe(function() Remotes.StartMinigame:InvokeServer(-139.6379699707, 0.99647927980797) end)
             
             -- Complete phase
             task.wait(Config.Hybrid.completeDelay)
@@ -4638,7 +4639,7 @@ do
             title.Size = UDim2.new(1, -40, 1, 0)
             title.Position = UDim2.new(0, 34, 0, 0)
             title.BackgroundTransparency = 1
-            title.Text = "LYNX PANEL"
+            title.Text = "NPN HUB"
             title.TextColor3 = Color3.fromRGB(255, 140, 50)
             title.TextSize = 12
             title.Font = Enum.Font.GothamBold
@@ -4746,7 +4747,6 @@ do
         -- >> UI TOGGLE
         MiscSection:Toggle({
             Title = "Show Ping & FPS Panel",
-            Desc = "Menampilkan overlay statistik jaringan (Lynx Style).",
             Value = false,
             Icon = "activity",
             Callback = function(state)
