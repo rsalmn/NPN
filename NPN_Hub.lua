@@ -2743,6 +2743,15 @@ do
                 end
             end
         end
+
+        -- Fallback: Khusus Lochness (Seringkali di luar Props)
+        if uiEventName == "Lochness Hunt" then
+            for _, obj in ipairs(Workspace:GetChildren()) do
+                if obj.Name:find("Nessie") or obj.Name:find("Lochness") then
+                    return obj
+                end
+            end
+        end
         
         print("❌ [MULTI-PROPS] Event not found:", eventName)
         return false, nil, nil
@@ -3073,9 +3082,8 @@ do
                     while SmartEventState do
                         local success, err = pcall(function()
                             local cachedEvents = ActiveEventsCache:GetAll()
-                            local eventCount = #getTableKeys(cachedEvents)
                             
-                            -- Count active events
+                            -- 1. Hitung event yang aktif saat ini
                             local activeCount = 0
                             for eventName, _ in pairs(cachedEvents) do
                                 if ActiveEventsCache:IsEventStillActive(eventName) then
@@ -3083,31 +3091,11 @@ do
                                 end
                             end
                             
-                            print("📊 [MAIN] Events:", eventCount, "| Active:", activeCount)
-                            
-                            -- ROTATION MODE
-                            if activeCount > 0 then
-                                if RotationSystem:ShouldRotate() then
-                                    local nextEvent = RotationSystem:GetNext()
-                                    
-                                    if nextEvent then
-                                        print("🔄 [MAIN] Rotating to:", nextEvent.name)
-                                        
-                                        if TeleportManager:Teleport(nextEvent.data.position) then
-                                            ActiveEventsCache:MarkVisited(nextEvent.name)
-                                            RotationSystem:MarkRotated()
-                                            
-                                            task.wait(8)  -- Stay duration
-                                            return
-                                        end
-                                    end
-                                else
-                                    task.wait(2)
-                                    return
-                                end
-                            end
-                            
-                            -- SCANNING MODE
+                            print("📊 [MAIN] Events:", #getTableKeys(cachedEvents), "| Active:", activeCount)
+
+                            -- =========================================================
+                            -- [FIX] LOGIKA SCANNING DIPINDAH KE ATAS (PRIORITAS UTAMA)
+                            -- =========================================================
                             if ActiveEventsCache:ShouldScan() then
                                 print("🔍 [MAIN] Scanning for events...")
                                 
@@ -3126,8 +3114,9 @@ do
                                 for _, eventName in ipairs(eventsToFind) do
                                     if not SmartEventState then break end
                                     
+                                    -- Scan hanya jika event belum ada di cache
                                     if not ActiveEventsCache:GetAll()[eventName] then
-                                        print("🔍 [SCAN] Checking:", eventName)
+                                        -- print("🔍 [SCAN] Checking:", eventName) -- Optional: Un-comment biar ga spam
                                         
                                         local found, position, model = SearchInAllProps(eventName)
                                         if found then
@@ -3137,27 +3126,48 @@ do
                                         end
                                     end
                                     
-                                    task.wait(0.5)
+                                    task.wait(0.1) -- Percepat sedikit delay scan
                                 end
                                 
                                 ActiveEventsCache:MarkScanned()
                                 
                                 if newFound > 0 then
                                     print("🎊 [SCAN] Found", newFound, "new events")
-                                    RotationSystem.queue = {}  -- Clear queue to rebuild
-                                else
-                                    print("📭 [SCAN] No new events found")
+                                    RotationSystem.queue = {}  -- Reset antrian agar event baru masuk rotasi
+                                end
+                            end
+
+                            -- =========================================================
+                            -- LOGIKA ROTATION (TELEPORT) SETELAH SCANNING SELESAI
+                            -- =========================================================
+                            if activeCount > 0 then
+                                if RotationSystem:ShouldRotate() then
+                                    local nextEvent = RotationSystem:GetNext()
                                     
-                                    -- Go to idle area
-                                    if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
-                                        local idlePos = FishingAreass[Loch_Return_SelectedArea].Pos
-                                        print("🏠 [IDLE] Going to:", Loch_Return_SelectedArea)
-                                        TeleportManager:Teleport(idlePos)
+                                    if nextEvent then
+                                        print("🔄 [MAIN] Rotating to:", nextEvent.name)
+                                        
+                                        if TeleportManager:Teleport(nextEvent.data.position) then
+                                            ActiveEventsCache:MarkVisited(nextEvent.name)
+                                            RotationSystem:MarkRotated()
+                                            
+                                            task.wait(8)  -- Durasi diam di event (Stay duration)
+                                        end
                                     end
-                                    
-                                    task.wait(15)
+                                else
+                                    -- Jika belum waktunya rotasi, diam sebentar tapi JANGAN return
+                                    task.wait(1) 
                                 end
                             else
+                                -- Jika tidak ada event sama sekali
+                                print("📭 [MAIN] No active events, waiting...")
+                                
+                                -- Go to idle area (Optional)
+                                if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
+                                    local idlePos = FishingAreass[Loch_Return_SelectedArea].Pos
+                                    TeleportManager:Teleport(idlePos)
+                                end
+                                
                                 task.wait(5)
                             end
                         end)
@@ -3166,6 +3176,9 @@ do
                             warn("⚠️ [ERROR]:", err)
                             task.wait(5)
                         end
+                        
+                        -- Tambahkan wait kecil di loop utama untuk mencegah crash jika logic di atas lolos semua
+                        task.wait(0.1)
                     end
                 end)
             else
