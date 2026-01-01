@@ -1146,118 +1146,6 @@ do
             end
         end
     }))
-
-    -- MAIN LOGIC --
-    -- Konfigurasi Default
-    local completeDelay = 3.055
-    local cancelDelay = 0.3
-    local loopInterval = 1.715
-    
-    -- State Variables
-    _G.RockHub_BlatantActive = false
-    local blatantInstantState = false -- Menggunakan variabel lokal agar sinkron dengan disableAllModes
-
-    -- [[ 1. LOGIC KILLER: LUMPUHKAN CONTROLLER ]]
-    -- Memastikan controller game tidak bisa mengirim request manual saat Blatant ON
-    task.spawn(function()
-        local S1, FishingController = pcall(function() return require(game:GetService("ReplicatedStorage").Controllers.FishingController) end)
-        if S1 and FishingController then
-            local Old_Charge = FishingController.RequestChargeFishingRod
-            local Old_Cast = FishingController.SendFishingRequestToServer
-            
-            -- Hook fungsi charge & cast asli
-            FishingController.RequestChargeFishingRod = function(...)
-                if _G.RockHub_BlatantActive then return end 
-                return Old_Charge(...)
-            end
-            FishingController.SendFishingRequestToServer = function(...)
-                if _G.RockHub_BlatantActive then return false, "Blocked by RockHub" end
-                return Old_Cast(...)
-            end
-        end
-    end)
-
-    -- [[ 2. REMOTE KILLER: BLOKIR KOMUNIKASI ]]
-    -- Memblokir sinyal keluar yang tidak diinginkan (Stealth Mode)
-    local mt = getrawmetatable(game)
-    local old_namecall = mt.__namecall
-    setreadonly(mt, false)
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if _G.RockHub_BlatantActive and not checkcaller() then
-            -- Cegah game mengirim request mancing atau request update state secara manual
-            if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod" or self.Name == "UpdateAutoFishingState") then
-                return nil 
-            end
-            if method == "FireServer" and self.Name == "FishingCompleted" then
-                return nil
-            end
-        end
-        return old_namecall(self, ...)
-    end)
-    setreadonly(mt, true)
-
-    -- [[ 3. UI & NOTIF KILLER (VISUAL SPOOFING) ]]
-    -- Memanipulasi tampilan agar terlihat idle/inactive di mata user (Ghost UI)
-    local function SuppressGameVisuals(active)
-        -- A. Hook Notifikasi biar ga spam "Auto Fishing: Enabled"
-        local Succ, TextController = pcall(function() return require(game.ReplicatedStorage.Controllers.TextNotificationController) end)
-        if Succ and TextController then
-            if active then
-                if not TextController._OldDeliver then TextController._OldDeliver = TextController.DeliverNotification end
-                TextController.DeliverNotification = function(self, data)
-                    -- Filter pesan Auto Fishing
-                    if data and data.Text and (string.find(tostring(data.Text), "Auto Fishing") or string.find(tostring(data.Text), "Reach Level")) then
-                        return 
-                    end
-                    return TextController._OldDeliver(self, data)
-                end
-            elseif TextController._OldDeliver then
-                TextController.DeliverNotification = TextController._OldDeliver
-                TextController._OldDeliver = nil
-            end
-        end
-
-        -- B. Paksa Tombol Jadi Merah (Inactive) Setiap Frame
-        if active then
-            task.spawn(function()
-                local RunService = game:GetService("RunService")
-                local CollectionService = game:GetService("CollectionService")
-                local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-                
-                -- Warna Merah (Inactive)
-                local InactiveColor = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, Color3.fromHex("ff5d60")), 
-                    ColorSequenceKeypoint.new(1, Color3.fromHex("ff2256"))
-                })
-
-                while _G.RockHub_BlatantActive do
-                    local targets = {}
-                    
-                    -- Cek Tag "AutoFishingButton"
-                    for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
-                        table.insert(targets, btn)
-                    end
-                    
-                    -- Fallback cek path manual di Backpack
-                    if #targets == 0 then
-                        local btn = PlayerGui:FindFirstChild("Backpack") and PlayerGui.Backpack:FindFirstChild("AutoFishingButton")
-                        if btn then table.insert(targets, btn) end
-                    end
-
-                    -- Paksa Gradientnya jadi Merah
-                    for _, btn in ipairs(targets) do
-                        local grad = btn:FindFirstChild("UIGradient")
-                        if grad then
-                            grad.Color = InactiveColor
-                        end
-                    end
-                    
-                    RunService.RenderStepped:Wait()
-                end
-            end)
-        end
-    end
     
     -- =====================================================
     -- MODE 3: BLATANT V1 (STABLE)
@@ -1380,6 +1268,8 @@ do
         end
     }))
 
+    -- MAIN LOGIC --
+    
     -- =====================================================
     -- MODE 4: BLATANT V2 (ULTRA FAST)
     -- =====================================================
@@ -1439,7 +1329,7 @@ do
                     -- Ultra-fast batch casting (using correct remotes)
                     Remotes.Charge:InvokeServer({[10] = tick()})
                     task.wait(BlatantUltra.Settings.CastDelay)
-                    Remotes.StartMinigame:InvokeServer(-139.6379699707, 0.99647927980797) end)
+                    Remotes.StartMinigame:InvokeServer(10, 0, tick())
                     
                     BlatantUltra.WaitingHook = true
                     print("⏳ [ULTRA] Waiting for hook...")
@@ -1538,8 +1428,7 @@ do
             
             disableAllModes()
             V5_Active = state
-            SuppressGameVisuals(state)
-
+            
             if state then
                 safe(function() Remotes.UpdateState:InvokeServer(true) end)
                 V5_Thread = task.spawn(V5_MainLoop)
@@ -1563,8 +1452,119 @@ do
     -- MODE: BLATANT V5 (PERFECTION + GHOST UI)
     -- =====================================================
 
-    local blatant = fishMancing:Section({ Title = "4. Blatant (Tester)", TextSize = 20 })
+    local blatant = farm:Section({ Title = "3. Blatant V5 (Perfection)", TextSize = 20 })
+
+    -- Konfigurasi Default
+    local completeDelay = 3.055
+    local cancelDelay = 0.3
+    local loopInterval = 1.715
     
+    -- State Variables
+    _G.RockHub_BlatantActive = false
+    local blatantInstantState = false -- Menggunakan variabel lokal agar sinkron dengan disableAllModes
+
+    -- [[ 1. LOGIC KILLER: LUMPUHKAN CONTROLLER ]]
+    -- Memastikan controller game tidak bisa mengirim request manual saat Blatant ON
+    task.spawn(function()
+        local S1, FishingController = pcall(function() return require(game:GetService("ReplicatedStorage").Controllers.FishingController) end)
+        if S1 and FishingController then
+            local Old_Charge = FishingController.RequestChargeFishingRod
+            local Old_Cast = FishingController.SendFishingRequestToServer
+            
+            -- Hook fungsi charge & cast asli
+            FishingController.RequestChargeFishingRod = function(...)
+                if _G.RockHub_BlatantActive then return end 
+                return Old_Charge(...)
+            end
+            FishingController.SendFishingRequestToServer = function(...)
+                if _G.RockHub_BlatantActive then return false, "Blocked by RockHub" end
+                return Old_Cast(...)
+            end
+        end
+    end)
+
+    -- [[ 2. REMOTE KILLER: BLOKIR KOMUNIKASI ]]
+    -- Memblokir sinyal keluar yang tidak diinginkan (Stealth Mode)
+    local mt = getrawmetatable(game)
+    local old_namecall = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if _G.RockHub_BlatantActive and not checkcaller() then
+            -- Cegah game mengirim request mancing atau request update state secara manual
+            if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod" or self.Name == "UpdateAutoFishingState") then
+                return nil 
+            end
+            if method == "FireServer" and self.Name == "FishingCompleted" then
+                return nil
+            end
+        end
+        return old_namecall(self, ...)
+    end)
+    setreadonly(mt, true)
+
+    -- [[ 3. UI & NOTIF KILLER (VISUAL SPOOFING) ]]
+    -- Memanipulasi tampilan agar terlihat idle/inactive di mata user (Ghost UI)
+    local function SuppressGameVisuals(active)
+        -- A. Hook Notifikasi biar ga spam "Auto Fishing: Enabled"
+        local Succ, TextController = pcall(function() return require(game.ReplicatedStorage.Controllers.TextNotificationController) end)
+        if Succ and TextController then
+            if active then
+                if not TextController._OldDeliver then TextController._OldDeliver = TextController.DeliverNotification end
+                TextController.DeliverNotification = function(self, data)
+                    -- Filter pesan Auto Fishing
+                    if data and data.Text and (string.find(tostring(data.Text), "Auto Fishing") or string.find(tostring(data.Text), "Reach Level")) then
+                        return 
+                    end
+                    return TextController._OldDeliver(self, data)
+                end
+            elseif TextController._OldDeliver then
+                TextController.DeliverNotification = TextController._OldDeliver
+                TextController._OldDeliver = nil
+            end
+        end
+
+        -- B. Paksa Tombol Jadi Merah (Inactive) Setiap Frame
+        if active then
+            task.spawn(function()
+                local RunService = game:GetService("RunService")
+                local CollectionService = game:GetService("CollectionService")
+                local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+                
+                -- Warna Merah (Inactive)
+                local InactiveColor = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromHex("ff5d60")), 
+                    ColorSequenceKeypoint.new(1, Color3.fromHex("ff2256"))
+                })
+
+                while _G.RockHub_BlatantActive do
+                    local targets = {}
+                    
+                    -- Cek Tag "AutoFishingButton"
+                    for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
+                        table.insert(targets, btn)
+                    end
+                    
+                    -- Fallback cek path manual di Backpack
+                    if #targets == 0 then
+                        local btn = PlayerGui:FindFirstChild("Backpack") and PlayerGui.Backpack:FindFirstChild("AutoFishingButton")
+                        if btn then table.insert(targets, btn) end
+                    end
+
+                    -- Paksa Gradientnya jadi Merah
+                    for _, btn in ipairs(targets) do
+                        local grad = btn:FindFirstChild("UIGradient")
+                        if grad then
+                            grad.Color = InactiveColor
+                        end
+                    end
+                    
+                    RunService.RenderStepped:Wait()
+                end
+            end)
+        end
+    end
+
     -- [[ UI CONFIG ]]
     local LoopIntervalInput = Reg("blatantint", blatant:Input({
         Title = "Blatant Interval", Value = tostring(loopInterval), Icon = "fast-forward", Type = "Input", Placeholder = "1.58",
