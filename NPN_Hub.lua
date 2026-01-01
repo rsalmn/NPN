@@ -1449,109 +1449,216 @@ do
     -- =====================================================
     -- MODE 5: HYBRID (BEST OF BOTH)
     -- =====================================================
-    
-    local hybrid = fishMancing:Section({ Title = "4. Blatant Hybrid (Best)", TextSize = 20 })
-    
-    -- Hybrid Core Loop
-    local function Hybrid_MainLoop()
-        while Hybrid_Active do
-            local t = tick()
-            
-            -- Cast phase (V5 style speed, V4 style timing)
-            safe(function() Remotes.Charge:InvokeServer(t) end)
-            task.wait(0.001)
-            safe(function() Remotes.StartMinigame:InvokeServer(-139.6379699707, 0.99647927980797) end)
-            
-            -- Complete phase
-            task.wait(Config.Hybrid.completeDelay)
-            if not Hybrid_Active then break end
-            safe(function() Remotes.Complete:FireServer() end)
-            
-            -- Cancel phase
-            task.wait(Config.Hybrid.cancelDelay)
-            if not Hybrid_Active then break end
-            safe(function() Remotes.Cancel:InvokeServer() end)
-            
-            -- Recast delay
-            if Config.Hybrid.recastDelay > 0 then
-                task.wait(Config.Hybrid.recastDelay)
+    do
+        local hybrid = fishMancing:Section({ Title = "4. Blatant Hybrid (Best)", TextSize = 20 })
+        
+        -- State Variables
+        _G.RockHub_BlatantActive = false
+        local blatantInstantState = false -- Menggunakan variabel lokal agar sinkron dengan disableAllModes
+
+        -- [[ 1. LOGIC KILLER: LUMPUHKAN CONTROLLER ]]
+        -- Memastikan controller game tidak bisa mengirim request manual saat Blatant ON
+        task.spawn(function()
+            local S1, FishingController = pcall(function() return require(game:GetService("ReplicatedStorage").Controllers.FishingController) end)
+            if S1 and FishingController then
+                local Old_Charge = FishingController.RequestChargeFishingRod
+                local Old_Cast = FishingController.SendFishingRequestToServer
+                
+                -- Hook fungsi charge & cast asli
+                FishingController.RequestChargeFishingRod = function(...)
+                    if _G.RockHub_BlatantActive then return end 
+                    return Old_Charge(...)
+                end
+                FishingController.SendFishingRequestToServer = function(...)
+                    if _G.RockHub_BlatantActive then return false, "Blocked by RockHub" end
+                    return Old_Cast(...)
+                end
+            end
+        end)
+
+        -- [[ 2. REMOTE KILLER: BLOKIR KOMUNIKASI ]]
+        -- Memblokir sinyal keluar yang tidak diinginkan (Stealth Mode)
+        local mt = getrawmetatable(game)
+        local old_namecall = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if _G.RockHub_BlatantActive and not checkcaller() then
+                -- Cegah game mengirim request mancing atau request update state secara manual
+                if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod" or self.Name == "UpdateAutoFishingState") then
+                    return nil 
+                end
+                if method == "FireServer" and self.Name == "FishingCompleted" then
+                    return nil
+                end
+            end
+            return old_namecall(self, ...)
+        end)
+        setreadonly(mt, true)
+
+        -- [[ 3. UI & NOTIF KILLER (VISUAL SPOOFING) ]]
+        -- Memanipulasi tampilan agar terlihat idle/inactive di mata user (Ghost UI)
+        local function SuppressGameVisuals(active)
+            -- A. Hook Notifikasi biar ga spam "Auto Fishing: Enabled"
+            local Succ, TextController = pcall(function() return require(game.ReplicatedStorage.Controllers.TextNotificationController) end)
+            if Succ and TextController then
+                if active then
+                    if not TextController._OldDeliver then TextController._OldDeliver = TextController.DeliverNotification end
+                    TextController.DeliverNotification = function(self, data)
+                        -- Filter pesan Auto Fishing
+                        if data and data.Text and (string.find(tostring(data.Text), "Auto Fishing") or string.find(tostring(data.Text), "Reach Level")) then
+                            return 
+                        end
+                        return TextController._OldDeliver(self, data)
+                    end
+                elseif TextController._OldDeliver then
+                    TextController.DeliverNotification = TextController._OldDeliver
+                    TextController._OldDeliver = nil
+                end
+            end
+
+            -- B. Paksa Tombol Jadi Merah (Inactive) Setiap Frame
+            if active then
+                task.spawn(function()
+                    local RunService = game:GetService("RunService")
+                    local CollectionService = game:GetService("CollectionService")
+                    local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+                    
+                    -- Warna Merah (Inactive)
+                    local InactiveColor = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromHex("ff5d60")), 
+                        ColorSequenceKeypoint.new(1, Color3.fromHex("ff2256"))
+                    })
+
+                    while _G.RockHub_BlatantActive do
+                        local targets = {}
+                        
+                        -- Cek Tag "AutoFishingButton"
+                        for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
+                            table.insert(targets, btn)
+                        end
+                        
+                        -- Fallback cek path manual di Backpack
+                        if #targets == 0 then
+                            local btn = PlayerGui:FindFirstChild("Backpack") and PlayerGui.Backpack:FindFirstChild("AutoFishingButton")
+                            if btn then table.insert(targets, btn) end
+                        end
+
+                        -- Paksa Gradientnya jadi Merah
+                        for _, btn in ipairs(targets) do
+                            local grad = btn:FindFirstChild("UIGradient")
+                            if grad then
+                                grad.Color = InactiveColor
+                            end
+                        end
+                        
+                        RunService.RenderStepped:Wait()
+                    end
+                end)
             end
         end
-    end
-    
-    -- Hybrid Failsafe Listener
-    Remotes.MinigameChanged.OnClientEvent:Connect(function()
-        if not Hybrid_Active then return end
         
-        task.delay(Config.Hybrid.completeDelay, function()
-            if Hybrid_Active then safe(function() Remotes.Complete:FireServer() end) end
+        -- Hybrid Core Loop
+        local function Hybrid_MainLoop()
+            while Hybrid_Active do
+                local t = tick()
+                
+                -- Cast phase (V5 style speed, V4 style timing)
+                safe(function() Remotes.Charge:InvokeServer(t) end)
+                task.wait(0.001)
+                safe(function() Remotes.StartMinigame:InvokeServer(-139.6379699707, 0.99647927980797) end)
+                
+                -- Complete phase
+                task.wait(Config.Hybrid.completeDelay)
+                if not Hybrid_Active then break end
+                safe(function() Remotes.Complete:FireServer() end)
+                
+                -- Cancel phase
+                task.wait(Config.Hybrid.cancelDelay)
+                if not Hybrid_Active then break end
+                safe(function() Remotes.Cancel:InvokeServer() end)
+                
+                -- Recast delay
+                if Config.Hybrid.recastDelay > 0 then
+                    task.wait(Config.Hybrid.recastDelay)
+                end
+            end
+        end
+        
+        -- Hybrid Failsafe Listener
+        Remotes.MinigameChanged.OnClientEvent:Connect(function()
+            if not Hybrid_Active then return end
             
-            task.delay(Config.Hybrid.cancelDelay, function()
-                if Hybrid_Active then safe(function() Remotes.Cancel:InvokeServer() end) end
+            task.delay(Config.Hybrid.completeDelay, function()
+                if Hybrid_Active then safe(function() Remotes.Complete:FireServer() end) end
+                
+                task.delay(Config.Hybrid.cancelDelay, function()
+                    if Hybrid_Active then safe(function() Remotes.Cancel:InvokeServer() end) end
+                end)
             end)
         end)
-    end)
-    
-    -- Hybrid UI Controls
-    Reg("hybrid_comp", hybrid:Input({
-        Title = "Complete Delay",
-        Value = tostring(Config.Hybrid.completeDelay),
-        Placeholder = "0.75",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then Config.Hybrid.completeDelay = n end
-        end
-    }))
-    
-    Reg("hybrid_canc", hybrid:Input({
-        Title = "Cancel Delay",
-        Value = tostring(Config.Hybrid.cancelDelay),
-        Placeholder = "0.25",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then Config.Hybrid.cancelDelay = n end
-        end
-    }))
-    
-    Reg("hybrid_recast", hybrid:Input({
-        Title = "Recast Delay",
-        Value = tostring(Config.Hybrid.recastDelay),
-        Placeholder = "0.0",
-        Desc = "Delay before next cast (0 = Spam)",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0 then Config.Hybrid.recastDelay = n end
-        end
-    }))
-    
-    Reg("hybrid_toggle", hybrid:Toggle({
-        Title = "Enable Blatant Hybrid",
-        Value = false,
-        Callback = function(state)
-            if not checkFishingRemotes() then return end
-            
-            disableAllModes()
-            Hybrid_Active = state
-            
-            if state then
-                safe(function() Remotes.UpdateState:InvokeServer(true) end)
-                safe(function() Remotes.Cancel:InvokeServer() end)
-                Hybrid_Thread = task.spawn(Hybrid_MainLoop)
-                
-                WindUI:Notify({
-                    Title = "Hybrid Mode ON",
-                    Content = "Best Combined Mode Active",
-                    Duration = 3,
-                    Icon = "zap"
-                })
-            else
-                safe(function() Remotes.UpdateState:InvokeServer(false) end)
-                safe(function() Remotes.Cancel:InvokeServer() end)
-                WindUI:Notify({ Title = "Hybrid Mode OFF", Duration = 2 })
+        
+        -- Hybrid UI Controls
+        Reg("hybrid_comp", hybrid:Input({
+            Title = "Complete Delay",
+            Value = tostring(Config.Hybrid.completeDelay),
+            Placeholder = "0.75",
+            Callback = function(v)
+                local n = tonumber(v)
+                if n and n >= 0 then Config.Hybrid.completeDelay = n end
             end
-        end
-    }))
+        }))
+        
+        Reg("hybrid_canc", hybrid:Input({
+            Title = "Cancel Delay",
+            Value = tostring(Config.Hybrid.cancelDelay),
+            Placeholder = "0.25",
+            Callback = function(v)
+                local n = tonumber(v)
+                if n and n >= 0 then Config.Hybrid.cancelDelay = n end
+            end
+        }))
+        
+        Reg("hybrid_recast", hybrid:Input({
+            Title = "Recast Delay",
+            Value = tostring(Config.Hybrid.recastDelay),
+            Placeholder = "0.0",
+            Desc = "Delay before next cast (0 = Spam)",
+            Callback = function(v)
+                local n = tonumber(v)
+                if n and n >= 0 then Config.Hybrid.recastDelay = n end
+            end
+        }))
+        
+        Reg("hybrid_toggle", hybrid:Toggle({
+            Title = "Enable Blatant Hybrid",
+            Value = false,
+            Callback = function(state)
+                if not checkFishingRemotes() then return end
+                
+                disableAllModes()
+                Hybrid_Active = state
+                
+                if state then
+                    safe(function() Remotes.UpdateState:InvokeServer(true) end)
+                    safe(function() Remotes.Cancel:InvokeServer() end)
+                    Hybrid_Thread = task.spawn(Hybrid_MainLoop)
+                    
+                    WindUI:Notify({
+                        Title = "Hybrid Mode ON",
+                        Content = "Best Combined Mode Active",
+                        Duration = 3,
+                        Icon = "zap"
+                    })
+                else
+                    safe(function() Remotes.UpdateState:InvokeServer(false) end)
+                    safe(function() Remotes.Cancel:InvokeServer() end)
+                    WindUI:Notify({ Title = "Hybrid Mode OFF", Duration = 2 })
+                end
+            end
+        }))
 
+    end
     -- =====================================================
     -- MODE: BLATANT V5 (PERFECTION + GHOST UI)
     -- =====================================================
