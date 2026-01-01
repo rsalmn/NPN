@@ -1574,11 +1574,53 @@ do
                     if completeWaitTime > 0 then task.wait(completeWaitTime) end
                     
                     pcall(function() Remotes.Complete:FireServer() end)
-                    task.wait(Config.Hybrid.recastDelay)
+                    task.wait(Config.Hybrid.cancelDelay)
                     pcall(function() Remotes.Cancel:InvokeServer() end)
                 end)
             end
         end
+
+        
+        -- Hybrid Core Loop
+        local function Hybrid_MainLoop()
+            while Hybrid_Active do
+                local t = tick()
+                
+                -- Cast phase (V5 style speed, V4 style timing)
+                safe(function() Remotes.Charge:InvokeServer(t) end)
+                task.wait(0.001)
+                safe(function() Remotes.StartMinigame:InvokeServer(-139.6379699707, 0.99647927980797) end)
+                
+                -- Complete phase
+                task.wait(Config.Hybrid.completeDelay)
+                if not Hybrid_Active then break end
+                safe(function() Remotes.Complete:FireServer() end)
+                
+                -- Cancel phase
+                task.wait(Config.Hybrid.cancelDelay)
+                if not Hybrid_Active then break end
+                safe(function() Remotes.Cancel:InvokeServer() end)
+                
+                -- Recast delay
+                if Config.Hybrid.recastDelay > 0 then
+                    task.wait(Config.Hybrid.recastDelay)
+                end
+            end
+        end
+        
+        -- Hybrid Failsafe Listener
+        Remotes.MinigameChanged.OnClientEvent:Connect(function()
+            if not Hybrid_Active then return end
+            
+            task.delay(Config.Hybrid.completeDelay, function()
+                if Hybrid_Active then safe(function() Remotes.Complete:FireServer() end) end
+                
+                task.delay(Config.Hybrid.cancelDelay, function()
+                    if Hybrid_Active then safe(function() Remotes.Cancel:InvokeServer() end) end
+                end)
+            end)
+        end)
+        
         
         -- Hybrid UI Controls
         Reg("hybrid_comp", hybrid:Input({
