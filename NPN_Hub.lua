@@ -1798,7 +1798,7 @@ do
         -- FISHING ANIMATION CHANGER SECTION
         -- =========================================================
         
-        local animSection = fishingtools:Section({ 
+        local animSection = fishMancing:Section({ 
             Title = "Fishing Animation Changer", 
             TextSize = 20 
         })
