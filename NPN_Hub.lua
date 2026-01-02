@@ -1177,9 +1177,9 @@ do
         local t = tick()
         V4_State.lastCast = t
         
-        safe(function() Remotes.Charge:InvokeServer({[5] = t}) end)
+        safe(function() Remotes.Charge:InvokeServer({[15] = t}) end)
         task.wait(0.001)
-        safe(function() Remotes.StartMinigame:InvokeServer(5, 0, t) end)
+        safe(function() Remotes.StartMinigame:InvokeServer(15, 0, t) end)
     end
     
     local function V4_MainLoop()
@@ -1357,29 +1357,8 @@ do
                 end
             end)
             
-            -- Complete phase
-            task.wait(Config.V5.completeDelay)
-            if not V5_Active then break end
-            safe(function() Remotes.Complete:FireServer() end)
-            
-            -- Cancel phase
-            task.wait(Config.V5.cancelDelay)
-            if not V5_Active then break end
-            safe(function() Remotes.Cancel:InvokeServer() end)
         end
     end
-    
-    -- V5 Failsafe Listener
-    Remotes.MinigameChanged.OnClientEvent:Connect(function()
-        if not V5_Active then return end
-        
-        task.spawn(function()
-            task.wait(Config.V5.completeDelay)
-            safe(function() Remotes.Complete:FireServer() end)
-            task.wait(Config.V5.cancelDelay)
-            safe(function() Remotes.Cancel:InvokeServer() end)
-        end)
-    end)
     
     -- V5 UI Controls
     Reg("v5_complete", v5:Input({
@@ -1434,7 +1413,7 @@ do
     -- MODE: BLATANT V5 (PERFECTION + GHOST UI)
     -- =====================================================
 
-    local blatant = fishMancing:Section({ Title = "3. Blatant V5 (Perfection)", TextSize = 20 })
+    local blatant = fishMancing:Section({ Title = "4. Blatant Beta (Perfection)", TextSize = 20 })
 
     -- Konfigurasi Default
     local completeDelay = 3.055
