@@ -1761,876 +1761,721 @@ do
     farm:Divider()
     local fishingSupport = farm:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
     
+    
     do
-    -- =========================================================
-    -- FISHING ANIMATION CHANGER SECTION (FULL ANIMATIONS)
-    -- =========================================================
-    
-    local animSection = farm:Section({ 
-        Title = "Fishing Animation Changer", 
-        TextSize = 20 
-    })
-    
-    -- =========================================================
-    -- SERVICES & SETUP
-    -- =========================================================
-    
-    local RunService = game:GetService("RunService")
-    local player = Players.LocalPlayer
-    local char = player.Character or player.CharacterAdded:Wait()
-    local humanoid = char:WaitForChild("Humanoid")
-    
-    local Animator = humanoid:FindFirstChildOfClass("Animator")
-    if not Animator then
-        Animator = Instance.new("Animator", humanoid)
-    end
-    
-    -- =========================================================
-    -- FULL SKIN DATABASE (All Animation Types)
-    -- =========================================================
-    
-    local FullSkinDatabase = {
-        ["Eclipse Katana"] = {
-            FishCaught = "rbxassetid://107940819382815",
-            ReelIdle = "rbxassetid://115229621326605",
-            RodThrow = "rbxassetid://82600073500966"
-        },
-        ["Gingerbread Katana"] = {
-            FishCaught = "rbxassetid://107940819382815",
-            ReelIdle = "rbxassetid://103641983335689",
-            RodThrow = "rbxassetid://82600073500966" -- Same throw animation
-        },
-        ["Holy Trident"] = {
-            FishCaught = "rbxassetid://128167068291703",
-            ReelIdle = "rbxassetid://128167068291703",
-            RodThrow = "rbxassetid://128167068291703"
-        },
-        ["Soul Scythe"] = {
-            FishCaught = "rbxassetid://82259219343456",
-            ReelIdle = "rbxassetid://82259219343456",
-            RodThrow = "rbxassetid://82259219343456"
-        },
-        ["Oceanic Harpoon"] = {
-            FishCaught = "rbxassetid://76325124055693",
-            ReelIdle = "rbxassetid://76325124055693",
-            RodThrow = "rbxassetid://76325124055693"
-        },
-        ["Binary Edge"] = {
-            FishCaught = "rbxassetid://109653945741202",
-            ReelIdle = "rbxassetid://109653945741202",
-            RodThrow = "rbxassetid://109653945741202"
-        },
-        ["Vanquisher"] = {
-            FishCaught = "rbxassetid://93884986836266",
-            ReelIdle = "rbxassetid://93884986836266",
-            RodThrow = "rbxassetid://93884986836266"
-        },
-        ["Krampus Scythe"] = {
-            FishCaught = "rbxassetid://134934781977605",
-            ReelIdle = "rbxassetid://134934781977605",
-            RodThrow = "rbxassetid://134934781977605"
-        },
-        ["Ban Hammer"] = {
-            FishCaught = "rbxassetid://96285280763544",
-            ReelIdle = "rbxassetid://96285280763544",
-            RodThrow = "rbxassetid://96285280763544"
-        },
-        ["Corruption Edge"] = {
-            FishCaught = "rbxassetid://126613975718573",
-            ReelIdle = "rbxassetid://126613975718573",
-            RodThrow = "rbxassetid://126613975718573"
-        },
-        ["Princess Parasol"] = {
-            FishCaught = "rbxassetid://99143072029495",
-            ReelIdle = "rbxassetid://99143072029495",
-            RodThrow = "rbxassetid://99143072029495"
+        -- =========================================================
+        -- FISHING ANIMATION CHANGER SECTION
+        -- =========================================================
+        
+        local animSection = fishingtools:Section({ 
+            Title = "Fishing Animation Changer", 
+            TextSize = 20 
+        })
+        
+        -- =========================================================
+        -- SERVICES & SETUP
+        -- =========================================================
+        
+        local RunService = game:GetService("RunService")
+        local player = Players.LocalPlayer
+        local char = player.Character or player.CharacterAdded:Wait()
+        local humanoid = char:WaitForChild("Humanoid")
+        
+        local Animator = humanoid:FindFirstChildOfClass("Animator")
+        if not Animator then
+            Animator = Instance.new("Animator", humanoid)
+        end
+        
+        -- =========================================================
+        -- SKIN DATABASE
+        -- =========================================================
+        
+        local SkinDatabase = {
+            ["Eclipse"] = "rbxassetid://107940819382815",
+            ["Holy Trident"] = "rbxassetid://128167068291703",
+            ["Soul Scythe"] = "rbxassetid://82259219343456",
+            ["Oceanic Harpoon"] = "rbxassetid://76325124055693",
+            ["Binary Edge"] = "rbxassetid://109653945741202",
+            ["Vanquisher"] = "rbxassetid://93884986836266",
+            ["Krampus Scythe"] = "rbxassetid://134934781977605",
+            ["Ban Hammer"] = "rbxassetid://96285280763544",
+            ["Corruption Edge"] = "rbxassetid://126613975718573",
+            ["Princess Parasol"] = "rbxassetid://99143072029495"
         }
-    }
-    
-    -- Get skin names for dropdown
-    local SkinNames = {}
-    for name, _ in pairs(FullSkinDatabase) do
-        table.insert(SkinNames, name)
-    end
-    table.sort(SkinNames)
-    
-    -- =========================================================
-    -- VARIABLES
-    -- =========================================================
-    
-    local CurrentSkin = nil
-    local AnimationPools = {
-        FishCaught = {},
-        ReelIdle = {},
-        RodThrow = {}
-    }
-    local IsEnabled = false
-    local POOL_SIZE = 3
-    
-    local killedTracks = {}
-    local replaceStats = {
-        FishCaught = 0,
-        ReelIdle = 0,
-        RodThrow = 0,
-        Total = 0
-    }
-    local currentPoolIndexes = {
-        FishCaught = 1,
-        ReelIdle = 1,
-        RodThrow = 1
-    }
-    
-    local AnimChangeConnections = {}
-    
-    -- =========================================================
-    -- ANIMATION TYPE DETECTION
-    -- =========================================================
-    
-    local function GetAnimationType(track)
-        if not track or not track.Animation then return nil end
         
-        local trackName = string.lower(track.Name or "")
-        local animName = string.lower(track.Animation.Name or "")
-        
-        -- Fish Caught Detection
-        if trackName:find("fishcaught") or trackName:find("fish") or trackName:find("caught") or
-           animName:find("fishcaught") or animName:find("fish") or animName:find("caught") then
-            return "FishCaught"
+        -- Get skin names for dropdown
+        local SkinNames = {}
+        for name, _ in pairs(SkinDatabase) do
+            table.insert(SkinNames, name)
         end
+        table.sort(SkinNames)
         
-        -- Reel/Idle Detection
-        if trackName:find("reel") or trackName:find("idle") or 
-           animName:find("reel") or animName:find("idle") then
-            -- Exclude character idle
-            if not trackName:find("character") and not animName:find("character") then
-                return "ReelIdle"
+        -- =========================================================
+        -- VARIABLES
+        -- =========================================================
+        
+        local CurrentSkin = nil
+        local AnimationPool = {}
+        local IsEnabled = false
+        local POOL_SIZE = 3
+        
+        local killedTracks = {}
+        local replaceCount = 0
+        local currentPoolIndex = 1
+        
+        local AnimChangeConnection1 = nil
+        local AnimChangeConnection2 = nil
+        local AnimChangeConnection3 = nil
+        local AnimChangeConnection4 = nil
+        
+        -- =========================================================
+        -- UTILITY FUNCTIONS
+        -- =========================================================
+        
+        local function IsFishCaughtAnimation(track)
+            if not track or not track.Animation then return false end
+            
+            local trackName = string.lower(track.Name or "")
+            local animName = string.lower(track.Animation.Name or "")
+            
+            if string.find(trackName, "fishcaught") or 
+               string.find(animName, "fishcaught") or
+               string.find(trackName, "caught") or 
+               string.find(animName, "caught") then
+                return true
             end
-        end
-        
-        -- Rod Throw Detection
-        if trackName:find("throw") or trackName:find("cast") or trackName:find("rod") or
-           animName:find("throw") or animName:find("cast") or animName:find("rod") then
-            return "RodThrow"
-        end
-        
-        return nil
-    end
-    
-    local function IsFishingAnimation(track)
-        return GetAnimationType(track) ~= nil
-    end
-    
-    -- =========================================================
-    -- POOL MANAGEMENT
-    -- =========================================================
-    
-    local function GetNextTrack(animType)
-        local pool = AnimationPools[animType]
-        if not pool or #pool == 0 then return nil end
-        
-        -- Find non-playing track
-        for i = 1, POOL_SIZE do
-            local track = pool[i]
-            if track and not track.IsPlaying then
-                return track
-            end
-        end
-        
-        -- Round-robin if all playing
-        currentPoolIndexes[animType] = currentPoolIndexes[animType] % POOL_SIZE + 1
-        return pool[currentPoolIndexes[animType]]
-    end
-    
-    -- =========================================================
-    -- ANIMATION POOL LOADING
-    -- =========================================================
-    
-    local function LoadAnimationPools(skinId)
-        local skinData = FullSkinDatabase[skinId]
-        if not skinData then
+            
             return false
         end
         
-        print("🎨 [FULL-ANIM] Loading animation pools for:", skinId)
+        local function GetNextTrack()
+            for i = 1, POOL_SIZE do
+                local track = AnimationPool[i]
+                if track and not track.IsPlaying then
+                    return track
+                end
+            end
+            
+            currentPoolIndex = currentPoolIndex % POOL_SIZE + 1
+            return AnimationPool[currentPoolIndex]
+        end
         
-        -- Clear old pools
-        for animType, pool in pairs(AnimationPools) do
-            for _, track in ipairs(pool) do
+        -- =========================================================
+        -- ANIMATION POOL MANAGEMENT
+        -- =========================================================
+        
+        local function LoadAnimationPool(skinId)
+            local animId = SkinDatabase[skinId]
+            if not animId then
+                return false
+            end
+            
+            print("🎨 [ANIM] Loading animation pool for:", skinId)
+            
+            -- Clear old pool
+            for _, track in ipairs(AnimationPool) do
                 pcall(function()
                     track:Stop(0)
                     track:Destroy()
                 end)
             end
-            AnimationPools[animType] = {}
-        end
-        
-        -- Load each animation type
-        for animType, animId in pairs(skinData) do
-            if animId and animId ~= "" then
-                local anim = Instance.new("Animation")
-                anim.AnimationId = animId
-                anim.Name = "CUSTOM_" .. animType
+            AnimationPool = {}
+            
+            -- Create animation
+            local anim = Instance.new("Animation")
+            anim.AnimationId = animId
+            anim.Name = "CUSTOM_SKIN_ANIM"
+            
+            -- Load pool of tracks
+            for i = 1, POOL_SIZE do
+                local track = Animator:LoadAnimation(anim)
+                track.Priority = Enum.AnimationPriority.Action4
+                track.Looped = false
+                track.Name = "SKIN_POOL_" .. i
                 
-                -- Create pool for this type
-                for i = 1, POOL_SIZE do
-                    local track = Animator:LoadAnimation(anim)
-                    track.Priority = Enum.AnimationPriority.Action4
-                    track.Looped = (animType == "ReelIdle") -- Only loop idle
-                    track.Name = "SKIN_POOL_" .. animType .. "_" .. i
-                    
-                    -- Pre-cache
-                    task.spawn(function()
-                        pcall(function()
-                            track:Play(0, 1, 0)
-                            task.wait(0.05)
-                            track:Stop(0)
-                        end)
-                    end)
-                    
-                    table.insert(AnimationPools[animType], track)
-                end
-                
-                currentPoolIndexes[animType] = 1
-                print("✅ [FULL-ANIM] Loaded pool for:", animType, "(" .. #AnimationPools[animType] .. " tracks)")
-            end
-        end
-        
-        return true
-    end
-    
-    -- =========================================================
-    -- INSTANT REPLACE
-    -- =========================================================
-    
-    local function InstantReplace(originalTrack, animType)
-        local nextTrack = GetNextTrack(animType)
-        if not nextTrack then 
-            print("⚠️ [FULL-ANIM] No track available for:", animType)
-            return 
-        end
-        
-        replaceStats[animType] = replaceStats[animType] + 1
-        replaceStats.Total = replaceStats.Total + 1
-        killedTracks[originalTrack] = tick()
-        
-        print("⚡ [FULL-ANIM] Replacing:", animType, "(#" .. replaceStats[animType] .. ")")
-        
-        -- Kill original aggressively
-        task.spawn(function()
-            for i = 1, 10 do
-                pcall(function()
-                    if originalTrack.IsPlaying then
-                        originalTrack:Stop(0)
-                        originalTrack:AdjustSpeed(0)
-                        originalTrack.TimePosition = 0
-                    end
-                end)
-                task.wait()
-            end
-        end)
-        
-        -- Play custom
-        pcall(function()
-            if nextTrack.IsPlaying then
-                nextTrack:Stop(0)
-            end
-            
-            -- Different play modes for different types
-            if animType == "ReelIdle" then
-                nextTrack:Play(0.1, 1, 1) -- Smooth fade for idle
-            else
-                nextTrack:Play(0, 1, 1) -- Instant for actions
-            end
-            
-            nextTrack:AdjustSpeed(1)
-        end)
-        
-        -- Cleanup
-        task.delay(2, function()
-            killedTracks[originalTrack] = nil
-        end)
-    end
-    
-    -- =========================================================
-    -- MONITORING SYSTEM
-    -- =========================================================
-    
-    local function StartMonitoring()
-        -- Clear existing connections
-        for _, conn in pairs(AnimChangeConnections) do
-            if conn then conn:Disconnect() end
-        end
-        AnimChangeConnections = {}
-        
-        print("🔍 [FULL-ANIM] Starting full animation monitoring...")
-        
-        -- AnimationPlayed Hook
-        table.insert(AnimChangeConnections, humanoid.AnimationPlayed:Connect(function(track)
-            if not IsEnabled then return end
-            
-            local animType = GetAnimationType(track)
-            if animType then
+                -- Pre-cache
                 task.spawn(function()
-                    InstantReplace(track, animType)
+                    pcall(function()
+                        track:Play(0, 1, 0)
+                        task.wait(0.05)
+                        track:Stop(0)
+                    end)
                 end)
-            end
-        end))
-        
-        -- RenderStepped Monitor
-        table.insert(AnimChangeConnections, RunService.RenderStepped:Connect(function()
-            if not IsEnabled then return end
-            
-            local tracks = humanoid:GetPlayingAnimationTracks()
-            
-            for _, track in ipairs(tracks) do
-                -- Skip our custom tracks
-                if string.find(string.lower(track.Name or ""), "skin_pool") then
-                    continue
-                end
                 
-                -- Kill marked tracks
-                if killedTracks[track] then
-                    if track.IsPlaying then
+                table.insert(AnimationPool, track)
+            end
+            
+            currentPoolIndex = 1
+            print("✅ [ANIM] Pool loaded with", #AnimationPool, "tracks")
+            return true
+        end
+        
+        -- =========================================================
+        -- INSTANT REPLACE
+        -- =========================================================
+        
+        local function InstantReplace(originalTrack)
+            local nextTrack = GetNextTrack()
+            if not nextTrack then return end
+            
+            replaceCount = replaceCount + 1
+            killedTracks[originalTrack] = tick()
+            
+            print("⚡ [ANIM] Replacing animation (#" .. replaceCount .. ")")
+            
+            -- Kill original
+            task.spawn(function()
+                for i = 1, 10 do
+                    pcall(function()
+                        if originalTrack.IsPlaying then
+                            originalTrack:Stop(0)
+                            originalTrack:AdjustSpeed(0)
+                            originalTrack.TimePosition = 0
+                        end
+                    end)
+                    task.wait()
+                end
+            end)
+            
+            -- Play custom
+            pcall(function()
+                if nextTrack.IsPlaying then
+                    nextTrack:Stop(0)
+                end
+                nextTrack:Play(0, 1, 1)
+                nextTrack:AdjustSpeed(1)
+            end)
+            
+            -- Cleanup
+            task.delay(1, function()
+                killedTracks[originalTrack] = nil
+            end)
+        end
+        
+        -- =========================================================
+        -- MONITORING SYSTEM
+        -- =========================================================
+        
+        local function StartMonitoring()
+            -- Disconnect existing connections
+            if AnimChangeConnection1 then AnimChangeConnection1:Disconnect() end
+            if AnimChangeConnection2 then AnimChangeConnection2:Disconnect() end
+            if AnimChangeConnection3 then AnimChangeConnection3:Disconnect() end
+            if AnimChangeConnection4 then AnimChangeConnection4:Disconnect() end
+            
+            print("🔍 [ANIM] Starting animation monitoring...")
+            
+            -- AnimationPlayed Hook
+            AnimChangeConnection1 = humanoid.AnimationPlayed:Connect(function(track)
+                if not IsEnabled then return end
+                
+                if IsFishCaughtAnimation(track) then
+                    task.spawn(function()
+                        InstantReplace(track)
+                    end)
+                end
+            end)
+            
+            -- RenderStepped Monitor
+            AnimChangeConnection2 = RunService.RenderStepped:Connect(function()
+                if not IsEnabled then return end
+                
+                local tracks = humanoid:GetPlayingAnimationTracks()
+                
+                for _, track in ipairs(tracks) do
+                    if string.find(string.lower(track.Name or ""), "skin_pool") then
+                        continue
+                    end
+                    
+                    if killedTracks[track] then
+                        if track.IsPlaying then
+                            pcall(function()
+                                track:Stop(0)
+                                track:AdjustSpeed(0)
+                            end)
+                        end
+                        continue
+                    end
+                    
+                    if track.IsPlaying and IsFishCaughtAnimation(track) then
+                        task.spawn(function()
+                            InstantReplace(track)
+                        end)
+                    end
+                end
+            end)
+            
+            -- Heartbeat Backup
+            AnimChangeConnection3 = RunService.Heartbeat:Connect(function()
+                if not IsEnabled then return end
+                
+                local tracks = humanoid:GetPlayingAnimationTracks()
+                
+                for _, track in ipairs(tracks) do
+                    if string.find(string.lower(track.Name or ""), "skin_pool") then
+                        continue
+                    end
+                    
+                    if killedTracks[track] and track.IsPlaying then
                         pcall(function()
                             track:Stop(0)
                             track:AdjustSpeed(0)
                         end)
                     end
-                    continue
                 end
+            end)
+            
+            -- Stepped Ultra Aggressive
+            AnimChangeConnection4 = RunService.Stepped:Connect(function()
+                if not IsEnabled then return end
                 
-                -- Detect and replace
-                local animType = GetAnimationType(track)
-                if track.IsPlaying and animType then
-                    task.spawn(function()
-                        InstantReplace(track, animType)
-                    end)
+                for track, _ in pairs(killedTracks) do
+                    if track and track.IsPlaying then
+                        pcall(function()
+                            track:Stop(0)
+                            track:AdjustSpeed(0)
+                        end)
+                    end
                 end
-            end
-        end))
+            end)
+            
+            print("✅ [ANIM] Monitoring started")
+        end
         
-        -- Heartbeat Backup
-        table.insert(AnimChangeConnections, RunService.Heartbeat:Connect(function()
-            if not IsEnabled then return end
+        local function StopMonitoring()
+            if AnimChangeConnection1 then AnimChangeConnection1:Disconnect() end
+            if AnimChangeConnection2 then AnimChangeConnection2:Disconnect() end
+            if AnimChangeConnection3 then AnimChangeConnection3:Disconnect() end
+            if AnimChangeConnection4 then AnimChangeConnection4:Disconnect() end
             
-            local tracks = humanoid:GetPlayingAnimationTracks()
+            AnimChangeConnection1 = nil
+            AnimChangeConnection2 = nil
+            AnimChangeConnection3 = nil
+            AnimChangeConnection4 = nil
             
-            for _, track in ipairs(tracks) do
-                if string.find(string.lower(track.Name or ""), "skin_pool") then
-                    continue
-                end
+            print("🛑 [ANIM] Monitoring stopped")
+        end
+        
+        -- =========================================================
+        -- RESPAWN HANDLER
+        -- =========================================================
+        
+        player.CharacterAdded:Connect(function(newChar)
+            task.wait(1.5)
+            
+            print("🔄 [ANIM] Character respawned, reloading...")
+            
+            char = newChar
+            humanoid = char:WaitForChild("Humanoid")
+            Animator = humanoid:FindFirstChildOfClass("Animator")
+            if not Animator then
+                Animator = Instance.new("Animator", humanoid)
+            end
+            
+            killedTracks = {}
+            replaceCount = 0
+            
+            if IsEnabled and CurrentSkin then
+                task.wait(0.5)
+                LoadAnimationPool(CurrentSkin)
+                StartMonitoring()
                 
-                if killedTracks[track] and track.IsPlaying then
-                    pcall(function()
-                        track:Stop(0)
-                        track:AdjustSpeed(0)
-                    end)
-                end
+                WindUI:Notify({ 
+                    Title = "Animation Changer", 
+                    Content = "Reloaded after respawn", 
+                    Duration = 3 
+                })
             end
-        end))
+        end)
         
-        -- Stepped Ultra Aggressive
-        table.insert(AnimChangeConnections, RunService.Stepped:Connect(function()
-            if not IsEnabled then return end
-            
-            for track, _ in pairs(killedTracks) do
-                if track and track.IsPlaying then
-                    pcall(function()
-                        track:Stop(0)
-                        track:AdjustSpeed(0)
-                    end)
-                end
-            end
-        end))
+        -- =========================================================
+        -- UI ELEMENTS
+        -- =========================================================
         
-        print("✅ [FULL-ANIM] Monitoring started (All animation types)")
-    end
-    
-    local function StopMonitoring()
-        for _, conn in pairs(AnimChangeConnections) do
-            if conn then conn:Disconnect() end
-        end
-        AnimChangeConnections = {}
-        
-        print("🛑 [FULL-ANIM] Monitoring stopped")
-    end
-    
-    -- =========================================================
-    -- RESPAWN HANDLER
-    -- =========================================================
-    
-    player.CharacterAdded:Connect(function(newChar)
-        task.wait(1.5)
-        
-        print("🔄 [FULL-ANIM] Character respawned, reloading...")
-        
-        char = newChar
-        humanoid = char:WaitForChild("Humanoid")
-        Animator = humanoid:FindFirstChildOfClass("Animator")
-        if not Animator then
-            Animator = Instance.new("Animator", humanoid)
-        end
-        
-        killedTracks = {}
-        for key in pairs(replaceStats) do
-            replaceStats[key] = 0
-        end
-        
-        if IsEnabled and CurrentSkin then
-            task.wait(0.5)
-            LoadAnimationPools(CurrentSkin)
-            StartMonitoring()
-            
-            WindUI:Notify({ 
-                Title = "Full Animation Changer", 
-                Content = "Reloaded after respawn", 
-                Duration = 3 
-            })
-        end
-    end)
-    
-    -- =========================================================
-    -- UI ELEMENTS
-    -- =========================================================
-    
-    animSection:Dropdown({
-        Title = "Select Animation Skin",
-        Desc = "Changes ALL fishing animations",
-        Values = SkinNames,
-        AllowNone = false,
-        Callback = function(selected)
-            CurrentSkin = selected
-            print("🎨 [FULL-ANIM] Selected skin:", selected)
-            
-            if IsEnabled then
-                local success = LoadAnimationPools(selected)
-                if success then
-                    WindUI:Notify({ 
-                        Title = "Animation Changer", 
-                        Content = "Switched to " .. selected, 
-                        Duration = 3 
-                    })
-                else
-                    WindUI:Notify({ 
-                        Title = "Animation Changer", 
-                        Content = "Failed to load " .. selected, 
-                        Duration = 3 
-                    })
-                end
-            end
-        end
-    })
-    
-    animSection:Toggle({
-        Title = "🎬 Enable Full Animation Changer",
-        Desc = "Replace Fish Caught, Reel/Idle, and Rod Throw animations",
-        Value = false,
-        Callback = function(state)
-            IsEnabled = state
-            
-            if IsEnabled then
-                if not CurrentSkin then
-                    WindUI:Notify({ 
-                        Title = "Animation Changer", 
-                        Content = "Please select a skin first!", 
-                        Duration = 3 
-                    })
-                    IsEnabled = false
-                    return
-                end
+        animSection:Dropdown({
+            Title = "Select Skin Animation",
+            Values = SkinNames,
+            AllowNone = false,
+            Callback = function(selected)
+                CurrentSkin = selected
+                print("🎨 [ANIM] Selected skin:", selected)
                 
-                local success = LoadAnimationPools(CurrentSkin)
-                if success then
-                    StartMonitoring()
-                    killedTracks = {}
-                    for key in pairs(replaceStats) do
-                        replaceStats[key] = 0
+                if IsEnabled then
+                    local success = LoadAnimationPool(selected)
+                    if success then
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Switched to " .. selected, 
+                            Duration = 3 
+                        })
+                    else
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Failed to load " .. selected, 
+                            Duration = 3 
+                        })
+                    end
+                end
+            end
+        })
+        
+        animSection:Toggle({
+            Title = "🎬 Enable Animation Changer",
+            Desc = "Replace fish caught animation with selected skin",
+            Value = false,
+            Callback = function(state)
+                IsEnabled = state
+                
+                if IsEnabled then
+                    if not CurrentSkin then
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Please select a skin first!", 
+                            Duration = 3 
+                        })
+                        IsEnabled = false
+                        return
                     end
                     
-                    WindUI:Notify({ 
-                        Title = "Full Animation Changer", 
-                        Content = "Enabled with " .. CurrentSkin .. "\n(All animations)", 
-                        Duration = 3 
-                    })
+                    local success = LoadAnimationPool(CurrentSkin)
+                    if success then
+                        StartMonitoring()
+                        killedTracks = {}
+                        replaceCount = 0
+                        
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Enabled with " .. CurrentSkin, 
+                            Duration = 3 
+                        })
+                    else
+                        IsEnabled = false
+                        WindUI:Notify({ 
+                            Title = "Animation Changer", 
+                            Content = "Failed to load animation", 
+                            Duration = 3 
+                        })
+                    end
                 else
-                    IsEnabled = false
-                    WindUI:Notify({ 
-                        Title = "Animation Changer", 
-                        Content = "Failed to load animations", 
-                        Duration = 3 
-                    })
-                end
-            else
-                StopMonitoring()
-                killedTracks = {}
-                
-                -- Stop all custom animations
-                for animType, pool in pairs(AnimationPools) do
-                    for _, track in ipairs(pool) do
+                    StopMonitoring()
+                    killedTracks = {}
+                    replaceCount = 0
+                    
+                    for _, track in ipairs(AnimationPool) do
                         pcall(function()
                             track:Stop(0)
                         end)
                     end
+                    
+                    WindUI:Notify({ 
+                        Title = "Animation Changer", 
+                        Content = "Disabled", 
+                        Duration = 2 
+                    })
                 end
+            end
+        })
+        
+        animSection:Button({
+            Title = "📊 Show Statistics",
+            Callback = function()
+                local status = IsEnabled and "Enabled" or "Disabled"
+                local skin = CurrentSkin or "None"
+                local poolSize = #AnimationPool
+                
+                print("\n📊 [ANIM STATS]")
+                print("Status:", status)
+                print("Current Skin:", skin)
+                print("Pool Size:", poolSize)
+                print("Replacements:", replaceCount)
+                print("Killed Tracks:", #killedTracks)
+                
+                WindUI:Notify({ 
+                    Title = "Animation Stats", 
+                    Content = string.format(
+                        "Status: %s\nSkin: %s\nReplacements: %d",
+                        status, skin, replaceCount
+                    ),
+                    Duration = 5 
+                })
+            end
+        })
+        
+        animSection:Button({
+            Title = "🔄 Reset Statistics",
+            Callback = function()
+                replaceCount = 0
+                killedTracks = {}
+                
+                print("🔄 [ANIM] Statistics reset")
                 
                 WindUI:Notify({ 
                     Title = "Animation Changer", 
-                    Content = "Disabled", 
+                    Content = "Statistics reset", 
                     Duration = 2 
                 })
             end
-        end
-    })
-    
-    animSection:Button({
-        Title = "📊 Show Detailed Statistics",
-        Callback = function()
-            local status = IsEnabled and "Enabled" or "Disabled"
-            local skin = CurrentSkin or "None"
-            
-            print("\n📊 [FULL-ANIM STATS]")
-            print("Status:", status)
-            print("Current Skin:", skin)
-            print("Replacements:")
-            print("  - Fish Caught:", replaceStats.FishCaught)
-            print("  - Reel/Idle:", replaceStats.ReelIdle)
-            print("  - Rod Throw:", replaceStats.RodThrow)
-            print("  - Total:", replaceStats.Total)
-            print("Active Killed Tracks:", #killedTracks)
-            
-            -- Pool status
-            print("\nAnimation Pools:")
-            for animType, pool in pairs(AnimationPools) do
-                local active = 0
-                for _, track in ipairs(pool) do
-                    if track.IsPlaying then active = active + 1 end
-                end
-                print("  " .. animType .. ":", #pool, "total,", active, "playing")
-            end
-            
-            WindUI:Notify({ 
-                Title = "Full Animation Stats", 
-                Content = string.format(
-                    "Status: %s\nSkin: %s\n\nReplacements:\nCaught: %d | Reel: %d | Throw: %d\nTotal: %d",
-                    status, skin, 
-                    replaceStats.FishCaught, 
-                    replaceStats.ReelIdle, 
-                    replaceStats.RodThrow,
-                    replaceStats.Total
-                ),
-                Duration = 7 
-            })
-        end
-    })
-    
-    animSection:Button({
-        Title = "🔄 Reset All Statistics",
-        Callback = function()
-            for key in pairs(replaceStats) do
-                replaceStats[key] = 0
-            end
-            killedTracks = {}
-            
-            print("🔄 [FULL-ANIM] All statistics reset")
-            
-            WindUI:Notify({ 
-                Title = "Animation Changer", 
-                Content = "Statistics reset", 
-                Duration = 2 
-            })
-        end
-    })
-    
-    animSection:Button({
-        Title = "🔍 Monitor Animations (Debug)",
-        Desc = "Check console to see detected animations",
-        Callback = function()
-            local monitorConnection
-            monitorConnection = humanoid.AnimationPlayed:Connect(function(track)
-                local animType = GetAnimationType(track)
-                
-                print("🎬 Animation Detected:")
-                print("  Name:", track.Name)
-                print("  ID:", track.Animation.AnimationId)
-                print("  Type:", animType or "Unknown")
-                print("  Priority:", track.Priority)
-                
-                if animType then
-                    print("  ✅ This will be replaced!")
-                end
-            end)
-            
-            WindUI:Notify({ 
-                Title = "Animation Monitor", 
-                Content = "Monitoring started\nCheck console for details", 
-                Duration = 3 
-            })
-            
-            task.delay(60, function()
-                monitorConnection:Disconnect()
-                print("🛑 [FULL-ANIM] Monitor stopped after 60s")
-            end)
-        end
-    })
-    
-    -- =========================================================
-    -- STATUS DISPLAY
-    -- =========================================================
-    
-    task.spawn(function()
-        while true do
-            if IsEnabled then
-                print("📊 [FULL-ANIM STATUS]", 
-                      "Skin:", CurrentSkin,
-                      "| Total Replacements:", replaceStats.Total,
-                      "| Caught:", replaceStats.FishCaught,
-                      "| Reel:", replaceStats.ReelIdle,
-                      "| Throw:", replaceStats.RodThrow)
-            end
-            task.wait(60)
-        end
-    end)
-    
-end
-
-
-    local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
-    local RunService = game:GetService("RunService")
-
-    local notif = Reg("togglenot",fishingSupport:Toggle({
-        Title = "Remove Fish Notification Pop-up",
-        Value = false,
-        Icon = "slash",
-        Callback = function(state)
-            local PlayerGui = game:GetService("Players").LocalPlayer.PlayerGui
-            local SmallNotification = PlayerGui:FindFirstChild("Small Notification")
-            
-            if not SmallNotification then
-                SmallNotification = PlayerGui:WaitForChild("Small Notification", 5)
-                if not SmallNotification then
-                    WindUI:Notify({ Title = "Error", Duration = 3, Icon = "x" })
-                    return false
-                end
-            end
-
-            if state then
-                -- ON: Menggunakan RenderStepped untuk pemblokiran per-frame
-                DisableNotificationConnection = RunService.RenderStepped:Connect(function()
-                    -- Memastikan GUI selalu mati pada setiap frame render
-                    SmallNotification.Enabled = false
-                end)
-                
-                WindUI:Notify({ Title = "Pop-up Diblokir",Duration = 3, Icon = "check" })
-            else
-                -- OFF: Putuskan koneksi RenderStepped
-                if DisableNotificationConnection then
-                    DisableNotificationConnection:Disconnect()
-                    DisableNotificationConnection = nil
-                end
-
-                -- Kembalikan GUI ke status normal (aktif)
-                SmallNotification.Enabled = true
-                
-                WindUI:Notify({ Title = "Pop-up Diaktifkan", Content = "Notifikasi kembali normal.", Duration = 3, Icon = "x" })
-            end
-        end
-    }))
-
-    -- =========================================================
-    -- WALK ON WATER (USER VERSION - INTEGRATED)
-    -- =========================================================
-    local walkOnWaterConnection = nil
-    local isWalkOnWater = false
-    local waterPlatform = nil
-    
-    -- Simpan elemen toggle ke variabel agar bisa diakses Smart System
-    local WalkOnWaterToggleElement = Reg("walkwat", fishingSupport:Toggle({
-        Title = "Walk on Water", 
-        -- (Ganti 'farm' dengan tab yang kamu mau, misal 'ability')
-        Value = false,
-        Callback = function(state)
-            isWalkOnWater = state
-
-            if state then
-                WindUI:Notify({ Title = "Walk on Water ON!", Duration = 2, Icon = "droplet" })
-                
-                -- Buat Platform jika belum ada
-                if not waterPlatform then
-                    waterPlatform = Instance.new("Part")
-                    waterPlatform.Name = "WaterPlatform"
-                    waterPlatform.Anchored = true
-                    waterPlatform.CanCollide = true
-                    waterPlatform.Transparency = 1 
-                    waterPlatform.Size = Vector3.new(20, 1, 20) -- Diperbesar sedikit
-                    waterPlatform.Parent = workspace
-                end
-
-                if walkOnWaterConnection then walkOnWaterConnection:Disconnect() end
-
-                walkOnWaterConnection = game:GetService("RunService").RenderStepped:Connect(function()
-                    local character = game:GetService("Players").LocalPlayer.Character
-                    if not isWalkOnWater or not character then return end
+        })
+        
+        -- =========================================================
+        -- STATUS DISPLAY
+        -- =========================================================
+        
+        task.spawn(function()
+            while true do
+                if IsEnabled then
+                    local activeKills = 0
+                    for _, _ in pairs(killedTracks) do
+                        activeKills = activeKills + 1
+                    end
                     
-                    local hrp = character:FindFirstChild("HumanoidRootPart")
-                    if not hrp then return end
-
-                    if not waterPlatform or not waterPlatform.Parent then
+                    print("📊 [ANIM STATUS] Skin:", CurrentSkin, "| Replacements:", replaceCount, "| Active Kills:", activeKills)
+                end
+                task.wait(60) -- Update every 60 seconds
+            end
+        end)
+        
+    end
+    
+    
+    
+        local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
+        local RunService = game:GetService("RunService")
+    
+        local notif = Reg("togglenot",fishingSupport:Toggle({
+            Title = "Remove Fish Notification Pop-up",
+            Value = false,
+            Icon = "slash",
+            Callback = function(state)
+                local PlayerGui = game:GetService("Players").LocalPlayer.PlayerGui
+                local SmallNotification = PlayerGui:FindFirstChild("Small Notification")
+                
+                if not SmallNotification then
+                    SmallNotification = PlayerGui:WaitForChild("Small Notification", 5)
+                    if not SmallNotification then
+                        WindUI:Notify({ Title = "Error", Duration = 3, Icon = "x" })
+                        return false
+                    end
+                end
+    
+                if state then
+                    -- ON: Menggunakan RenderStepped untuk pemblokiran per-frame
+                    DisableNotificationConnection = RunService.RenderStepped:Connect(function()
+                        -- Memastikan GUI selalu mati pada setiap frame render
+                        SmallNotification.Enabled = false
+                    end)
+                    
+                    WindUI:Notify({ Title = "Pop-up Diblokir",Duration = 3, Icon = "check" })
+                else
+                    -- OFF: Putuskan koneksi RenderStepped
+                    if DisableNotificationConnection then
+                        DisableNotificationConnection:Disconnect()
+                        DisableNotificationConnection = nil
+                    end
+    
+                    -- Kembalikan GUI ke status normal (aktif)
+                    SmallNotification.Enabled = true
+                    
+                    WindUI:Notify({ Title = "Pop-up Diaktifkan", Content = "Notifikasi kembali normal.", Duration = 3, Icon = "x" })
+                end
+            end
+        }))
+    
+        -- =========================================================
+        -- WALK ON WATER (USER VERSION - INTEGRATED)
+        -- =========================================================
+        local walkOnWaterConnection = nil
+        local isWalkOnWater = false
+        local waterPlatform = nil
+        
+        -- Simpan elemen toggle ke variabel agar bisa diakses Smart System
+        local WalkOnWaterToggleElement = Reg("walkwat", fishingSupport:Toggle({
+            Title = "Walk on Water", 
+            -- (Ganti 'farm' dengan tab yang kamu mau, misal 'ability')
+            Value = false,
+            Callback = function(state)
+                isWalkOnWater = state
+    
+                if state then
+                    WindUI:Notify({ Title = "Walk on Water ON!", Duration = 2, Icon = "droplet" })
+                    
+                    -- Buat Platform jika belum ada
+                    if not waterPlatform then
                         waterPlatform = Instance.new("Part")
                         waterPlatform.Name = "WaterPlatform"
                         waterPlatform.Anchored = true
                         waterPlatform.CanCollide = true
                         waterPlatform.Transparency = 1 
-                        waterPlatform.Size = Vector3.new(20, 1, 20)
+                        waterPlatform.Size = Vector3.new(20, 1, 20) -- Diperbesar sedikit
                         waterPlatform.Parent = workspace
                     end
-
-                    local rayParams = RaycastParams.new()
-                    rayParams.FilterDescendantsInstances = {workspace.Terrain} 
-                    rayParams.FilterType = Enum.RaycastFilterType.Include
-                    rayParams.IgnoreWater = false 
-
-                    local rayOrigin = hrp.Position + Vector3.new(0, 5, 0) 
-                    local rayDirection = Vector3.new(0, -500, 0)
-                    local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
-
-                    if result and result.Material == Enum.Material.Water then
-                        local waterSurfaceHeight = result.Position.Y
-                        waterPlatform.Position = Vector3.new(hrp.Position.X, waterSurfaceHeight, hrp.Position.Z)
+    
+                    if walkOnWaterConnection then walkOnWaterConnection:Disconnect() end
+    
+                    walkOnWaterConnection = game:GetService("RunService").RenderStepped:Connect(function()
+                        local character = game:GetService("Players").LocalPlayer.Character
+                        if not isWalkOnWater or not character then return end
                         
-                        -- Logic angkat kaki jika tenggelam dikit
-                        if hrp.Position.Y < (waterSurfaceHeight + 2) and hrp.Position.Y > (waterSurfaceHeight - 5) then
-                             if not game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.Space) then
-                                hrp.CFrame = CFrame.new(hrp.Position.X, waterSurfaceHeight + 3.5, hrp.Position.Z)
-                            end
+                        local hrp = character:FindFirstChild("HumanoidRootPart")
+                        if not hrp then return end
+    
+                        if not waterPlatform or not waterPlatform.Parent then
+                            waterPlatform = Instance.new("Part")
+                            waterPlatform.Name = "WaterPlatform"
+                            waterPlatform.Anchored = true
+                            waterPlatform.CanCollide = true
+                            waterPlatform.Transparency = 1 
+                            waterPlatform.Size = Vector3.new(20, 1, 20)
+                            waterPlatform.Parent = workspace
                         end
-                    else
-                        waterPlatform.Position = Vector3.new(hrp.Position.X, -500, hrp.Position.Z)
+    
+                        local rayParams = RaycastParams.new()
+                        rayParams.FilterDescendantsInstances = {workspace.Terrain} 
+                        rayParams.FilterType = Enum.RaycastFilterType.Include
+                        rayParams.IgnoreWater = false 
+    
+                        local rayOrigin = hrp.Position + Vector3.new(0, 5, 0) 
+                        local rayDirection = Vector3.new(0, -500, 0)
+                        local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+    
+                        if result and result.Material == Enum.Material.Water then
+                            local waterSurfaceHeight = result.Position.Y
+                            waterPlatform.Position = Vector3.new(hrp.Position.X, waterSurfaceHeight, hrp.Position.Z)
+                            
+                            -- Logic angkat kaki jika tenggelam dikit
+                            if hrp.Position.Y < (waterSurfaceHeight + 2) and hrp.Position.Y > (waterSurfaceHeight - 5) then
+                                 if not game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.Space) then
+                                    hrp.CFrame = CFrame.new(hrp.Position.X, waterSurfaceHeight + 3.5, hrp.Position.Z)
+                                end
+                            end
+                        else
+                            waterPlatform.Position = Vector3.new(hrp.Position.X, -500, hrp.Position.Z)
+                        end
+                    end)
+                else
+                    WindUI:Notify({ Title = "Walk on Water OFF!", Duration = 2, Icon = "x", })
+                    if walkOnWaterConnection then walkOnWaterConnection:Disconnect() walkOnWaterConnection = nil end
+                    if waterPlatform then waterPlatform:Destroy() waterPlatform = nil end
+                end
+            end
+        }))
+    
+        -- 2. ENABLE FISHING RADAR
+        local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
+        fishingSupport:Toggle({
+            Title = "Enable Fishing Radar",
+            Value = false,
+            Icon = "radar",
+            Callback = function(state)
+                if RF_UpdateFishingRadar then
+                    pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
+                    WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
+                end
+            end
+        })
+    
+        -- Tambahkan di bagian atas blok 'utility'
+        local VFXControllerModule = require(game:GetService("ReplicatedStorage"):WaitForChild("Controllers").VFXController)
+        local originalVFXHandle = VFXControllerModule.Handle
+        local originalPlayVFX = VFXControllerModule.PlayVFX.Fire -- Asumsi PlayVFX adalah Signal/Event yang memiliki Fire
+    
+        -- Variabel global untuk status VFX
+        local isVFXDisabled = false
+    
+        -- 2. REMOVE SKIN EFFECT
+        local SkinCleanerConnection = nil
+        fishingSupport:Toggle({
+            Title = "Remove Skin Effect",
+            Value = false,
+            Icon = "sparkles",
+            Callback = function(state)
+                isVFXDisabled = state
+                if state then
+                    -- 1. Blokir fungsi Handle (dipanggil oleh Handle Remote dan PlayVFX Signal)
+                    VFXControllerModule.Handle = function(...) 
+                        -- Memastikan tidak ada kode efek yang berjalan 
                     end
-                end)
-            else
-                WindUI:Notify({ Title = "Walk on Water OFF!", Duration = 2, Icon = "x", })
-                if walkOnWaterConnection then walkOnWaterConnection:Disconnect() walkOnWaterConnection = nil end
-                if waterPlatform then waterPlatform:Destroy() waterPlatform = nil end
-            end
-        end
-    }))
-
-    -- 2. ENABLE FISHING RADAR
-    local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
-    fishingSupport:Toggle({
-        Title = "Enable Fishing Radar",
-        Value = false,
-        Icon = "radar",
-        Callback = function(state)
-            if RF_UpdateFishingRadar then
-                pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
-                WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
-            end
-        end
-    })
-
-    -- Tambahkan di bagian atas blok 'utility'
-    local VFXControllerModule = require(game:GetService("ReplicatedStorage"):WaitForChild("Controllers").VFXController)
-    local originalVFXHandle = VFXControllerModule.Handle
-    local originalPlayVFX = VFXControllerModule.PlayVFX.Fire -- Asumsi PlayVFX adalah Signal/Event yang memiliki Fire
-
-    -- Variabel global untuk status VFX
-    local isVFXDisabled = false
-
-    -- 2. REMOVE SKIN EFFECT
-    local SkinCleanerConnection = nil
-    fishingSupport:Toggle({
-        Title = "Remove Skin Effect",
-        Value = false,
-        Icon = "sparkles",
-        Callback = function(state)
-            isVFXDisabled = state
-            if state then
-                -- 1. Blokir fungsi Handle (dipanggil oleh Handle Remote dan PlayVFX Signal)
-                VFXControllerModule.Handle = function(...) 
-                    -- Memastikan tidak ada kode efek yang berjalan 
+    
+                    -- 2. Blokir fungsi RenderAtPoint dan RenderInstance (untuk jaga-jaga)
+                    VFXControllerModule.RenderAtPoint = function(...) end
+                    VFXControllerModule.RenderInstance = function(...) end
+                    
+                    -- 3. Hapus semua efek yang sedang aktif (opsional, untuk membersihkan layar)
+                    local cosmeticFolder = workspace:FindFirstChild("CosmeticFolder")
+                    if cosmeticFolder then
+                        pcall(function() cosmeticFolder:ClearAllChildren() end)
+                    end
+    
+                    WindUI:Notify({ Title = "No Skin Effect ON", Duration = 3, Icon = "eye-off" })
+                else
+                    -- 1. Kembalikan fungsi Handle asli
+                    VFXControllerModule.Handle = originalVFXHandle
                 end
-
-                -- 2. Blokir fungsi RenderAtPoint dan RenderInstance (untuk jaga-jaga)
-                VFXControllerModule.RenderAtPoint = function(...) end
-                VFXControllerModule.RenderInstance = function(...) end
+    
+            end
+        })
+    
+        local CutsceneController = nil
+        local OldPlayCutscene = nil
+        local isNoCutsceneActive = false
+    
+        -- Mencoba require module CutsceneController dengan aman
+        pcall(function()
+            CutsceneController = require(game:GetService("ReplicatedStorage"):WaitForChild("Controllers"):WaitForChild("CutsceneController"))
+            if CutsceneController and CutsceneController.Play then
+                OldPlayCutscene = CutsceneController.Play
                 
-                -- 3. Hapus semua efek yang sedang aktif (opsional, untuk membersihkan layar)
-                local cosmeticFolder = workspace:FindFirstChild("CosmeticFolder")
-                if cosmeticFolder then
-                    pcall(function() cosmeticFolder:ClearAllChildren() end)
+                -- Overwrite fungsi Play
+                CutsceneController.Play = function(self, ...)
+                    if isNoCutsceneActive then
+                        -- Jika aktif, jangan jalankan apa-apa (Skip Cutscene)
+                        return 
+                    end
+                    -- Jika tidak aktif, jalankan fungsi asli
+                    return OldPlayCutscene(self, ...)
                 end
-
-                WindUI:Notify({ Title = "No Skin Effect ON", Duration = 3, Icon = "eye-off" })
-            else
-                -- 1. Kembalikan fungsi Handle asli
-                VFXControllerModule.Handle = originalVFXHandle
             end
-
-        end
-    })
-
-    local CutsceneController = nil
-    local OldPlayCutscene = nil
-    local isNoCutsceneActive = false
-
-    -- Mencoba require module CutsceneController dengan aman
-    pcall(function()
-        CutsceneController = require(game:GetService("ReplicatedStorage"):WaitForChild("Controllers"):WaitForChild("CutsceneController"))
-        if CutsceneController and CutsceneController.Play then
-            OldPlayCutscene = CutsceneController.Play
-            
-            -- Overwrite fungsi Play
-            CutsceneController.Play = function(self, ...)
-                if isNoCutsceneActive then
-                    -- Jika aktif, jangan jalankan apa-apa (Skip Cutscene)
-                    return 
+        end)
+    
+        local tcutscen = Reg("tnocut",fishingSupport:Toggle({
+            Title = "No Cutscene",
+            Value = false,
+            Icon = "film", -- Icon film strip
+            Callback = function(state)
+                isNoCutsceneActive = state
+                
+                if not CutsceneController then
+                    WindUI:Notify({ Title = "Gagal Hook", Content = "Module CutsceneController tidak ditemukan.", Duration = 3, Icon = "x" })
+                    return
                 end
-                -- Jika tidak aktif, jalankan fungsi asli
-                return OldPlayCutscene(self, ...)
+    
+                if state then
+                    WindUI:Notify({ Title = "No Cutscene ON", Content = "Animasi tangkapan dimatikan.", Duration = 3, Icon = "video-off" })
+                else
+                    WindUI:Notify({ Title = "No Cutscene OFF", Content = "Animasi kembali normal.", Duration = 3, Icon = "video" })
+                end
             end
-        end
-    end)
-
-    local tcutscen = Reg("tnocut",fishingSupport:Toggle({
-        Title = "No Cutscene",
-        Value = false,
-        Icon = "film", -- Icon film strip
-        Callback = function(state)
-            isNoCutsceneActive = state
-            
-            if not CutsceneController then
-                WindUI:Notify({ Title = "Gagal Hook", Content = "Module CutsceneController tidak ditemukan.", Duration = 3, Icon = "x" })
-                return
+        }))
+    
+        -- 1. NO ANIMATION
+        fishingSupport:Toggle({
+            Title = "No Animation",
+            Desc = "Mematikan animasi karakter.",
+            Value = false,
+            Icon = "activity",
+            Callback = function(state)
+                isNoAnimationActive = state
+                if state then
+                    DisableAnimations()
+                    WindUI:Notify({ Title = "No Animation ON!", Duration = 3, Icon = "zap" })
+                else
+                    EnableAnimations()
+                    WindUI:Notify({ Title = "No Animation OFF!", Duration = 3, Icon = "x" })
+                end
             end
-
-            if state then
-                WindUI:Notify({ Title = "No Cutscene ON", Content = "Animasi tangkapan dimatikan.", Duration = 3, Icon = "video-off" })
-            else
-                WindUI:Notify({ Title = "No Cutscene OFF", Content = "Animasi kembali normal.", Duration = 3, Icon = "video" })
-            end
-        end
-    }))
-
-    -- 1. NO ANIMATION
-    fishingSupport:Toggle({
-        Title = "No Animation",
-        Desc = "Mematikan animasi karakter.",
-        Value = false,
-        Icon = "activity",
-        Callback = function(state)
-            isNoAnimationActive = state
-            if state then
-                DisableAnimations()
-                WindUI:Notify({ Title = "No Animation ON!", Duration = 3, Icon = "zap" })
-            else
-                EnableAnimations()
-                WindUI:Notify({ Title = "No Animation OFF!", Duration = 3, Icon = "x" })
-            end
-        end
-    })
-
-end
+        })
+    
+    end
 
 -- FISHING AREA SECTION
 do
