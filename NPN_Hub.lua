@@ -974,6 +974,54 @@ do
         end
     }))
 
+    do
+        local GhostSection = player:Section({ Title = "Ghost", Icon = "ghost" , TextSize = 20 })
+        local GhostLoop = nil
+
+        GhostSection:Toggle({
+            Title = "Invisible Mode (Client-Sided)",
+            Desc = "Membuat karakter transparan total.",
+            Value = false,
+            Icon = "eye-off",
+            Callback = function(state)
+                if state then
+                    local RunService = game:GetService("RunService")
+                    GhostLoop = RunService.RenderStepped:Connect(function()
+                        local char = game.Players.LocalPlayer.Character
+                        if char then
+                            for _, part in pairs(char:GetDescendants()) do
+                                if part:IsA("BasePart") or part:IsA("Decal") then
+                                    part.Transparency = 1 -- Hilang total
+                                end
+                            end
+                            -- Sembunyikan Nama (BillboardGui)
+                            local head = char:FindFirstChild("Head")
+                            if head then
+                                for _, v in pairs(head:GetChildren()) do
+                                    if v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+                                        v.Enabled = false
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                    WindUI:Notify({ Title = "Ghost ON", Content = "Anda sekarang kasat mata.", Icon = "ghost" })
+                else
+                    if GhostLoop then GhostLoop:Disconnect() GhostLoop = nil end
+                    -- Reset Transparency (Kasar)
+                    local char = game.Players.LocalPlayer.Character
+                    if char then
+                        for _, part in pairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then part.Transparency = 0 end
+                            if part:IsA("Decal") then part.Transparency = 0 end
+                        end
+                    end
+                    WindUI:Notify({ Title = "Ghost OFF", Icon = "eye" })
+                end
+            end
+        })
+    end
+
 
     -- [[ TROLLING SECTION ]]
     local TrollSection = player:Section({ Title = "Trolling Server (Fling)", TextSize = 20 })
@@ -1397,7 +1445,7 @@ do
     local function V5_MainLoop()
         while V5_Active do
             local t = tick()
-            
+
             BlatantUltra.CurrentCycle = BlatantUltra.CurrentCycle + 1
             BlatantUltra.Stats.TotalCasts = BlatantUltra.Stats.TotalCasts + 1
             
