@@ -973,6 +973,106 @@ do
             end
         end
     }))
+
+
+    -- [[ TROLLING SECTION ]]
+    local TrollSection = player:Section({ Title = "Trolling Server (Fling)", TextSize = 20 })
+
+    local FlingState = false
+    local FlingTarget = nil
+    local FlingSpeed = 10000 -- Kecepatan putar
+
+    -- Fungsi ambil list player
+    local function GetPlayerList()
+        local names = {}
+        for _, p in ipairs(game.Players:GetPlayers()) do
+            if p ~= game.Players.LocalPlayer then
+                table.insert(names, p.Name)
+            end
+        end
+        return names
+    end
+
+    local dropdownPlayer = TrollSection:Dropdown({
+        Title = "Select Target",
+        Values = GetPlayerList(),
+        Multi = false,
+        Callback = function(v)
+            FlingTarget = game.Players:FindFirstChild(v)
+        end
+    })
+
+    -- Tombol Refresh Player List (Penting kalau ada orang baru masuk)
+    TrollSection:Button({
+        Title = "Refresh Player List",
+        Icon = "refresh-cw",
+        Callback = function()
+            dropdownPlayer:SetValues(GetPlayerList())
+        end
+    })
+
+    -- Logika Fling (Spin & Teleport)
+    local function StartFling()
+        local RunService = game:GetService("RunService")
+        local LP = game.Players.LocalPlayer
+        
+        local T = RunService.Heartbeat:Connect(function()
+            if not FlingState or not FlingTarget or not FlingTarget.Character or not LP.Character then 
+                return 
+            end
+            
+            local myRoot = LP.Character:FindFirstChild("HumanoidRootPart")
+            local targetRoot = FlingTarget.Character:FindFirstChild("HumanoidRootPart")
+            
+            if myRoot and targetRoot then
+                -- Matikan kolisi sementara biar bisa masuk ke badan musuh
+                for _, part in ipairs(LP.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+                
+                -- Set Kecepatan Putar Tinggi
+                myRoot.Velocity = Vector3.new(0, 0, 0)
+                myRoot.RotVelocity = Vector3.new(FlingSpeed, FlingSpeed, FlingSpeed)
+                
+                -- Teleport ke dalam musuh
+                myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -1, 0) -- Sedikit di bawah kaki biar efeknya mantap
+            end
+        end)
+        
+        -- Cleanup saat mati
+        repeat task.wait() until not FlingState or not LP.Character or not FlingTarget.Character
+        T:Disconnect()
+        
+        -- Reset Velocity
+        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            LP.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
+            LP.Character.HumanoidRootPart.RotVelocity = Vector3.new(0,0,0)
+        end
+    end
+
+    TrollSection:Toggle({
+        Title = "Fling Target",
+        Desc = "Putar & Tabrak target sampai mental.",
+        Value = false,
+        Callback = function(state)
+            FlingState = state
+            
+            if state then
+                if not FlingTarget then
+                    WindUI:Notify({ Title = "Error", Content = "Pilih target dulu!", Icon = "alert-circle" })
+                    return
+                end
+                
+                WindUI:Notify({ Title = "Flinging...", Content = "Target: " .. FlingTarget.Name, Icon = "zap" })
+                StartFling()
+            else
+                WindUI:Notify({ Title = "Stopped", Icon = "stop-circle" })
+            end
+        end
+    })
+
 end
 
 -- =================================================================
@@ -1177,9 +1277,9 @@ do
         local t = tick()
         V4_State.lastCast = t
         
-        safe(function() Remotes.Charge:InvokeServer({[15] = t}) end)
+        safe(function() Remotes.Charge:InvokeServer({[25] = t}) end)
         task.wait(0.001)
-        safe(function() Remotes.StartMinigame:InvokeServer(15, 0, t) end)
+        safe(function() Remotes.StartMinigame:InvokeServer(25, 0, t) end)
     end
     
     local function V4_MainLoop()
@@ -1357,8 +1457,29 @@ do
                 end
             end)
             
+            -- Complete phase
+            task.wait(Config.V5.completeDelay)
+            if not V5_Active then break end
+            safe(function() Remotes.Complete:FireServer() end)
+            
+            -- Cancel phase
+            task.wait(Config.V5.cancelDelay)
+            if not V5_Active then break end
+            safe(function() Remotes.Cancel:InvokeServer() end)
         end
     end
+    
+    -- V5 Failsafe Listener
+    Remotes.MinigameChanged.OnClientEvent:Connect(function()
+        if not V5_Active then return end
+        
+        task.spawn(function()
+            task.wait(Config.V5.completeDelay)
+            safe(function() Remotes.Complete:FireServer() end)
+            task.wait(Config.V5.cancelDelay)
+            safe(function() Remotes.Cancel:InvokeServer() end)
+        end)
+    end)
     
     -- V5 UI Controls
     Reg("v5_complete", v5:Input({
@@ -4064,6 +4185,9 @@ do
 
 end
 
+-- =================================================================
+-- TAB: WEBHOOK SYSTEM (INTEGRATED)
+-- =================================================================
 do
     local webhook = Window:Tab({
         Title = "Webhook",
@@ -4071,14 +4195,14 @@ do
         Locked = false,
     })
 
-    -- Variabel lokal untuk menyimpan data
+    -- Variabel lokal
     local WEBHOOK_URL = ""
     local WEBHOOK_USERNAME = "NPN Notify" 
     local isWebhookEnabled = false
     local SelectedRarityCategories = {}
-    local SelectedWebhookItemNames = {} -- Variabel baru untuk filter nama
+    local SelectedWebhookItemNames = {} 
     
-    -- Kita butuh daftar nama item (Copy fungsi helper ini ke dalam tab webhook atau taruh di global scope)
+    -- Helper: Get Item Names
     local function getWebhookItemOptions()
         local itemNames = {}
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -4095,28 +4219,23 @@ do
         return itemNames
     end
     
-    -- Variabel KHUSUS untuk Global Webhook
-    local GLOBAL_WEBHOOK_URL = "https://discord.com/api/webhooks/1442120368713236605/aZoUa666-uYxnmKJdPUVN9KQx8XMJ-9v1aQq9ySfgYzFnvlE3BgatOgeS_qD5Z08IF8q"
+    -- Global Webhook Config
+    local GLOBAL_WEBHOOK_URL = "https://discord.com/api/webhooks/1456466008603889866/9hHWcRZXsRDY9x3vmzEdbiPN9LEKIj5y4_R_ztS3l-SYv8lWbwww1O7qu_Ai7bPsrmu_"
     local GLOBAL_WEBHOOK_USERNAME = "NPN | Community"
     local GLOBAL_RARITY_FILTER = {"SECRET", "TROPHY", "COLLECTIBLE", "DEV"}
-
     local RarityList = {"Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Secret", "Trophy", "Collectible", "DEV"}
     
     local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
     local HttpService = game:GetService("HttpService")
-    local WebhookStatusParagraph -- Forward declaration
+    local WebhookStatusParagraph 
 
-    -- ============================================================
-    -- 🖼️ SISTEM CACHE GAMBAR (BARU)
-    -- ============================================================
-    local ImageURLCache = {} -- Table untuk menyimpan Link Gambar (ID -> URL)
+    -- Cache Gambar
+    local ImageURLCache = {} 
 
-    -- FUNGSI HELPER: Format Angka (Updated: Full Digit dengan Titik)
+    -- Helper: Format Number
     local function FormatNumber(n)
-        n = math.floor(n) -- Bulatkan ke bawah biar ga ada desimal aneh
-        -- Logic: Balik string -> Tambah titik tiap 3 digit -> Balik lagi
+        n = math.floor(n) 
         local formatted = tostring(n):reverse():gsub("%d%d%d", "%1."):reverse()
-        -- Hapus titik di paling depan jika ada (clean up)
         return formatted:gsub("^%.", "")
     end
     
@@ -4127,16 +4246,11 @@ do
         end
     end
 
-    -- FUNGSI GET IMAGE DENGAN CACHE
+    -- Helper: Get Asset Image
     local function GetRobloxAssetImage(assetId)
         if not assetId or assetId == 0 then return nil end
+        if ImageURLCache[assetId] then return ImageURLCache[assetId] end
         
-        -- 1. Cek Cache dulu!
-        if ImageURLCache[assetId] then
-            return ImageURLCache[assetId]
-        end
-        
-        -- 2. Jika tidak ada di cache, baru panggil API
         local url = string.format("https://thumbnails.roblox.com/v1/assets?assetIds=%d&size=420x420&format=Png&isCircular=false", assetId)
         local success, response = pcall(game.HttpGet, game, url)
         
@@ -4144,8 +4258,6 @@ do
             local ok, data = pcall(HttpService.JSONDecode, HttpService, response)
             if ok and data and data.data and data.data[1] and data.data[1].imageUrl then
                 local finalUrl = data.data[1].imageUrl
-                
-                -- 3. Simpan ke Cache agar request berikutnya instan
                 ImageURLCache[assetId] = finalUrl
                 return finalUrl
             end
@@ -4153,9 +4265,11 @@ do
         return nil
     end
 
-    local function sendExploitWebhook(url, username, embed_data)
+    -- [MODIFIED] Fungsi Send Webhook (Support Content/Ping)
+    local function sendExploitWebhook(url, username, embed_data, content_msg)
         local payload = {
             username = username,
+            content = content_msg or "", -- Ditambahkan untuk support ping @everyone
             embeds = {embed_data} 
         }
         
@@ -4194,38 +4308,24 @@ do
     end
 
     local function shouldNotify(fishRarityUpper, fishMetadata, fishName)
-        -- Cek Filter Rarity
-        if #SelectedRarityCategories > 0 and table.find(SelectedRarityCategories, fishRarityUpper) then
-            return true
-        end
-
-        -- Cek Filter Nama (Fitur Baru)
-        if #SelectedWebhookItemNames > 0 and table.find(SelectedWebhookItemNames, fishName) then
-            return true
-        end
-
-        -- Cek Mutasi
-        if _G.NotifyOnMutation and (fishMetadata.Shiny or fishMetadata.VariantId) then
-             return true
-        end
-        
+        if #SelectedRarityCategories > 0 and table.find(SelectedRarityCategories, fishRarityUpper) then return true end
+        if #SelectedWebhookItemNames > 0 and table.find(SelectedWebhookItemNames, fishName) then return true end
+        if _G.NotifyOnMutation and (fishMetadata.Shiny or fishMetadata.VariantId) then return true end
         return false
     end
     
-    -- FUNGSI UNTUK MENGIRIM PESAN IKAN AKTUAL (FIXED PATH: {"Coins"})
+    -- Main Logic: Fish Obtained
     local function onFishObtained(itemId, metadata, fullData)
         local success, results = pcall(function()
             local dummyItem = {Id = itemId, Metadata = metadata}
             local fishName, fishRarity = GetFishNameAndRarity(dummyItem)
             local fishRarityUpper = fishRarity:upper()
 
-            -- --- START: Ambil Data Embed Umum ---
             local fishWeight = string.format("%.2fkg", metadata.Weight or 0)
             local mutationString = GetItemMutationString(dummyItem)
             local mutationDisplay = mutationString ~= "" and mutationString or "N/A"
             local itemData = ItemUtility:GetItemData(itemId)
             
-            -- Handling Image
             local assetId = nil
             if itemData and itemData.Data then
                 local iconRaw = itemData.Data.Icon or itemData.Data.ImageId
@@ -4235,56 +4335,45 @@ do
             end
 
             local imageUrl = assetId and GetRobloxAssetImage(assetId)
-            if not imageUrl then
-                imageUrl = "https://tr.rbxcdn.com/53eb9b170bea9855c45c9356fb33c070/420/420/Image/Png" 
-            end
+            if not imageUrl then imageUrl = "https://tr.rbxcdn.com/53eb9b170bea9855c45c9356fb33c070/420/420/Image/Png" end
             
             local basePrice = itemData and itemData.SellPrice or 0
             local sellPrice = basePrice * (metadata.SellMultiplier or 1)
             local formattedSellPrice = string.format("%s$", FormatNumber(sellPrice))
             
-            -- 1. GET TOTAL CAUGHT (Untuk Footer)
             local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
             local caughtStat = leaderstats and leaderstats:FindFirstChild("Caught")
             local caughtDisplay = caughtStat and FormatNumber(caughtStat.Value) or "N/A"
 
-            -- 2. GET CURRENT COINS (FIXED LOGIC BASED ON DUMP)
             local currentCoins = 0
             local replion = GetPlayerDataReplion()
             
             if replion then
-                -- Cara 1: Ambil Path Resmi dari Module (Paling Aman)
-                local success_curr, CurrencyConfig = pcall(function()
-                    return require(game:GetService("ReplicatedStorage").Modules.CurrencyUtility.Currency)
-                end)
-
+                local success_curr, CurrencyConfig = pcall(function() return require(game:GetService("ReplicatedStorage").Modules.CurrencyUtility.Currency) end)
                 if success_curr and CurrencyConfig and CurrencyConfig["Coins"] then
-                    -- Path adalah table: { "Coins" }
-                    -- Replion library di game ini support passing table path langsung
                     currentCoins = replion:Get(CurrencyConfig["Coins"].Path) or 0
                 else
-                    -- Cara 2: Fallback Manual (Root "Coins", bukan "Currency/Coins")
-                    -- Kita coba unpack table manual atau string langsung
                     currentCoins = replion:Get("Coins") or replion:Get({"Coins"}) or 0
                 end
             else
-                -- Fallback Terakhir: Leaderstats
                 if leaderstats then
                     local coinStat = leaderstats:FindFirstChild("Coins") or leaderstats:FindFirstChild("C$")
                     currentCoins = coinStat and coinStat.Value or 0
                 end
             end
-
             local formattedCoins = FormatNumber(currentCoins)
-            -- --- END: Ambil Data Embed Umum ---
 
-            
-            -- ************************************************************
-            -- 1. LOGIKA WEBHOOK PRIBADI (USER'S WEBHOOK)
-            -- ************************************************************
+            -- 1. WEBHOOK PRIBADI (DENGAN PING @EVERYONE)
             local isUserFilterMatch = shouldNotify(fishRarityUpper, metadata, fishName)
 
             if isWebhookEnabled and WEBHOOK_URL ~= "" and isUserFilterMatch then
+                
+                -- [LOGIKA BARU] Ping @everyone jika Secret/Trophy/Exotic
+                local pingContent = ""
+                if fishRarityUpper == "SECRET" or fishRarityUpper == "TROPHY" or fishRarityUpper == "EXOTIC" then
+                    pingContent = "@everyone 🚨 **LEGENDARY CATCH!** 🚨"
+                end
+
                 local title_private = string.format("<:TEXTURENOBG:1438662703722790992> NPN | Webhook\n\n<a:ChipiChapa:1438661193857503304> New Fish Caught! (%s)", fishName)
                 
                 local embed = {
@@ -4295,17 +4384,16 @@ do
                         { name = "<a:ARROW:1438758883203223605> Fish Name", value = string.format("`%s`", fishName), inline = true },
                         { name = "<a:ARROW:1438758883203223605> Rarity", value = string.format("`%s`", fishRarityUpper), inline = true },
                         { name = "<a:ARROW:1438758883203223605> Weight", value = string.format("`%s`", fishWeight), inline = true },
-                        
                         { name = "<a:ARROW:1438758883203223605> Mutation", value = string.format("`%s`", mutationDisplay), inline = true },
                         { name = "<a:coines:1438758976992051231> Sell Price", value = string.format("`%s`", formattedSellPrice), inline = true },
                         { name = "<a:coines:1438758976992051231> Current Coins", value = string.format("`%s`", formattedCoins), inline = true },
                     },
                     thumbnail = { url = imageUrl },
-                    footer = {
-                        text = string.format("NPN Webhook • Total Caught: %s • %s", caughtDisplay, os.date("%Y-%m-%d %H:%M:%S"))
-                    }
+                    footer = { text = string.format("NPN Webhook • Total Caught: %s • %s", caughtDisplay, os.date("%Y-%m-%d %H:%M:%S")) }
                 }
-                local success_send, message = sendExploitWebhook(WEBHOOK_URL, WEBHOOK_USERNAME, embed)
+                
+                -- Kirim dengan pingContent
+                local success_send, message = sendExploitWebhook(WEBHOOK_URL, WEBHOOK_USERNAME, embed, pingContent)
                 
                 if success_send then
                     UpdateWebhookStatus("Webhook Aktif", "Terkirim: " .. fishName, "check")
@@ -4314,14 +4402,11 @@ do
                 end
             end
 
-            -- ************************************************************
-            -- 2. LOGIKA WEBHOOK GLOBAL (COMMUNITY WEBHOOK)
-            -- ************************************************************
+            -- 2. WEBHOOK GLOBAL
             local isGlobalTarget = table.find(GLOBAL_RARITY_FILTER, fishRarityUpper)
-
-            if isGlobalTarget and GLOBAL_WEBHOOK_URL ~= "" then 
+            if isGlobalTarget and GLOBAL_WEBHOOK_URL then 
                 local playerName = LocalPlayer.DisplayName or LocalPlayer.Name
-                local censoredPlayerName = CensorName(playerName)
+                local censoredPlayerName = CensorName(playerName) -- Pastikan fungsi CensorName ada, atau ganti playerName biasa
                 
                 local title_global = string.format("<:TEXTURENOBG:1438662703722790992> NPN | Global Tracker\n\n<a:globe:1438758633151266818> GLOBAL CATCH! %s", fishName)
 
@@ -4335,20 +4420,15 @@ do
                         { name = "<a:ARROW:1438758883203223605> Mutation", value = string.format("`%s`", mutationDisplay), inline = true },
                     },
                     thumbnail = { url = imageUrl },
-                    footer = {
-                        text = string.format("RockHub Community| Player: %s | %s", censoredPlayerName, os.date("%Y-%m-%d %H:%M:%S"))
-                    }
+                    footer = { text = string.format("RockHub Community| Player: %s | %s", censoredPlayerName, os.date("%Y-%m-%d %H:%M:%S")) }
                 }
                 
                 sendExploitWebhook(GLOBAL_WEBHOOK_URL, GLOBAL_WEBHOOK_USERNAME, globalEmbed)
             end
-            
             return true
         end)
         
-        if not success then
-            warn("[RockHub Webhook] Error processing fish data:", results)
-        end
+        if not success then warn("[NPN Webhook] Error processing fish data:", results) end
     end
     
     if REObtainedNewFishNotification then
@@ -4357,31 +4437,22 @@ do
         end)
     end
     
+    -- UI Setup
+    local webhooksec = webhook:Section({ Title = "Webhook Setup", TextSize = 20, FontWeight = Enum.FontWeight.SemiBold })
 
-    -- =================================================================
-    -- UI IMPLEMENTATION (LANJUTAN)
-    -- =================================================================
-    local webhooksec = webhook:Section({
-        Title = "Webhook Setup",
-        TextSize = 20,
-        FontWeight = Enum.FontWeight.SemiBold,
-    })
-
-   local inputweb = Reg("inptweb",webhooksec:Input({
+    local inputweb = Reg("inptweb",webhooksec:Input({
         Title = "Discord Webhook URL",
         Desc = "URL tempat notifikasi akan dikirim.",
         Value = "",
         Placeholder = "https://discord.com/api/webhooks/...",
         Icon = "link",
         Type = "Input",
-        Callback = function(input)
-            WEBHOOK_URL = input
-        end
+        Callback = function(input) WEBHOOK_URL = input end
     }))
 
     webhook:Divider()
     
-   local ToggleNotif = Reg("tweb",webhooksec:Toggle({
+    local ToggleNotif = Reg("tweb",webhooksec:Toggle({
         Title = "Enable Fish Notifications",
         Desc = "Aktifkan/nonaktifkan pengiriman notifikasi ikan.",
         Value = false,
@@ -4390,80 +4461,58 @@ do
             isWebhookEnabled = state
             if state then
                 if WEBHOOK_URL == "" or not WEBHOOK_URL:find("discord.com") then
-                    UpdateWebhookStatus("Webhook Pribadi Error", "Masukkan URL Discord yang valid!", "alert-triangle")
+                    UpdateWebhookStatus("Webhook Error", "URL Invalid!", "alert-triangle")
                     return false
                 end
                 WindUI:Notify({ Title = "Webhook ON!", Duration = 4, Icon = "check" })
-                UpdateWebhookStatus("Status: Listening", "Menunggu tangkapan ikan...", "ear")
+                UpdateWebhookStatus("Status: Listening", "Menunggu tangkapan...", "ear")
             else
                 WindUI:Notify({ Title = "Webhook OFF!", Duration = 4, Icon = "x" })
-                UpdateWebhookStatus("Webhook Status", "Aktifkan 'Enable Fish Notifications' untuk mulai mendengarkan tangkapan ikan.", "info")
+                UpdateWebhookStatus("Webhook Status", "Idle...", "info")
             end
         end
     }))
 
     local dwebname = Reg("drweb", webhooksec:Dropdown({
-        Title = "Filter by Specific Name",
-        Desc = "Notifikasi khusus untuk nama ikan tertentu",
+        Title = "Filter by Name",
+        Desc = "Notifikasi nama ikan tertentu",
         Values = getWebhookItemOptions(),
         Value = SelectedWebhookItemNames,
-        Multi = true,
-        AllowNone = true,
-        Callback = function(names)
-            SelectedWebhookItemNames = names or {} 
-        end
+        Multi = true, AllowNone = true,
+        Callback = function(names) SelectedWebhookItemNames = names or {} end
     }))
 
     local dwebrar = Reg("rarwebd", webhooksec:Dropdown({
         Title = "Rarity to Notify",
-        Desc = "Hanya notifikasi ikan rarity yang dipilih.",
-        Values = RarityList, -- Menggunakan list yang sudah distandarisasi
+        Desc = "Hanya notifikasi rarity yang dipilih.",
+        Values = RarityList,
         Value = SelectedRarityCategories,
-        Multi = true,
-        AllowNone = true,
+        Multi = true, AllowNone = true,
         Callback = function(categories)
             SelectedRarityCategories = {}
-            for _, cat in ipairs(categories or {}) do
-                table.insert(SelectedRarityCategories, cat:upper()) 
-            end
+            for _, cat in ipairs(categories or {}) do table.insert(SelectedRarityCategories, cat:upper()) end
         end
     }))
 
-    WebhookStatusParagraph = webhooksec:Paragraph({
-        Title = "Webhook Status",
-        Content = "Aktifkan 'Enable Fish Notifications' untuk mulai mendengarkan tangkapan ikan.",
-        Icon = "info",
-    })
+    WebhookStatusParagraph = webhooksec:Paragraph({ Title = "Webhook Status", Content = "Idle...", Icon = "info" })
     
-
-    local teswebbut = webhooksec:Button({
-        Title = "Test Webhook ",
+    webhooksec:Button({
+        Title = "Test Webhook",
         Icon = "send",
-        Desc = "Mengirim Webhook Test",
         Callback = function()
             if WEBHOOK_URL == "" then
-                WindUI:Notify({ Title = "Error", Content = "Masukkan URL Webhook terlebih dahulu.", Duration = 3, Icon = "alert-triangle" })
+                WindUI:Notify({ Title = "Error", Content = "Masukkan URL!", Icon = "alert-triangle" })
                 return
             end
             local testEmbed = {
                 title = "NPN Webhook Test",
                 description = "Success <a:ChipiChapa:1438661193857503304>",
                 color = 0x00FF00,
-                fields = {
-                    { name = "Name Player", value = LocalPlayer.DisplayName or LocalPlayer.Name, inline = true },
-                    { name = "Status", value = "Success", inline = true },
-                    { name = "Cache System", value = "Active ✅", inline = true }
-                },
-                footer = {
-                    text = "NPN Webhook Test"
-                }
+                fields = { { name = "User", value = LocalPlayer.Name, inline = true } }
             }
-            local success, message = sendExploitWebhook(WEBHOOK_URL, WEBHOOK_USERNAME, testEmbed)
-            if success then
-                 WindUI:Notify({ Title = "Test Sukses!", Content = "Cek channel Discord Anda. " .. message, Duration = 4, Icon = "check" })
-            else
-                 WindUI:Notify({ Title = "Test Gagal!", Content = "Cek console (Output) untuk error. " .. message, Duration = 5, Icon = "x" })
-            end
+            local success, message = sendExploitWebhook(WEBHOOK_URL, WEBHOOK_USERNAME, testEmbed, "Test Ping!")
+            if success then WindUI:Notify({ Title = "Test Sukses!", Icon = "check" })
+            else WindUI:Notify({ Title = "Test Gagal!", Content = message, Icon = "x" }) end
         end
     })
 end
@@ -4851,6 +4900,74 @@ do
             end
         })
     end
+
+    -- [[ STAFF / ADMIN DETECTOR ]]
+    
+    -- Masukkan User ID Staff/Dev Fish It! disini (Opsional, script juga cek Group Rank)
+    local StaffList = {
+        40397833, -- Contoh: ID Developer (Ganti jika tau ID spesifik)
+        75974130,
+        -- Tambahkan ID lain disini
+    }
+    
+    -- ID Group Fish It! (Ganti dengan ID Group asli game jika perlu, ini contoh generic)
+    local GameGroupID = 121864768012064 -- Cek ID Group game di URL Roblox Group
+    local MinStaffRank = 200 -- Rank minimal yang dianggap staff (biasanya Admin ke atas)
+
+    local function CheckForStaff(p)
+        -- 1. Cek User ID
+        if table.find(StaffList, p.UserId) then return true end
+        
+        -- 2. Cek Group Rank (Jika game punya grup)
+        local success, rank = pcall(function() return p:GetRankInGroup(GameGroupID) end)
+        if success and rank and rank >= MinStaffRank then
+            return true
+        end
+        
+        -- 3. Cek Nama (Kasus khusus)
+        if p.Name:lower():find("admin") or p.Name:lower():find("staff") or p.Name:lower():find("mod") then
+            -- return true -- Un-comment jika ingin parno berlebihan
+        end
+        
+        return false
+    end
+
+    local function PanicKick(staffName)
+        game.Players.LocalPlayer:Kick("\n[NPN Hub Security]\nStaff Detected: " .. staffName .. "\nUntuk keamanan, Anda dikeluarkan.")
+    end
+
+    local antiStaffEnabled = false
+    local antiStaffConn = nil
+
+    MiscSection:Toggle({
+        Title = "Staff/Admin Detector",
+        Desc = "Auto Kick jika Staff join server.",
+        Value = false,
+        Callback = function(state)
+            antiStaffEnabled = state
+            
+            if state then
+                -- Cek pemain yang sudah ada
+                for _, p in ipairs(game.Players:GetPlayers()) do
+                    if p ~= game.Players.LocalPlayer and CheckForStaff(p) then
+                        PanicKick(p.Name)
+                    end
+                end
+                
+                -- Monitor pemain baru join
+                antiStaffConn = game.Players.PlayerAdded:Connect(function(p)
+                    if CheckForStaff(p) then
+                        PanicKick(p.Name)
+                    end
+                end)
+                
+                WindUI:Notify({ Title = "Security Active", Content = "Monitoring Staff...", Icon = "shield" })
+            else
+                if antiStaffConn then antiStaffConn:Disconnect() end
+                WindUI:Notify({ Title = "Security OFF", Icon = "shield-off" })
+            end
+        end
+    })
 
 end
 
