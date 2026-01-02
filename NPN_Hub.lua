@@ -1277,9 +1277,9 @@ do
         local t = tick()
         V4_State.lastCast = t
         
-        safe(function() Remotes.Charge:InvokeServer({[25] = t}) end)
+        safe(function() Remotes.Charge:InvokeServer({[5] = t}) end)
         task.wait(0.001)
-        safe(function() Remotes.StartMinigame:InvokeServer(25, 0, t) end)
+        safe(function() Remotes.StartMinigame:InvokeServer(5, 0, t) end)
     end
     
     local function V4_MainLoop()
@@ -1298,7 +1298,8 @@ do
             end
             
             V4_State.doingCycle = false
-            task.wait(Config.V4.recastDelay)
+            local t = math.max((Config.V4.recastDelay or 1) * 0.2, 0.05)
+            task.wait(t)
         end
         V4_State.doingCycle = false
     end
@@ -1400,7 +1401,7 @@ do
             local t = tick()
             
             -- Ultra fast cast
-            safe(function() Remotes.Charge:InvokeServer({[15] = t}) end)
+            safe(function() Remotes.Charge:InvokeServer({[5] = t}) end)
             task.wait(BlatantUltra.Settings.CastDelay)
             safe(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
             
@@ -1410,7 +1411,7 @@ do
             task.spawn(function()
                 local success = pcall(function()
                     -- Ultra-fast batch casting (using correct remotes)
-                    safe(function() Remotes.Charge:InvokeServer({[15] = t}) end)Remotes.Charge:InvokeServer({[10] = tick()})
+                    safe(function() Remotes.Charge:InvokeServer({[5] = t}) end)Remotes.Charge:InvokeServer({[10] = tick()})
                     task.wait(BlatantUltra.Settings.CastDelay)
                     safe(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
                     
