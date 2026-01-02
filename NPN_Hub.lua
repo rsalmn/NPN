@@ -1151,119 +1151,134 @@ do
     -- MODE 3: BLATANT V1 (STABLE)
     -- =====================================================
     
-    local v4 = fishMancing:Section({ Title = "2. Blatant V1", TextSize = 20 })
+    -- =====================================================
+    -- MODE 3: BLATANT V1 (X7 ENGINE - MAX SPEED)
+    -- =====================================================
     
-    -- V4 State Management
-    local V4_State = {
-        lastComplete = 0,
-        cooldown = 0.35,
-        doingCycle = false,
-        lastCast = 0
+    local v4 = fishMancing:Section({ Title = "2. Blatant V1 (X7 Engine)", TextSize = 20 })
+    
+    -- [[ CONFIGURATION ]]
+    local V1_Config = {
+        WorkerCount = 3,      -- Jumlah "Buruh" (Semakin banyak = Semakin cepat/risiko kick)
+        SpamCount = 5,        -- Berapa kali kirim sinyal 'Complete' sekali tarikan
+        CastDelay = 0.05,     -- Delay sebelum lempar kail
+        CatchDelay = 2.5,     -- Estimasi waktu tunggu sampai ikan makan (Blind guess)
+        CycleDelay = 0.01     -- Jeda antar putaran
     }
     
-    -- V4 Core Functions
-    local function V4_ProtectedComplete()
-        local now = tick()
-        if now - V4_State.lastComplete < V4_State.cooldown then
-            return false
-        end
-        
-        V4_State.lastComplete = now
-        safe(function() Remotes.Complete:FireServer() end)
-        return true
-    end
+    -- [[ STATE VARIABLES ]]
+    local V1_Active = false
+    local V1_Threads = {} -- Menyimpan daftar thread worker
     
-    local function V4_PerformCast()
-        local t = tick()
-        V4_State.lastCast = t
-        
-        safe(function() Remotes.Charge:InvokeServer({[1] = t}) end)
-        task.wait(0.008)
-        safe(function() Remotes.StartMinigame:InvokeServer(1, 0, t) end)
-    end
-    
-    local function V4_MainLoop()
-        while V4_Active do
-            V4_State.doingCycle = true
+    -- [[ CORE LOGIC: WORKER ]]
+    local function RunWorker(workerID)
+        while V1_Active do
+            -- 1. Siapkan Waktu Server (Lebih akurat untuk bypass)
+            local serverTime = workspace:GetServerTimeNow()
             
-            V4_PerformCast()
-            task.wait(Config.V4.completeDelay)
+            -- 2. Charge Rod (Instant)
+            pcall(function() 
+                Remotes.Charge:InvokeServer(serverTime) 
+            end)
             
-            if V4_Active then V4_ProtectedComplete() end
+            task.wait(V1_Config.CastDelay)
+            if not V1_Active then break end
+
+            -- 3. Lempar Kail (Cast)
+            pcall(function() 
+                -- Koordinat random dikit biar ga numpuk parah
+                Remotes.StartMinigame:InvokeServer(
+                    -1.25 + (math.random() * 0.1), 
+                    1, 
+                    workspace:GetServerTimeNow()
+                ) 
+            end)
             
-            task.wait(Config.V4.cancelDelay)
+            -- 4. Tunggu Ikan (Estimasi Cepat)
+            -- Kita pakai delay statis cepat karena X7 speed mengabaikan animasi
+            task.wait(V1_Config.CatchDelay)
+            if not V1_Active then break end
             
-            if V4_Active then
-                safe(function() Remotes.Cancel:InvokeServer() end)
+            -- 5. SPAM COMPLETE (Kunci kecepatan X7)
+            -- Mengirim paket 'Complete' berkali-kali untuk memastikan server menangkap sinyal
+            for i = 1, V1_Config.SpamCount do
+                if not V1_Active then break end
+                pcall(function() Remotes.Complete:FireServer() end)
+                task.wait(0.01) -- Micro delay antar spam
             end
             
-            V4_State.doingCycle = false
-            task.wait(Config.V4.recastDelay)
+            -- 6. Cancel / Reset Rod
+            pcall(function() Remotes.Cancel:InvokeServer() end)
+            
+            -- 7. Loop Cycle
+            task.wait(V1_Config.CycleDelay)
         end
-        V4_State.doingCycle = false
     end
+
+    -- [[ UI CONTROLS ]]
     
-    -- V4 Failsafe Listener
-    local lastEvent = 0
-    Remotes.MinigameChanged.OnClientEvent:Connect(function()
-        if not V4_Active then return end
-        
-        local now = tick()
-        if now - lastEvent < 0.15 or now - V4_State.lastComplete < 0.25 then return end
-        lastEvent = now
-        
-        task.spawn(function()
-            task.wait(Config.V4.completeDelay)
-            if V4_ProtectedComplete() then
-                task.wait(Config.V4.cancelDelay)
-                safe(function() Remotes.Cancel:InvokeServer() end)
-            end
-        end)
-    end)
-    
-    -- V4 UI Controls
-    Reg("v4_complete", v4:Input({
-        Title = "Complete Delay",
-        Value = tostring(Config.V4.completeDelay),
-        Placeholder = "0.72",
+    Reg("v1_workers", v4:Slider({
+        Title = "Worker Count (Speed)",
+        Desc = "Jumlah proses paralel. (1 = Normal, 5 = Brutal)",
+        Value = { Min = 1, Max = 10, Default = 3 },
+        Step = 1,
         Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0.1 then Config.V4.completeDelay = n end
+            V1_Config.WorkerCount = v
         end
     }))
-    
-    Reg("v4_cancel", v4:Input({
-        Title = "Cancel Delay",
-        Value = tostring(Config.V4.cancelDelay),
-        Placeholder = "0.28",
+
+    Reg("v1_catch_delay", v4:Input({
+        Title = "Catch Delay (Seconds)",
+        Desc = "Waktu tunggu simulasi minigame.",
+        Value = tostring(V1_Config.CatchDelay),
+        Placeholder = "2.5",
         Callback = function(v)
             local n = tonumber(v)
-            if n and n >= 0.1 then Config.V4.cancelDelay = n end
+            if n then V1_Config.CatchDelay = n end
         end
     }))
-    
-    Reg("v4toggle", v4:Toggle({
-        Title = "Enable Blatant V1",
+
+    Reg("v1_toggle", v4:Toggle({
+        Title = "Enable Blatant V1 (X7 Mode)",
+        Desc = "Menggunakan X7 Worker Engine.",
         Value = false,
         Callback = function(state)
             if not checkFishingRemotes() then return end
             
             disableAllModes()
-            V4_Active = state
+            V1_Active = state
             
             if state then
-                safe(function() Remotes.UpdateState:InvokeServer(true) end)
-                V4_LoopThread = task.spawn(V4_MainLoop)
+                -- Update State Server
+                pcall(function() Remotes.UpdateState:InvokeServer(true) end)
+                
+                -- SPAWN WORKERS (Multi-Threading)
+                -- Ini rahasia kecepatannya: Menjalankan loop RunWorker sebanyak WorkerCount
+                for i = 1, V1_Config.WorkerCount do
+                    local t = task.spawn(function()
+                        RunWorker(i)
+                    end)
+                    table.insert(V1_Threads, t)
+                    task.wait(0.2) -- Jeda dikit biar start-nya ga barengan banget (cegah crash)
+                end
                 
                 WindUI:Notify({
-                    Title = "Blatant V1 Enabled",
-                    Content = "Stable Mode Activated",
-                    Duration = 4,
+                    Title = "X7 Engine Started",
+                    Content = "Running " .. V1_Config.WorkerCount .. " workers.",
+                    Duration = 3,
                     Icon = "zap"
                 })
             else
-                safe(function() Remotes.Cancel:InvokeServer() end)
-                WindUI:Notify({ Title = "Blatant V1 Stopped", Duration = 3 })
+                -- Kill All Threads
+                for _, t in ipairs(V1_Threads) do
+                    task.cancel(t)
+                end
+                V1_Threads = {}
+                
+                pcall(function() Remotes.Cancel:InvokeServer() end)
+                pcall(function() Remotes.UpdateState:InvokeServer(false) end)
+                
+                WindUI:Notify({ Title = "Stopped", Duration = 2 })
             end
         end
     }))
