@@ -1787,18 +1787,12 @@ do
 end
 
 -- FISHING SUPPORT
-
 do
-    farm:Divider()
-    local fishingSupport = farm:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
-    
-    
-    do
         -- =========================================================
         -- FISHING ANIMATION CHANGER SECTION
         -- =========================================================
         
-        local animSection = fishMancing:Section({ 
+        local animSection = farm:Section({ 
             Title = "Fishing Animation Changer", 
             TextSize = 20 
         })
@@ -2267,6 +2261,13 @@ do
         end)
         
     end
+    
+do
+    farm:Divider()
+    local fishingSupport = farm:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
+    
+    
+    
     
     
     
