@@ -973,7 +973,38 @@ do
             end
         end
     }))
-
+    
+    do
+        local PhaseSection = Window:Tab({ Title = "Ghost", Icon = "ghost" }):Section({ Title = "Noclip", TextSize = 20 })
+    
+        local NoclipLoop = nil
+    
+        PhaseSection:Toggle({
+            Title = "Noclip (Walk Through Walls)",
+            Desc = "Tembus tembok agar tidak nyangkut.",
+            Value = false,
+            Icon = "layers",
+            Callback = function(state)
+                if state then
+                    local RunService = game:GetService("RunService")
+                    NoclipLoop = RunService.Stepped:Connect(function()
+                        local char = game.Players.LocalPlayer.Character
+                        if char then
+                            for _, part in pairs(char:GetDescendants()) do
+                                if part:IsA("BasePart") and part.CanCollide == true then
+                                    part.CanCollide = false
+                                end
+                            end
+                        end
+                    end)
+                    WindUI:Notify({ Title = "Noclip ON", Icon = "ghost" })
+                else
+                    if NoclipLoop then NoclipLoop:Disconnect() NoclipLoop = nil end
+                    WindUI:Notify({ Title = "Noclip OFF", Icon = "user" })
+                end
+            end
+        })
+    end
 
     -- [[ TROLLING SECTION ]]
     local TrollSection = player:Section({ Title = "Trolling Server (Fling)", TextSize = 20 })
@@ -986,7 +1017,7 @@ do
     local function GetPlayerList()
         local names = {}
         for _, p in ipairs(game.Players:GetPlayers()) do
-            if p ~= game.Players.LocalPlayer then
+            if p ~= LocalPlayer then
                 table.insert(names, p.Name)
             end
         end
@@ -1037,7 +1068,7 @@ do
                 myRoot.RotVelocity = Vector3.new(FlingSpeed, FlingSpeed, FlingSpeed)
                 
                 -- Teleport ke dalam musuh
-                myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, -1, 0) -- Sedikit di bawah kaki biar efeknya mantap
+                myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 0) -- Sedikit di bawah kaki biar efeknya mantap
             end
         end)
         
@@ -1065,10 +1096,10 @@ do
                     return
                 end
                 
-                WindUI:Notify({ Title = "Flinging...", Content = "Target: " .. FlingTarget.Name, Icon = "zap" })
+                --WindUI:Notify({ Title = "Flinging...", Content = "Target: " .. FlingTarget.Name, Icon = "zap" })
                 StartFling()
             else
-                WindUI:Notify({ Title = "Stopped", Icon = "stop-circle" })
+                --WindUI:Notify({ Title = "Stopped", Icon = "stop-circle" })
             end
         end
     })
