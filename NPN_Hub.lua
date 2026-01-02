@@ -1400,8 +1400,9 @@ do
             local t = tick()
             
             -- Ultra fast cast
-            safe(function() Remotes.Charge:InvokeServer({[10] = t}) end)
-            safe(function() Remotes.StartMinigame:InvokeServer(10, 0, t) end)
+            safe(function() Remotes.Charge:InvokeServer({[15] = t}) end)
+            task.wait(BlatantUltra.Settings.CastDelay)
+            safe(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
             
             BlatantUltra.CurrentCycle = BlatantUltra.CurrentCycle + 1
             BlatantUltra.Stats.TotalCasts = BlatantUltra.Stats.TotalCasts + 1
@@ -1409,9 +1410,9 @@ do
             task.spawn(function()
                 local success = pcall(function()
                     -- Ultra-fast batch casting (using correct remotes)
-                    Remotes.Charge:InvokeServer({[10] = tick()})
+                    safe(function() Remotes.Charge:InvokeServer({[15] = t}) end)Remotes.Charge:InvokeServer({[10] = tick()})
                     task.wait(BlatantUltra.Settings.CastDelay)
-                    Remotes.StartMinigame:InvokeServer(10, 0, tick())
+                    safe(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
                     
                     BlatantUltra.WaitingHook = true
                     print("⏳ [ULTRA] Waiting for hook...")
@@ -4965,6 +4966,72 @@ do
             else
                 if antiStaffConn then antiStaffConn:Disconnect() end
                 WindUI:Notify({ Title = "Security OFF", Icon = "shield-off" })
+            end
+        end
+    })
+
+    -- [[ PERFORMANCE / POTATO MODE ]]
+    local PerformanceSection = SettingsTab:Section({ Title = "Performance", TextSize = 20 })
+
+    PerformanceSection:Button({
+        Title = "FPS Booster (Remove Textures)",
+        Desc = "Menghapus tekstur untuk meningkatkan FPS.",
+        Icon = "cpu",
+        Callback = function()
+            local Terrain = workspace:FindFirstChildOfClass('Terrain')
+            if Terrain then
+                Terrain.WaterWaveSize = 0
+                Terrain.WaterWaveSpeed = 0
+                Terrain.WaterReflectance = 0
+                Terrain.WaterTransparency = 0
+            end
+            
+            for _, v in pairs(game:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.Material = Enum.Material.SmoothPlastic
+                    v.Reflectance = 0
+                elseif v:IsA("Decal") or v:IsA("Texture") then
+                    v:Destroy() -- Hapus tekstur gambar
+                elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                    v.Enabled = false
+                end
+            end
+            sethiddenproperty(workspace, "Lighting", "Technology", Enum.Technology.Compatibility)
+            WindUI:Notify({ Title = "FPS Boosted", Content = "Tekstur dihapus!", Icon = "check" })
+        end
+    })
+
+    local blackScreenGUI = nil
+    PerformanceSection:Toggle({
+        Title = "Black Screen (AFK Mode)",
+        Desc = "Layar hitam untuk hemat daya CPU/GPU.",
+        Value = false,
+        Icon = "monitor-off",
+        Callback = function(state)
+            if state then
+                -- Buat GUI Hitam Total
+                blackScreenGUI = Instance.new("ScreenGui")
+                blackScreenGUI.Parent = game.CoreGui
+                blackScreenGUI.IgnoreGuiInset = true
+                
+                local frame = Instance.new("Frame")
+                frame.Size = UDim2.new(1, 0, 1, 0)
+                frame.BackgroundColor3 = Color3.new(0, 0, 0)
+                frame.Parent = blackScreenGUI
+                
+                local text = Instance.new("TextLabel")
+                text.Text = "NPN Hub AFK Mode\nRendering 3D Dimatikan"
+                text.Size = UDim2.new(1, 0, 1, 0)
+                text.TextColor3 = Color3.new(1, 1, 1)
+                text.BackgroundTransparency = 1
+                text.Parent = frame
+                
+                -- Matikan 3D Rendering (Jika executor support)
+                pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(false) end)
+            else
+                if blackScreenGUI then blackScreenGUI:Destroy() end
+                -- Nyalakan kembali
+                pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(true) end)
             end
         end
     })
