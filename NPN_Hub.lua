@@ -1151,134 +1151,101 @@ do
     -- MODE 3: BLATANT V1 (STABLE)
     -- =====================================================
     
-    -- =====================================================
-    -- MODE 3: BLATANT V1 (X7 ENGINE - MAX SPEED)
-    -- =====================================================
+    local v4 = fishMancing:Section({ Title = "2. Blatant V1", TextSize = 20 })
     
-    local v4 = fishMancing:Section({ Title = "2. Blatant V1 (X7 Engine)", TextSize = 20 })
-    
-    -- [[ CONFIGURATION ]]
-    local V1_Config = {
-        WorkerCount = 3,      -- Jumlah "Buruh" (Semakin banyak = Semakin cepat/risiko kick)
-        SpamCount = 5,        -- Berapa kali kirim sinyal 'Complete' sekali tarikan
-        CastDelay = 0.05,     -- Delay sebelum lempar kail
-        CatchDelay = 2.5,     -- Estimasi waktu tunggu sampai ikan makan (Blind guess)
-        CycleDelay = 0.01     -- Jeda antar putaran
+    -- V4 State Management
+    local V4_State = {
+        lastComplete = 0,
+        cooldown = 0.35,
+        doingCycle = false,
+        lastCast = 0
     }
     
-    -- [[ STATE VARIABLES ]]
-    local V1_Active = false
-    local V1_Threads = {} -- Menyimpan daftar thread worker
+    -- V4 Core Functions
+    local function V4_ProtectedComplete()
+        local now = tick()
+        if now - V4_State.lastComplete < V4_State.cooldown then
+            return false
+        end
+        
+        V4_State.lastComplete = now
+        safe(function() Remotes.Complete:FireServer() end)
+        return true
+    end
     
-    -- [[ CORE LOGIC: WORKER ]]
-    local function RunWorker(workerID)
-        while V1_Active do
-            -- 1. Siapkan Waktu Server (Lebih akurat untuk bypass)
-            local serverTime = workspace:GetServerTimeNow()
+    local function V4_PerformCast()
+        local t = tick()
+        V4_State.lastCast = t
+        
+        safe(function() Remotes.Charge:InvokeServer({[5] = t}) end)
+        task.wait(0.001)
+        safe(function() Remotes.StartMinigame:InvokeServer(5, 0, t) end)
+    end
+    
+    local function V4_MainLoop()
+        while V4_Active do
+            V4_State.doingCycle = true
             
-            -- 2. Charge Rod (Instant)
-            pcall(function() 
-                Remotes.Charge:InvokeServer(serverTime) 
-            end)
+            V4_PerformCast()
+            task.wait(Config.V4.completeDelay)
             
-            task.wait(V1_Config.CastDelay)
-            if not V1_Active then break end
-
-            -- 3. Lempar Kail (Cast)
-            pcall(function() 
-                -- Koordinat random dikit biar ga numpuk parah
-                Remotes.StartMinigame:InvokeServer(
-                    -1.25 + (math.random() * 0.1), 
-                    1, 
-                    workspace:GetServerTimeNow()
-                ) 
-            end)
+            if V4_Active then V4_ProtectedComplete() end
             
-            -- 4. Tunggu Ikan (Estimasi Cepat)
-            -- Kita pakai delay statis cepat karena X7 speed mengabaikan animasi
-            task.wait(V1_Config.CatchDelay)
-            if not V1_Active then break end
+            task.wait(Config.V4.cancelDelay)
             
-            -- 5. SPAM COMPLETE (Kunci kecepatan X7)
-            -- Mengirim paket 'Complete' berkali-kali untuk memastikan server menangkap sinyal
-            for i = 1, V1_Config.SpamCount do
-                if not V1_Active then break end
-                pcall(function() Remotes.Complete:FireServer() end)
-                task.wait(0.01) -- Micro delay antar spam
+            if V4_Active then
+                safe(function() Remotes.Cancel:InvokeServer() end)
             end
             
-            -- 6. Cancel / Reset Rod
-            pcall(function() Remotes.Cancel:InvokeServer() end)
-            
-            -- 7. Loop Cycle
-            task.wait(V1_Config.CycleDelay)
+            V4_State.doingCycle = false
+            task.wait(Config.V4.recastDelay)
         end
+        V4_State.doingCycle = false
     end
-
-    -- [[ UI CONTROLS ]]
     
-    Reg("v1_workers", v4:Slider({
-        Title = "Worker Count (Speed)",
-        Desc = "Jumlah proses paralel. (1 = Normal, 5 = Brutal)",
-        Value = { Min = 1, Max = 10, Default = 3 },
-        Step = 1,
-        Callback = function(v)
-            V1_Config.WorkerCount = v
-        end
-    }))
-
-    Reg("v1_catch_delay", v4:Input({
-        Title = "Catch Delay (Seconds)",
-        Desc = "Waktu tunggu simulasi minigame.",
-        Value = tostring(V1_Config.CatchDelay),
-        Placeholder = "2.5",
+    -- V4 UI Controls
+    Reg("v4_complete", v4:Input({
+        Title = "Complete Delay",
+        Value = tostring(Config.V4.completeDelay),
+        Placeholder = "0.72",
         Callback = function(v)
             local n = tonumber(v)
-            if n then V1_Config.CatchDelay = n end
+            if n and n >= 0.1 then Config.V4.completeDelay = n end
         end
     }))
-
-    Reg("v1_toggle", v4:Toggle({
-        Title = "Enable Blatant V1 (X7 Mode)",
-        Desc = "Menggunakan X7 Worker Engine.",
+    
+    Reg("v4_cancel", v4:Input({
+        Title = "Cancel Delay",
+        Value = tostring(Config.V4.cancelDelay),
+        Placeholder = "0.28",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0.1 then Config.V4.cancelDelay = n end
+        end
+    }))
+    
+    Reg("v4toggle", v4:Toggle({
+        Title = "Enable Blatant V1",
         Value = false,
         Callback = function(state)
             if not checkFishingRemotes() then return end
             
             disableAllModes()
-            V1_Active = state
+            V4_Active = state
             
             if state then
-                -- Update State Server
-                pcall(function() Remotes.UpdateState:InvokeServer(true) end)
-                
-                -- SPAWN WORKERS (Multi-Threading)
-                -- Ini rahasia kecepatannya: Menjalankan loop RunWorker sebanyak WorkerCount
-                for i = 1, V1_Config.WorkerCount do
-                    local t = task.spawn(function()
-                        RunWorker(i)
-                    end)
-                    table.insert(V1_Threads, t)
-                    task.wait(0.2) -- Jeda dikit biar start-nya ga barengan banget (cegah crash)
-                end
+                safe(function() Remotes.UpdateState:InvokeServer(true) end)
+                V4_LoopThread = task.spawn(V4_MainLoop)
                 
                 WindUI:Notify({
-                    Title = "X7 Engine Started",
-                    Content = "Running " .. V1_Config.WorkerCount .. " workers.",
-                    Duration = 3,
+                    Title = "Blatant V1 Enabled",
+                    Content = "Stable Mode Activated",
+                    Duration = 4,
                     Icon = "zap"
                 })
             else
-                -- Kill All Threads
-                for _, t in ipairs(V1_Threads) do
-                    task.cancel(t)
-                end
-                V1_Threads = {}
-                
-                pcall(function() Remotes.Cancel:InvokeServer() end)
-                pcall(function() Remotes.UpdateState:InvokeServer(false) end)
-                
-                WindUI:Notify({ Title = "Stopped", Duration = 2 })
+                safe(function() Remotes.Cancel:InvokeServer() end)
+                WindUI:Notify({ Title = "Blatant V1 Stopped", Duration = 3 })
             end
         end
     }))
@@ -1303,7 +1270,7 @@ do
             CancelDelay = 0.01,
             HookWaitTime = 0.01,
             CastDelay = 0.25,
-            TimeoutDelay = 0.8,
+            TimeoutDelay = 0.1,
             MaxCycles = 0,
             AutoStop = false
         },
@@ -1324,6 +1291,144 @@ do
         -- Remote references
         Remotes = {}
     }
+    
+    local v5 = fishMancing:Section({ Title = "3. Blatant V2", TextSize = 20 })
+    
+    -- V5 Core Loop
+    local function V5_MainLoop()
+        while V5_Active do
+            local t = tick()
+            
+            -- Ultra fast cast
+            safe(function() Remotes.Charge:InvokeServer({[10] = t}) end)
+            safe(function() Remotes.StartMinigame:InvokeServer(10, 0, t) end)
+            
+            BlatantUltra.CurrentCycle = BlatantUltra.CurrentCycle + 1
+            BlatantUltra.Stats.TotalCasts = BlatantUltra.Stats.TotalCasts + 1
+            
+            task.spawn(function()
+                local success = pcall(function()
+                    -- Ultra-fast batch casting (using correct remotes)
+                    Remotes.Charge:InvokeServer({[10] = tick()})
+                    task.wait(BlatantUltra.Settings.CastDelay)
+                    Remotes.StartMinigame:InvokeServer(10, 0, tick())
+                    
+                    BlatantUltra.WaitingHook = true
+                    print("⏳ [ULTRA] Waiting for hook...")
+                    
+                    -- Timeout handler
+                    task.delay(BlatantUltra.Settings.TimeoutDelay, function()
+                        if BlatantUltra.WaitingHook and BlatantUltra.Running then
+                            BlatantUltra.WaitingHook = false
+                            BlatantUltra.Stats.FailedCasts = BlatantUltra.Stats.FailedCasts + 1
+                            
+                            print("⏰ [ULTRA] Timeout - Force completing")
+                            
+                            pcall(function()
+                                if Remotes.Complete then
+                                    Remotes.Complete:FireServer()()
+                                end
+                            end)
+                            
+                            task.wait(Config.V5.cancelDelay)
+                            pcall(function() 
+                                if Remotes.Cancel then
+                                    Remotes.CancelFishingInputs:InvokeServer() 
+                                end
+                            end)
+                            
+                            task.wait(Config.V5.completeDelay)
+                            
+                            -- Continue casting if still running
+                            if BlatantUltra.Running and not BlatantUltra.CheckAutoStop() then
+                                V5_MainLoop()
+                            end
+                        end
+                    end)
+                end)
+                
+                if not success then
+                    print("❌ [ULTRA] Cast failed, retrying...")
+                    BlatantUltra.Stats.FailedCasts = BlatantUltra.Stats.FailedCasts + 1
+                    task.wait(0.5)
+                    if BlatantUltra.Running then
+                        V5_MainLoop()
+                    end
+                end
+            end)
+            
+            -- Complete phase
+            task.wait(Config.V5.completeDelay)
+            if not V5_Active then break end
+            safe(function() Remotes.Complete:FireServer() end)
+            
+            -- Cancel phase
+            task.wait(Config.V5.cancelDelay)
+            if not V5_Active then break end
+            safe(function() Remotes.Cancel:InvokeServer() end)
+        end
+    end
+    
+    -- V5 Failsafe Listener
+    Remotes.MinigameChanged.OnClientEvent:Connect(function()
+        if not V5_Active then return end
+        
+        task.spawn(function()
+            task.wait(Config.V5.completeDelay)
+            safe(function() Remotes.Complete:FireServer() end)
+            task.wait(Config.V5.cancelDelay)
+            safe(function() Remotes.Cancel:InvokeServer() end)
+        end)
+    end)
+    
+    -- V5 UI Controls
+    Reg("v5_complete", v5:Input({
+        Title = "Complete Delay",
+        Value = tostring(Config.V5.completeDelay),
+        Placeholder = "0.79",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0 then Config.V5.completeDelay = n end
+        end
+    }))
+    
+    Reg("v5_cancel", v5:Input({
+        Title = "Cancel Delay",
+        Value = tostring(Config.V5.cancelDelay),
+        Placeholder = "0.329",
+        Callback = function(v)
+            local n = tonumber(v)
+            if n and n >= 0 then Config.V5.cancelDelay = n end
+        end
+    }))
+    
+    Reg("v5toggle", v5:Toggle({
+        Title = "Enable Blatant V2",
+        Value = false,
+        Callback = function(state)
+            if not checkFishingRemotes() then return end
+            
+            disableAllModes()
+            V5_Active = state
+            
+            if state then
+                safe(function() Remotes.UpdateState:InvokeServer(true) end)
+                V5_Thread = task.spawn(V5_MainLoop)
+                
+                WindUI:Notify({
+                    Title = "Blatant V2 Enabled",
+                    Content = "Ultra Spam Mode Activated",
+                    Duration = 4,
+                    Icon = "zap"
+                })
+            else
+                safe(function() Remotes.UpdateState:InvokeServer(false) end)
+                task.wait(0.2)
+                safe(function() Remotes.Cancel:InvokeServer() end)
+                WindUI:Notify({ Title = "Blatant V2 Stopped", Duration = 3 })
+            end
+        end
+    }))
     
     -- =====================================================
     -- MODE: BLATANT V5 (PERFECTION + GHOST UI)
@@ -3194,359 +3299,6 @@ do
 
 end
 
--- =================================================================
--- TAB: BLATANT X7 (X7 SPEED IMPLEMENTATION)
--- =================================================================
-do
-    local X7Tab = Window:Tab({ Title = "Blatant X7", Icon = "zap" })
-    local MainSection = X7Tab:Section({ Title = "Main Control", Opened = true })
-    local TuningSection = X7Tab:Section({ Title = "Tuning Settings", Opened = true })
-    
-    -- Config Manager Khusus X7
-    local Config = Window.ConfigManager:CreateConfig("X7Settings")
-
-    -- [[ MODULE LOADER KHUSUS X7 ]] --
-    local Modules = {}
-    local function customRequire(module)
-        if not module then return nil end
-        if not module:IsA("ModuleScript") then return nil end
-        local success, result = pcall(require, module)
-        if success then return result end
-        local cloneSuccess, clone = pcall(function() return module:Clone() end)
-        if not cloneSuccess then return nil end
-        clone.Parent = nil
-        local cloneRequireSuccess, cloneResult = pcall(require, clone)
-        return cloneRequireSuccess and cloneResult or nil
-    end
-
-    local function LoadX7Modules()
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        pcall(function()
-            local Controllers = ReplicatedStorage:WaitForChild("Controllers", 5)
-            local NetFolder = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.2.0"):WaitForChild("net", 5)
-            local Shared = ReplicatedStorage:WaitForChild("Shared", 5)
-            
-            if Controllers and NetFolder and Shared then
-                Modules.FishingController = customRequire(Controllers.FishingController)
-                Modules.NetFolder = NetFolder
-                
-                -- Load Remotes
-                Modules.SellAllItemsFunc = NetFolder:FindFirstChild("RF/SellAllItems")
-                Modules.EquipToolEvent = NetFolder:FindFirstChild("RE/EquipToolFromHotbar")
-                Modules.ChargeRodFunc = NetFolder:FindFirstChild("RF/ChargeFishingRod")
-                Modules.StartMinigameFunc = NetFolder:FindFirstChild("RF/RequestFishingMinigameStarted")
-                Modules.CompleteFishingEvent = NetFolder:FindFirstChild("RE/FishingCompleted")
-                Modules.CancelFishing = NetFolder:FindFirstChild("RF/CancelFishingInputs")
-                Modules.ReplicateTextEffect = NetFolder:FindFirstChild("RE/ReplicateTextEffect")
-            end
-        end)
-    end
-    LoadX7Modules() -- Load saat tab dibuat
-
-    -- [[ VARIABLES & STATE ]] --
-    local featureState = {
-        AutoFish = false,
-        AutoFishHighQuality = false,
-        AutoSellMode = "Disabled",
-        AutoSellDelay = 1800,
-        
-        -- Instant Settings (Default Tuned)
-        Instant_ChargeDelay = 0.07,
-        Instant_SpamCount = 5,
-        Instant_WorkerCount = 3,
-        Instant_StartDelay = 1.20,
-        Instant_CatchTimeout = 0.25,
-        Instant_CycleDelay = 0.10,
-        Instant_ResetCount = 15,
-        Instant_ResetPause = 0.1
-    }
-
-    local fishingTrove = {}
-    local autoFishThread = nil
-    local lastSellTime = 0
-    local lastEventTime = tick()
-    local fishCaughtBindable = Instance.new("BindableEvent")
-    local isWaitingForCorrectTier = false
-    local X7Trove = {} -- Connection cleaner
-
-    -- [[ HELPER FUNCTIONS ]] --
-    local function safeConnect(signal, callback)
-        if not signal then return end
-        local conn = signal:Connect(function(...) pcall(callback, ...) end)
-        table.insert(X7Trove, conn)
-        return conn
-    end
-
-    local function isLowQualityFish(colorValue)
-        if not colorValue then return false end
-        local r, g, b
-        if typeof(colorValue) == "Color3" then
-            r, g, b = colorValue.R, colorValue.G, colorValue.B
-        elseif typeof(colorValue) == "ColorSequence" and #colorValue.Keypoints > 0 then
-            local c = colorValue.Keypoints[1].Value
-            r, g, b = c.R, c.G, c.B
-        else
-            return false
-        end
-        -- Filter Common/Rare/Uncommon colors
-        if (r > 0.9 and g > 0.9 and b > 0.9) or (b > 0.9 and r < 0.4) or (g > 0.9 and b < 0.4) then
-            return true 
-        end
-        return false
-    end
-
-    local function sellAllItems()
-        if Modules.SellAllItemsFunc then pcall(Modules.SellAllItemsFunc.InvokeServer, Modules.SellAllItemsFunc) end
-    end
-
-    local function equipFishingRod()
-        if Modules.EquipToolEvent then pcall(Modules.EquipToolEvent.FireServer, Modules.EquipToolEvent, 1) end
-    end
-
-    local function stopAutoFishProcesses()
-        featureState.AutoFish = false
-        for i, item in ipairs(fishingTrove) do
-            if typeof(item) == "RBXScriptConnection" then item:Disconnect()
-            elseif typeof(item) == "thread" then task.cancel(item) end
-        end
-        fishingTrove = {}
-        
-        pcall(function()
-            if Modules.FishingController and Modules.FishingController.RequestClientStopFishing then
-                Modules.FishingController:RequestClientStopFishing(true)
-            end
-        end)
-    end
-
-    -- [[ CORE: INSTANT FISHING LOGIC ]] --
-    local function startAutoFishMethod_Instant()
-        if not (Modules.ChargeRodFunc and Modules.StartMinigameFunc and Modules.CompleteFishingEvent) then
-            WindUI:Notify({ Title = "Error", Content = "Modules not loaded properly!", Icon = "alert-triangle", Duration = 3 })
-            return
-        end
-
-        featureState.AutoFish = true
-        local chargeCount = 0
-        local isCurrentlyResetting = false
-        local counterLock = false
-
-        local function worker()
-            while featureState.AutoFish do
-                local currentResetTarget_Worker = featureState.Instant_ResetCount or 15
-
-                if isCurrentlyResetting or chargeCount >= currentResetTarget_Worker then break end
-
-                local success, err = pcall(function()
-                    -- Auto Sell Check
-                    if featureState.AutoSellMode ~= "Disabled" and (tick() - lastSellTime > featureState.AutoSellDelay) then
-                        sellAllItems(); lastSellTime = tick()
-                    end
-
-                    if not featureState.AutoFish or isCurrentlyResetting or chargeCount >= currentResetTarget_Worker then return end
-
-                    -- Counter Logic
-                    local lockTimeout = 0
-                    while counterLock do 
-                        task.wait(0.01); lockTimeout = lockTimeout + 0.01
-                        if lockTimeout > 5 then counterLock = false; break end
-                    end
-                
-                    counterLock = true
-                    if chargeCount < currentResetTarget_Worker then
-                        chargeCount = chargeCount + 1
-                    end
-                    counterLock = false
-
-                    -- 1. Charge
-                    local chargeStartTime = workspace:GetServerTimeNow()
-                    Modules.ChargeRodFunc:InvokeServer(chargeStartTime)
-                    task.wait(featureState.Instant_ChargeDelay)
-
-                    if not featureState.AutoFish or isCurrentlyResetting then return end
-                    
-                    -- 2. Start Minigame
-                    Modules.StartMinigameFunc:InvokeServer(-1.25, 1, workspace:GetServerTimeNow())
-                    task.wait(featureState.Instant_StartDelay)
-
-                    if not featureState.AutoFish or isCurrentlyResetting then return end
-                    
-                    -- 3. Spam Complete
-                    for _ = 1, featureState.Instant_SpamCount do
-                        if not featureState.AutoFish or isCurrentlyResetting then break end
-                        Modules.CompleteFishingEvent:FireServer()
-                        task.wait(0.01)
-                    end
-
-                    if not featureState.AutoFish or isCurrentlyResetting then return end
-
-                    -- 4. Wait for Catch
-                    local signalReceived = false
-                    local connection
-                    local timeoutThread = task.delay(featureState.Instant_CatchTimeout, function()
-                        if not signalReceived and connection then connection:Disconnect() end
-                    end)
-
-                    Modules.CancelFishing:InvokeServer()
-
-                    connection = fishCaughtBindable.Event:Connect(function(status)
-                        signalReceived = true
-                        if timeoutThread then task.cancel(timeoutThread) end
-                        if connection then connection:Disconnect() end
-                        if status == "skipped" then
-                            pcall(function() Modules.FishingController:RequestClientStopFishing(true) end)
-                        end
-                    end)
-
-                    while not signalReceived and task.wait() do
-                        if not featureState.AutoFish or isCurrentlyResetting then break end
-                        if timeoutThread and coroutine.status(timeoutThread) == "dead" then break end
-                    end
-                    
-                    if connection and connection.Connected then connection:Disconnect() end
-                    Modules.CancelFishing:InvokeServer()
-
-                    -- Cleanup Client
-                    pcall(Modules.FishingController.RequestClientStopFishing, Modules.FishingController, true)
-                    task.wait()
-                end)
-
-                if not success and not tostring(err):find("busy") then warn("Worker Error:", err) end
-                if not featureState.AutoFish then break end
-                task.wait(featureState.Instant_CycleDelay)
-            end
-        end
-
-        -- Worker Manager
-        autoFishThread = task.spawn(function()
-            while featureState.AutoFish do
-                local currentResetTarget = featureState.Instant_ResetCount or 15
-                local currentPauseTime = featureState.Instant_ResetPause or 0.1
-
-                chargeCount = 0
-                isCurrentlyResetting = false
-                local batchTrove = {} 
-
-                for i = 1, featureState.Instant_WorkerCount do
-                    if not featureState.AutoFish then break end
-                    local workerThread = task.spawn(worker)
-                    table.insert(batchTrove, workerThread)
-                    table.insert(fishingTrove, workerThread) 
-                end
-
-                -- Tunggu sampai worker selesai satu cycle
-                while featureState.AutoFish and chargeCount < currentResetTarget do task.wait() end
-
-                isCurrentlyResetting = true 
-                if featureState.AutoFish then
-                    for _, thread in ipairs(batchTrove) do task.cancel(thread) end
-                    batchTrove = {}
-                    task.wait(currentPauseTime) 
-                end
-            end
-            stopAutoFishProcesses()
-        end)
-        table.insert(fishingTrove, autoFishThread)
-    end
-
-    -- [[ FISH CATCH DETECTION ]] --
-    if Modules.ReplicateTextEffect then
-        safeConnect(Modules.ReplicateTextEffect.OnClientEvent, function(data)
-            if not featureState.AutoFish then return end
-            
-            local myHead = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Head")
-            if not (data and data.TextData and data.TextData.EffectType == "Exclaim" and myHead and data.Container == myHead) then
-                return
-            end
-            
-            lastEventTime = tick()
-            
-            -- Filter Logic
-            if featureState.AutoFishHighQuality then
-                local colorValue = data.TextData.TextColor
-                if colorValue and isLowQualityFish(colorValue) then
-                    pcall(function() Modules.FishingController:RequestClientStopFishing(true) end)
-                    fishCaughtBindable:Fire("skipped") 
-                    return 
-                end
-            end
-            
-            fishCaughtBindable:Fire("caught")
-        end)
-    end
-
-    -- [[ UI ELEMENTS ]] --
-    
-    local x7Toggle = MainSection:Toggle({
-        Title = "Enable X7 Speed",
-        Desc = "High speed worker based fishing.",
-        Value = false,
-        Callback = function(state)
-            if state then
-                stopAutoFishProcesses()
-                equipFishingRod()
-                task.wait(0.2)
-                startAutoFishMethod_Instant()
-                WindUI:Notify({ Title = "X7 Speed ON", Content = "Fishing workers started.", Duration = 3, Icon = "zap" })
-            else
-                stopAutoFishProcesses()
-                WindUI:Notify({ Title = "X7 Speed OFF", Duration = 2 })
-            end
-        end
-    })
-    Config:Register("AutoFish", x7Toggle)
-
-    MainSection:Toggle({
-        Title = "High Quality Only",
-        Desc = "Skips common/uncommon fish.",
-        Value = false,
-        Callback = function(v) featureState.AutoFishHighQuality = v end
-    })
-
-    MainSection:Dropdown({
-        Title = "Auto Sell Mode",
-        Values = { "Disabled", "Auto Sell All" },
-        Value = "Disabled",
-        Callback = function(v) 
-            featureState.AutoSellMode = v
-            if v ~= "Disabled" then lastSellTime = tick() end
-        end
-    })
-
-    MainSection:Input({
-        Title = "Auto Sell Interval (Min)",
-        Placeholder = "30",
-        Callback = function(v) featureState.AutoSellDelay = (tonumber(v) or 30) * 60 end
-    })
-
-    -- Tuning Section
-    TuningSection:Slider({
-        Title = "Start Delay",
-        Value = { Min = 0.01, Max = 5.0, Default = featureState.Instant_StartDelay },
-        Precise = 2, Step = 0.01,
-        Callback = function(v) featureState.Instant_StartDelay = tonumber(v) end
-    })
-
-    TuningSection:Slider({
-        Title = "Catch Timeout",
-        Value = { Min = 0.01, Max = 5.0, Default = featureState.Instant_CatchTimeout },
-        Precise = 2, Step = 0.01,
-        Callback = function(v) featureState.Instant_CatchTimeout = tonumber(v) end
-    })
-
-    TuningSection:Slider({
-        Title = "Cycle Delay",
-        Value = { Min = 0.01, Max = 5.0, Default = featureState.Instant_CycleDelay },
-        Precise = 2, Step = 0.01,
-        Callback = function(v) featureState.Instant_CycleDelay = tonumber(v) end
-    })
-    
-    TuningSection:Slider({
-        Title = "Worker Count",
-        Value = { Min = 1, Max = 10, Default = featureState.Instant_WorkerCount },
-        Step = 1,
-        Callback = function(v) featureState.Instant_WorkerCount = tonumber(v) end
-    })
-end
 
 do
     ------------------------------------------------------------
