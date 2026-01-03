@@ -1,4 +1,4 @@
--- [[ FISH IT HUB - FLUENT UI EDITION ]] --
+-- [[ FISH IT HUB - FLUENT UI EDITION - FIXED ]] --
 -- Universal compatibility untuk semua executor
 -- Optimized untuk Delta, Xeno, Krnl, JJSploit, Fluxus
 
@@ -12,6 +12,7 @@ local function detectExecutor()
         elseif name:find("synapse") then return "synapse"
         elseif name:find("jjsploit") then return "jjsploit"
         elseif name:find("fluxus") then return "fluxus"
+        end
     end
     return "unknown"
 end
@@ -292,7 +293,6 @@ end
 -- [[ LOCHNESS MONSTER TIMER SYSTEM ]] --
 local LOCHNESS_INTERVAL = 4 * 3600  -- 4 hours in seconds
 local LOCHNESS_DURATION = 10 * 60   -- 10 minutes in seconds
-local lochCountdownGUI = nil
 
 local function getLochnessSchedule()
     local currentTime = os.time()
@@ -342,8 +342,6 @@ local Tabs = {
 }
 
 -- [[ MAIN TAB ]] --
-local MainSection = Tabs.Main:AddSection("🌍 Teleportation")
-
 local EventDropdown = Tabs.Main:AddDropdown("EventSelect", {
     Title = "Select Event",
     Description = "Choose which event to teleport to",
@@ -441,8 +439,6 @@ Tabs.Main:AddButton({
 })
 
 -- [[ EVENTS TAB ]] --
-local EventsSection = Tabs.Events:AddSection("⚡ Event Information")
-
 local LochToggle = Tabs.Events:AddToggle("LochCountdown", {
     Title = "🐉 Lochness Monster Timer",
     Description = "Show countdown to next Lochness Monster event",
@@ -461,13 +457,16 @@ LochToggle:OnChanged(function(Value)
                 local status = isActive and "🔥 ACTIVE" or "⏰ Upcoming"
                 local timeStr = formatTime(math.max(0, timeRemaining))
                 
-                Fluent:Notify({
-                    Title = "🐉 Lochness Monster",
-                    Content = status .. " - " .. timeStr,
-                    Duration = 1
-                })
+                -- Only notify every few minutes to avoid spam
+                if math.floor(timeRemaining) % 300 == 0 or timeRemaining <= 60 then
+                    Fluent:Notify({
+                        Title = "🐉 Lochness Monster",
+                        Content = status .. " - " .. timeStr,
+                        Duration = 3
+                    })
+                end
                 
-                task.wait(isFreeTier and 60 or 30) -- Update every 30-60 seconds
+                task.wait(60) -- Update every minute
             end
         end)
     end
@@ -526,8 +525,6 @@ Tabs.Events:AddButton({
 })
 
 -- [[ AUTO TAB ]] --
-local AutoSection = Tabs.Auto:AddSection("🤖 Automation Features")
-
 local AutoEventToggle = Tabs.Auto:AddToggle("AutoEvent", {
     Title = "Auto Event Teleport",
     Description = "Automatically teleport when events become active",
@@ -593,8 +590,6 @@ local ScanIntervalSlider = Tabs.Auto:AddSlider("ScanInterval", {
 })
 
 -- [[ STATUS TAB ]] --
-local StatusSection = Tabs.Status:AddSection("📊 Player Information")
-
 local StatusParagraph = Tabs.Status:AddParagraph({
     Title = "Current Status",
     Content = "Loading status information..."
@@ -630,8 +625,6 @@ statusUpdateThread = task.spawn(function()
 end)
 
 -- [[ SETTINGS TAB ]] --
-local SettingsSection = Tabs.Settings:AddSection("⚙️ Configuration")
-
 local TeleportDelaySlider = Tabs.Settings:AddSlider("TeleportDelay", {
     Title = "Teleport Delay", 
     Description = "Delay between teleports (seconds)",
