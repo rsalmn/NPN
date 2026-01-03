@@ -1487,26 +1487,10 @@ do
                 disableAllModes()
                 V4_Active = state
                 SuppressGameVisuals(state)
-
+                
                 if state then
-                    if RF_UpdateAutoFishingState then
-                        pcall(function ()
-                            RF_UpdateAutoFishingState:InvokeServer(true) end)
-                        end
-                    end
-                    task.wait(0.5)
-                    if RF_UpdateAutoFishingState then
-                        pcall(function ()
-                            RF_UpdateAutoFishingState:InvokeServer(true) end)
-                        end
-                    end
-
                     safe(function() Remotes.UpdateState:InvokeServer(true) end)
-                    V4_LoopThread = task.spawn(function ()
-                        pcall(function ()
-                            V4_MainLoop()
-                        end
-                    end
+                    V4_LoopThread = task.spawn(V4_MainLoop)
                     
                     WindUI:Notify({
                         Title = "Blatant V1 Enabled",
