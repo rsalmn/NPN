@@ -136,7 +136,7 @@ pcall(function()
     for i, v in pairs(getconnections(player.Idled)) do
         if v.Disable then
             v:Disable() -- Menonaktifkan koneksi event
-            print("[RockHub Anti-AFK] ON")
+            --print("[RockHub Anti-AFK] ON")
         end
     end
 end)
@@ -1158,7 +1158,9 @@ do
         Complete = GetRemote(RPath, "RE/FishingCompleted") or NetFolder["RE/FishingCompleted"],
         Cancel = GetRemote(RPath, "RF/CancelFishingInputs") or NetFolder["RF/CancelFishingInputs"],
         UpdateState = GetRemote(RPath, "RF/UpdateAutoFishingState") or NetFolder["RF/UpdateAutoFishingState"],
-        MinigameChanged = GetRemote(RPath, "RE/FishingMinigameChanged") or NetFolder["RE/FishingMinigameChanged"]
+        MinigameChanged = GetRemote(RPath, "RE/FishingMinigameChanged") or NetFolder["RE/FishingMinigameChanged"],
+        
+        REFishCaught = GetRemote(RPath, "RE/FishCaught") or NetFolder["RE/FishCaught"]
     }
     
     -- Configuration
@@ -1486,7 +1488,6 @@ do
                 
                 disableAllModes()
                 V4_Active = state
-                SuppressGameVisuals(state)
                 
                 if state then
                     safe(function() Remotes.UpdateState:InvokeServer(true) end)
@@ -1547,7 +1548,9 @@ do
         -- Remote references
         Remotes = {}
     }
-    
+    _G.rSpamming = false
+    _G.rspamThread = nil
+
     local v5 = fishMancing:Section({ Title = "3. Blatant V2", TextSize = 20 })
     
     -- V5 Core Loop
@@ -1571,7 +1574,26 @@ do
             safe(function() Remotes.Cancel:InvokeServer() end)
         end
     end
+
+    local function autoRecast()
+        if V5_Active then return end
+        _G.rSpamming = true
+        G.rspamThread = task.spawn(function()
+            while _G.rSpamming do
+                task.wait(0.01) 
+                V5_MainLoop()
+            end
+        end)
+    end
     
+    local function stopRecastSpam()
+        _G.rSpamming = false
+        if _G.rspamThread then
+            task.cancel(_G.rspamThread) -- Membunuh thread
+            _G.rspamThread = nil
+        end
+    end
+
     -- V5 Failsafe Listener
     Remotes.MinigameChanged.OnClientEvent:Connect(function()
         if not V5_Active then return end
@@ -1583,7 +1605,13 @@ do
             safe(function() Remotes.Cancel:InvokeServer() end)
         end)
     end)
-    
+
+    Remotes.REFishCaught.OnClientEvent:Connect(function(fishName, info)
+        if V5_Active then
+            _G.RecastSpam()
+        end
+    end)
+
     -- V5 UI Controls
     Reg("v5_complete", v5:Input({
         Title = "Complete Delay",
@@ -1628,6 +1656,7 @@ do
                 safe(function() Remotes.UpdateState:InvokeServer(false) end)
                 task.wait(0.2)
                 safe(function() Remotes.Cancel:InvokeServer() end)
+                stopRecastSpam()
                 WindUI:Notify({ Title = "Blatant V2 Stopped", Duration = 3 })
             end
         end
@@ -1965,7 +1994,7 @@ do
                 return false
             end
             
-            print("🎨 [ANIM] Loading animation pool for:", skinId)
+            --print("🎨 [ANIM] Loading animation pool for:", skinId)
             
             -- Clear old pool
             for _, track in ipairs(AnimationPool) do
@@ -2001,7 +2030,7 @@ do
             end
             
             currentPoolIndex = 1
-            print("✅ [ANIM] Pool loaded with", #AnimationPool, "tracks")
+            --print("✅ [ANIM] Pool loaded with", #AnimationPool, "tracks")
             return true
         end
         
@@ -2016,7 +2045,7 @@ do
             replaceCount = replaceCount + 1
             killedTracks[originalTrack] = tick()
             
-            print("⚡ [ANIM] Replacing animation (#" .. replaceCount .. ")")
+            --print("⚡ [ANIM] Replacing animation (#" .. replaceCount .. ")")
             
             -- Kill original
             task.spawn(function()
@@ -2058,7 +2087,7 @@ do
             if AnimChangeConnection3 then AnimChangeConnection3:Disconnect() end
             if AnimChangeConnection4 then AnimChangeConnection4:Disconnect() end
             
-            print("🔍 [ANIM] Starting animation monitoring...")
+            --print("🔍 [ANIM] Starting animation monitoring...")
             
             -- AnimationPlayed Hook
             AnimChangeConnection1 = humanoid.AnimationPlayed:Connect(function(track)
@@ -2134,7 +2163,7 @@ do
                 end
             end)
             
-            print("✅ [ANIM] Monitoring started")
+            --print("✅ [ANIM] Monitoring started")
         end
         
         local function StopMonitoring()
@@ -2148,7 +2177,7 @@ do
             AnimChangeConnection3 = nil
             AnimChangeConnection4 = nil
             
-            print("🛑 [ANIM] Monitoring stopped")
+            --print("🛑 [ANIM] Monitoring stopped")
         end
         
         -- =========================================================
@@ -2158,7 +2187,7 @@ do
         player.CharacterAdded:Connect(function(newChar)
             task.wait(1.5)
             
-            print("🔄 [ANIM] Character respawned, reloading...")
+            --print("🔄 [ANIM] Character respawned, reloading...")
             
             char = newChar
             humanoid = char:WaitForChild("Humanoid")
@@ -2175,11 +2204,7 @@ do
                 LoadAnimationPool(CurrentSkin)
                 StartMonitoring()
                 
-                WindUI:Notify({ 
-                    Title = "Animation Changer", 
-                    Content = "Reloaded after respawn", 
-                    Duration = 3 
-                })
+                --WindUI:Notify({ Title = "Animation Changer", Content = "Reloaded after respawn",  Duration = 3 })
             end
         end)
         
@@ -2193,7 +2218,7 @@ do
             AllowNone = false,
             Callback = function(selected)
                 CurrentSkin = selected
-                print("🎨 [ANIM] Selected skin:", selected)
+                --print("🎨 [ANIM] Selected skin:", selected)
                 
                 if IsEnabled then
                     local success = LoadAnimationPool(selected)
@@ -2271,65 +2296,6 @@ do
             end
         })
         
-        animSection:Button({
-            Title = "📊 Show Statistics",
-            Callback = function()
-                local status = IsEnabled and "Enabled" or "Disabled"
-                local skin = CurrentSkin or "None"
-                local poolSize = #AnimationPool
-                
-                print("\n📊 [ANIM STATS]")
-                print("Status:", status)
-                print("Current Skin:", skin)
-                print("Pool Size:", poolSize)
-                print("Replacements:", replaceCount)
-                print("Killed Tracks:", #killedTracks)
-                
-                WindUI:Notify({ 
-                    Title = "Animation Stats", 
-                    Content = string.format(
-                        "Status: %s\nSkin: %s\nReplacements: %d",
-                        status, skin, replaceCount
-                    ),
-                    Duration = 5 
-                })
-            end
-        })
-        
-        animSection:Button({
-            Title = "🔄 Reset Statistics",
-            Callback = function()
-                replaceCount = 0
-                killedTracks = {}
-                
-                print("🔄 [ANIM] Statistics reset")
-                
-                WindUI:Notify({ 
-                    Title = "Animation Changer", 
-                    Content = "Statistics reset", 
-                    Duration = 2 
-                })
-            end
-        })
-        
-        -- =========================================================
-        -- STATUS DISPLAY
-        -- =========================================================
-        
-        task.spawn(function()
-            while true do
-                if IsEnabled then
-                    local activeKills = 0
-                    for _, _ in pairs(killedTracks) do
-                        activeKills = activeKills + 1
-                    end
-                    
-                    print("📊 [ANIM STATUS] Skin:", CurrentSkin, "| Replacements:", replaceCount, "| Active Kills:", activeKills)
-                end
-                task.wait(60) -- Update every 60 seconds
-            end
-        end)
-        
     end
 
 
@@ -2351,7 +2317,7 @@ do
             if not SmallNotification then
                 SmallNotification = PlayerGui:WaitForChild("Small Notification", 5)
                 if not SmallNotification then
-                    WindUI:Notify({ Title = "Error", Duration = 3, Icon = "x" })
+                    --WindUI:Notify({ Title = "Error", Duration = 3, Icon = "x" })
                     return false
                 end
             end
@@ -2363,7 +2329,7 @@ do
                     SmallNotification.Enabled = false
                 end)
                 
-                WindUI:Notify({ Title = "Pop-up Diblokir",Duration = 3, Icon = "check" })
+                --WindUI:Notify({ Title = "Pop-up Diblokir",Duration = 3, Icon = "check" })
             else
                 -- OFF: Putuskan koneksi RenderStepped
                 if DisableNotificationConnection then
@@ -2374,7 +2340,7 @@ do
                 -- Kembalikan GUI ke status normal (aktif)
                 SmallNotification.Enabled = true
                 
-                WindUI:Notify({ Title = "Pop-up Diaktifkan", Content = "Notifikasi kembali normal.", Duration = 3, Icon = "x" })
+                --WindUI:Notify({ Title = "Pop-up Diaktifkan", Content = "Notifikasi kembali normal.", Duration = 3, Icon = "x" })
             end
         end
     }))
@@ -2395,7 +2361,7 @@ do
             isWalkOnWater = state
 
             if state then
-                WindUI:Notify({ Title = "Walk on Water ON!", Duration = 2, Icon = "droplet" })
+                --WindUI:Notify({ Title = "Walk on Water ON!", Duration = 2, Icon = "droplet" })
                 
                 -- Buat Platform jika belum ada
                 if not waterPlatform then
@@ -2451,7 +2417,7 @@ do
                     end
                 end)
             else
-                WindUI:Notify({ Title = "Walk on Water OFF!", Duration = 2, Icon = "x", })
+                --WindUI:Notify({ Title = "Walk on Water OFF!", Duration = 2, Icon = "x", })
                 if walkOnWaterConnection then walkOnWaterConnection:Disconnect() walkOnWaterConnection = nil end
                 if waterPlatform then waterPlatform:Destroy() waterPlatform = nil end
             end
@@ -2467,7 +2433,7 @@ do
         Callback = function(state)
             if RF_UpdateFishingRadar then
                 pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
-                WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
+                --WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
             end
         end
     })
@@ -2504,7 +2470,7 @@ do
                     pcall(function() cosmeticFolder:ClearAllChildren() end)
                 end
 
-                WindUI:Notify({ Title = "No Skin Effect ON", Duration = 3, Icon = "eye-off" })
+                --WindUI:Notify({ Title = "No Skin Effect ON", Duration = 3, Icon = "eye-off" })
             else
                 -- 1. Kembalikan fungsi Handle asli
                 VFXControllerModule.Handle = originalVFXHandle
@@ -2543,14 +2509,14 @@ do
             isNoCutsceneActive = state
             
             if not CutsceneController then
-                WindUI:Notify({ Title = "Gagal Hook", Content = "Module CutsceneController tidak ditemukan.", Duration = 3, Icon = "x" })
+                --WindUI:Notify({ Title = "Gagal Hook", Content = "Module CutsceneController tidak ditemukan.", Duration = 3, Icon = "x" })
                 return
             end
 
             if state then
-                WindUI:Notify({ Title = "No Cutscene ON", Content = "Animasi tangkapan dimatikan.", Duration = 3, Icon = "video-off" })
+                --WindUI:Notify({ Title = "No Cutscene ON", Content = "Animasi tangkapan dimatikan.", Duration = 3, Icon = "video-off" })
             else
-                WindUI:Notify({ Title = "No Cutscene OFF", Content = "Animasi kembali normal.", Duration = 3, Icon = "video" })
+                --WindUI:Notify({ Title = "No Cutscene OFF", Content = "Animasi kembali normal.", Duration = 3, Icon = "video" })
             end
         end
     }))
@@ -2565,10 +2531,10 @@ do
             isNoAnimationActive = state
             if state then
                 DisableAnimations()
-                WindUI:Notify({ Title = "No Animation ON!", Duration = 3, Icon = "zap" })
+                --WindUI:Notify({ Title = "No Animation ON!", Duration = 3, Icon = "zap" })
             else
                 EnableAnimations()
-                WindUI:Notify({ Title = "No Animation OFF!", Duration = 3, Icon = "x" })
+                --WindUI:Notify({ Title = "No Animation OFF!", Duration = 3, Icon = "x" })
             end
         end
     })
@@ -2830,15 +2796,15 @@ do
     -- MULTI PROPS SEARCH
     -- =========================================================
     local function SearchInAllProps(eventName)
-        print("🔍 [MULTI-PROPS] Searching for:", eventName)
+        --print("🔍 [MULTI-PROPS] Searching for:", eventName)
         
         local patterns = EventSearchPatterns[eventName]
         if not patterns then
-            print("❌ [MULTI-PROPS] No patterns for:", eventName)
+            --print("❌ [MULTI-PROPS] No patterns for:", eventName)
             return false, nil, nil
         end
         
-        print("🔍 [MULTI-PROPS] Patterns:", table.concat(patterns, ", "))
+        --print("🔍 [MULTI-PROPS] Patterns:", table.concat(patterns, ", "))
         
         -- Find all Props in workspace
         local allProps = {}
@@ -2848,18 +2814,18 @@ do
             end
         end
         
-        print("📋 [MULTI-PROPS] Found", #allProps, "Props folders")
+        --print("📋 [MULTI-PROPS] Found", #allProps, "Props folders")
         
         -- Search in each Props
         for i, props in ipairs(allProps) do
-            print("🔍 [MULTI-PROPS] Checking Props #" .. i)
+            --print("🔍 [MULTI-PROPS] Checking Props #" .. i)
             
             -- List children for debugging
             local children = {}
             for _, child in ipairs(props:GetChildren()) do
                 table.insert(children, child.Name)
             end
-            print("   Children:", table.concat(children, ", "))
+            --print("   Children:", table.concat(children, ", "))
             
             -- Search for patterns in this Props
             for _, pattern in ipairs(patterns) do
@@ -2877,11 +2843,11 @@ do
                         elseif child:IsA("BasePart") then
                             position = child.Position
                         else
-                            print("⚠️ [MULTI-PROPS] Unknown type:", child.ClassName)
+                            --print("⚠️ [MULTI-PROPS] Unknown type:", child.ClassName)
                             continue
                         end
                         
-                        print("✅ [MULTI-PROPS] Found", eventName, "as", pattern, "in Props #" .. i, "at:", position)
+                        --print("✅ [MULTI-PROPS] Found", eventName, "as", pattern, "in Props #" .. i, "at:", position)
                         return true, position, child
                     end
                 end
@@ -2897,7 +2863,7 @@ do
             end
         end
         
-        print("❌ [MULTI-PROPS] Event not found:", eventName)
+        --print("❌ [MULTI-PROPS] Event not found:", eventName)
         return false, nil, nil
     end
 
@@ -2905,22 +2871,22 @@ do
     -- DEBUG FUNCTION
     -- =========================================================
     local function DebugAllProps()
-        print("\n🔍 [DEBUG] Scanning ALL Props in workspace...")
+        --print("\n🔍 [DEBUG] Scanning ALL Props in workspace...")
         
         local propsCount = 0
         for _, child in ipairs(workspace:GetChildren()) do
             if child.Name == "Props" then
                 propsCount = propsCount + 1
-                print("📁 [DEBUG] Props #" .. propsCount .. ":")
+                --print("📁 [DEBUG] Props #" .. propsCount .. ":")
                 
                 for i, subchild in ipairs(child:GetChildren()) do
-                    print("   " .. i .. ".", subchild.Name, "(" .. subchild.ClassName .. ")")
+                    --print("   " .. i .. ".", subchild.Name, "(" .. subchild.ClassName .. ")")
                     
                     -- Check if this looks like an event
                     local name = subchild.Name:lower()
                     if name:find("hunt") or name:find("shark") or name:find("mega") or 
                        name:find("blackhole") or name:find("worm") or name:find("ghost") then
-                        print("      ⭐ POTENTIAL EVENT!")
+                        --print("      ⭐ POTENTIAL EVENT!")
                         
                         local pos
                         if subchild:IsA("Model") then
@@ -2935,18 +2901,18 @@ do
                         end
                         
                         if pos then
-                            print("      📍 Position:", pos)
+                            --print("      📍 Position:", pos)
                         end
                     end
                 end
-                print("")
+                --print("")
             end
         end
         
         if propsCount == 0 then
-            print("❌ [DEBUG] No Props found in workspace")
+            --print("❌ [DEBUG] No Props found in workspace")
         else
-            print("✅ [DEBUG] Total Props found:", propsCount)
+            --print("✅ [DEBUG] Total Props found:", propsCount)
         end
     end
 
@@ -2979,20 +2945,20 @@ do
             visitCount = 0
         }
         
-        print("🔒 [CACHE] Added event:", eventName, "at:", position)
-        print("📊 [CACHE] Total events:", #getTableKeys(self.events))
+        --print("🔒 [CACHE] Added event:", eventName, "at:", position)
+        --print("📊 [CACHE] Total events:", #getTableKeys(self.events))
     end
 
     function ActiveEventsCache:Remove(eventName)
         if self.events and self.events[eventName] then
-            print("🗑️ [CACHE] Removed event:", eventName)
+            --print("🗑️ [CACHE] Removed event:", eventName)
             self.events[eventName] = nil
         end
     end
 
     function ActiveEventsCache:Clear()
         self.events = {}
-        print("🗑️ [CACHE] Cleared all events")
+        --print("🗑️ [CACHE] Cleared all events")
     end
 
     function ActiveEventsCache:IsEventStillActive(eventName)
@@ -3023,14 +2989,14 @@ do
 
     function ActiveEventsCache:MarkScanned()
         self.lastFullScan = tick()
-        print("📊 [CACHE] Scan completed at", os.date("%H:%M:%S"))
+        --print("📊 [CACHE] Scan completed at", os.date("%H:%M:%S"))
     end
 
     function ActiveEventsCache:MarkVisited(eventName)
         if self.events and self.events[eventName] then
             self.events[eventName].lastVisit = tick()
             self.events[eventName].visitCount = (self.events[eventName].visitCount or 0) + 1
-            print("✅ [CACHE] Visited", eventName, "(#" .. self.events[eventName].visitCount .. ")")
+            --print("✅ [CACHE] Visited", eventName, "(#" .. self.events[eventName].visitCount .. ")")
         end
     end
 
@@ -3062,7 +3028,7 @@ do
             end
         end
         
-        print("🔄 [ROTATION] Built queue with", #self.queue, "entries")
+        --print("🔄 [ROTATION] Built queue with", #self.queue, "entries")
     end
 
     function RotationSystem:GetNext()
@@ -3100,12 +3066,12 @@ do
 
     function RotationSystem:MarkRotated()
         self.lastRotation = tick()
-        print("🔄 [ROTATION] Rotated at", os.date("%H:%M:%S"))
+        --print("🔄 [ROTATION] Rotated at", os.date("%H:%M:%S"))
     end
 
     function RotationSystem:SetInterval(seconds)
         self.interval = math.max(5, math.min(60, seconds))
-        print("🔄 [ROTATION] Interval set to", self.interval, "seconds")
+        --print("🔄 [ROTATION] Interval set to", self.interval, "seconds")
     end
 
     -- =========================================================
@@ -3137,7 +3103,7 @@ do
             
             local finalPos = pos + offset
             
-            print("🚀 [TELEPORT] Moving to:", finalPos)
+            --print("🚀 [TELEPORT] Moving to:", finalPos)
             char:PivotTo(CFrame.new(finalPos))
             hrp.Anchored = false 
             hrp.Velocity = Vector3.zero
@@ -3157,7 +3123,7 @@ do
         AllowNone = true,
         Callback = function(opt)
             SelectedPriorityEvent = opt
-            print("🎯 [UI] Priority:", opt or "None")
+            --print("🎯 [UI] Priority:", opt or "None")
         end
     })
 
@@ -3167,7 +3133,7 @@ do
         Multi = true,
         Callback = function(opts) 
             SelectedNormalEvents = opts or {}
-            print("📋 [UI] Normal events:", table.concat(SelectedNormalEvents, ", "))
+            --print("📋 [UI] Normal events:", table.concat(SelectedNormalEvents, ", "))
         end
     })
 
@@ -3187,14 +3153,7 @@ do
         Values = AreaNamess,
         Callback = function(opt)
             Loch_Return_SelectedArea = opt
-            print("🏠 [UI] Idle area:", opt or "None")
-        end
-    })
-
-    televent:Button({
-        Title = "🔍 Debug All Props",
-        Callback = function()
-            DebugAllProps()
+            --print("🏠 [UI] Idle area:", opt or "None")
         end
     })
 
@@ -3202,7 +3161,7 @@ do
     -- MAIN LOOP
     -- =========================================================
     televent:Toggle({
-        Title = "🔄 Smart Event (Multi Props)",
+        Title = "Enable Auto Event Mode",
         Desc = "Searches all Props folders in workspace",
         Value = false,
         Callback = function(state)
@@ -3216,12 +3175,6 @@ do
                 
                 DebugAllProps()  -- Auto debug on start
                 
-                WindUI:Notify({ 
-                    Title = "Smart Event", 
-                    Content = "Started (Multi Props Search)", 
-                    Duration = 3 
-                })
-
                 SmartEventThread = task.spawn(function()
                     while SmartEventState do
                         local success, err = pcall(function()
@@ -3235,13 +3188,13 @@ do
                                 end
                             end
                             
-                            print("📊 [MAIN] Events:", #getTableKeys(cachedEvents), "| Active:", activeCount)
+                            --print("📊 [MAIN] Events:", #getTableKeys(cachedEvents), "| Active:", activeCount)
 
                             -- =========================================================
                             -- [FIX] LOGIKA SCANNING DIPINDAH KE ATAS (PRIORITAS UTAMA)
                             -- =========================================================
                             if ActiveEventsCache:ShouldScan() then
-                                print("🔍 [MAIN] Scanning for events...")
+                                --print("🔍 [MAIN] Scanning for events...")
                                 
                                 local eventsToFind = {}
                                 if SelectedPriorityEvent then
@@ -3266,7 +3219,7 @@ do
                                         if found then
                                             ActiveEventsCache:Add(eventName, position, model)
                                             newFound = newFound + 1
-                                            print("🎉 [SCAN] Found:", eventName)
+                                            --print("🎉 [SCAN] Found:", eventName)
                                         end
                                     end
                                     
@@ -3276,7 +3229,7 @@ do
                                 ActiveEventsCache:MarkScanned()
                                 
                                 if newFound > 0 then
-                                    print("🎊 [SCAN] Found", newFound, "new events")
+                                    --print("🎊 [SCAN] Found", newFound, "new events")
                                     RotationSystem.queue = {}  -- Reset antrian agar event baru masuk rotasi
                                 end
                             end
@@ -3289,7 +3242,7 @@ do
                                     local nextEvent = RotationSystem:GetNext()
                                     
                                     if nextEvent then
-                                        print("🔄 [MAIN] Rotating to:", nextEvent.name)
+                                        --print("🔄 [MAIN] Rotating to:", nextEvent.name)
                                         
                                         if TeleportManager:Teleport(nextEvent.data.position) then
                                             ActiveEventsCache:MarkVisited(nextEvent.name)
@@ -3304,7 +3257,7 @@ do
                                 end
                             else
                                 -- Jika tidak ada event sama sekali
-                                print("📭 [MAIN] No active events, waiting...")
+                                --print("📭 [MAIN] No active events, waiting...")
                                 
                                 -- Go to idle area (Optional)
                                 if Loch_Return_SelectedArea and FishingAreass[Loch_Return_SelectedArea] then
@@ -3331,7 +3284,7 @@ do
                 end
                 
                 ActiveEventsCache:Clear()
-                print("🛑 [MAIN] Smart Event stopped")
+                --print("🛑 [MAIN] Smart Event stopped")
                 
                 WindUI:Notify({ 
                     Title = "Smart Event", 
