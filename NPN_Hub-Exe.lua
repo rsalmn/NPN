@@ -2511,513 +2511,687 @@ Fluent:Notify({
 
 print("✅ PART 6/7 - Blatant Features & Player Modifications LOADED!")
 
--- [[ PART 6/7: BLATANT FEATURES & PLAYER MODIFICATIONS ]] --
+-- [[ PART 7/7 FINAL: BUY WEATHER, REMOTES & FINAL FEATURES ]] --
 
--- [[ BLATANT VARIABLES ]] --
-local blatantConfig = {
-    walkSpeed = 16,
-    jumpPower = 50,
-    flySpeed = 16,
-    noclipEnabled = false,
-    flyEnabled = false,
-    speedEnabled = false,
-    jumpEnabled = false,
-    infiniteJump = false
+-- [[ WEATHER SYSTEM VARIABLES ]] --
+local weatherConfig = {
+    autoWeather = false,
+    selectedWeather = "Clear",
+    weatherInterval = 300, -- 5 minutes
+    autoRebuyOnExpire = true
 }
 
-local originalValues = {
-    walkSpeed = 16,
-    jumpPower = 50
+local weatherTypes = {
+    "Clear", "Rain", "Blizzard", "Foggy", "Windy", 
+    "Aurora", "Meteor", "Rainbow", "Sunset", "Night"
 }
 
--- Movement threads
-local flyThread = nil
-local noclipThread = nil
-local speedThread = nil
+local weatherThread = nil
 
--- [[ UTILITY FUNCTIONS ]] --
-local function saveOriginalValues()
-    local humanoid = GetHumanoid()
-    if humanoid then
-        originalValues.walkSpeed = humanoid.WalkSpeed
-        originalValues.jumpPower = humanoid.JumpPower or humanoid.JumpHeight or 50
-    end
-end
+-- [[ LOCATION SYSTEM ]] --
+local gameLocations = {
+    ["🏠 Spawn"] = Vector3.new(0, 50, 0),
+    ["🏪 Merchant"] = Vector3.new(450, 150, 230),
+    ["🪱 Bait Shop"] = Vector3.new(-174, 142, 1139),
+    ["🌋 Volcano"] = Vector3.new(-1891, 166, 330),
+    ["🌊 Ocean Deep"] = Vector3.new(0, -50, 2000),
+    ["❄️ Ice Area"] = Vector3.new(-2650, 140, 1400),
+    ["🏜️ Desert Oasis"] = Vector3.new(1650, 140, -2100),
+    ["🏛️ Ancient Isle"] = Vector3.new(-950, 200, -1050),
+    ["💎 Crystal Cave"] = Vector3.new(1200, 50, -800),
+    ["☁️ Floating Island"] = Vector3.new(0, 500, 0),
+    ["🏝️ Hidden Lagoon"] = Vector3.new(-800, 130, -1800),
+    ["💧 Mystic Falls"] = Vector3.new(1500, 300, 1200)
+}
 
-local function restoreOriginalValues()
-    local humanoid = GetHumanoid()
-    if humanoid then
-        humanoid.WalkSpeed = originalValues.walkSpeed
-        if humanoid.JumpPower then
-            humanoid.JumpPower = originalValues.jumpPower
-        elseif humanoid.JumpHeight then
-            humanoid.JumpHeight = originalValues.jumpPower
-        end
-    end
-end
-
--- [[ SPEED HACK ]] --
-local function enableSpeed(speed)
-    blatantConfig.speedEnabled = true
-    blatantConfig.walkSpeed = speed
-    
-    speedThread = task.spawn(function()
-        while blatantConfig.speedEnabled do
-            pcall(function()
-                local humanoid = GetHumanoid()
-                if humanoid then
-                    humanoid.WalkSpeed = blatantConfig.walkSpeed
-                end
-            end)
-            task.wait(0.1)
-        end
-    end)
-end
-
-local function disableSpeed()
-    blatantConfig.speedEnabled = false
-    if speedThread then
-        task.cancel(speedThread)
-        speedThread = nil
-    end
-    restoreOriginalValues()
-end
-
--- [[ JUMP HACK ]] --
-local function enableJump(power)
-    blatantConfig.jumpEnabled = true
-    blatantConfig.jumpPower = power
-    
-    local humanoid = GetHumanoid()
-    if humanoid then
-        if humanoid.JumpPower then
-            humanoid.JumpPower = power
-        elseif humanoid.JumpHeight then
-            humanoid.JumpHeight = power
-        end
-    end
-end
-
-local function disableJump()
-    blatantConfig.jumpEnabled = false
-    restoreOriginalValues()
-end
-
--- [[ FLY HACK ]] --
-local function enableFly()
-    blatantConfig.flyEnabled = true
-    
-    flyThread = task.spawn(function()
-        local hrp = GetHRP()
-        if not hrp then return end
-        
-        local bodyVelocity = Instance.new("BodyVelocity")
-        bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        bodyVelocity.Parent = hrp
-        
-        local camera = workspace.CurrentCamera
-        
-        while blatantConfig.flyEnabled and hrp.Parent do
-            pcall(function()
-                local moveVector = Vector3.new(0, 0, 0)
-                
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                    moveVector = moveVector + camera.CFrame.LookVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                    moveVector = moveVector - camera.CFrame.LookVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                    moveVector = moveVector - camera.CFrame.RightVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                    moveVector = moveVector + camera.CFrame.RightVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                    moveVector = moveVector + Vector3.new(0, 1, 0)
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-                    moveVector = moveVector - Vector3.new(0, 1, 0)
-                end
-                
-                bodyVelocity.Velocity = moveVector * blatantConfig.flySpeed
-            end)
-            
-            task.wait()
-        end
-        
-        if bodyVelocity then
-            bodyVelocity:Destroy()
-        end
-    end)
-end
-
-local function disableFly()
-    blatantConfig.flyEnabled = false
-    if flyThread then
-        task.cancel(flyThread)
-        flyThread = nil
-    end
-end
-
--- [[ NOCLIP HACK ]] --
-local function enableNoclip()
-    blatantConfig.noclipEnabled = true
-    
-    noclipThread = task.spawn(function()
-        while blatantConfig.noclipEnabled do
-            pcall(function()
-                local character = LocalPlayer.Character
-                if character then
-                    for _, part in pairs(character:GetChildren()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
-                    end
-                end
-            end)
-            task.wait()
-        end
-    end)
-end
-
-local function disableNoclip()
-    blatantConfig.noclipEnabled = false
-    if noclipThread then
-        task.cancel(noclipThread)
-        noclipThread = nil
-    end
-    
-    -- Restore collision
+-- [[ REMOTE FUNCTIONS ]] --
+local function getRemoteFunction(path, name)
+    local remote = nil
     pcall(function()
-        local character = LocalPlayer.Character
-        if character then
-            for _, part in pairs(character:GetChildren()) do
-                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                    part.CanCollide = true
-                end
-            end
+        local current = ReplicatedStorage
+        for _, part in ipairs(path) do
+            current = current:WaitForChild(part, 5)
+            if not current then return end
         end
+        remote = current:WaitForChild(name, 5)
     end)
+    return remote
 end
 
--- [[ INFINITE JUMP ]] --
-local function setupInfiniteJump()
-    UserInputService.JumpRequest:Connect(function()
-        if blatantConfig.infiniteJump then
-            local humanoid = GetHumanoid()
-            if humanoid then
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+local function callRemote(remotePath, remoteName, ...)
+    local remote = getRemoteFunction(remotePath, remoteName)
+    if remote then
+        local success, result = pcall(function()
+            if remote:IsA("RemoteFunction") then
+                return remote:InvokeServer(...)
+            elseif remote:IsA("RemoteEvent") then
+                remote:FireServer(...)
+                return true
             end
-        end
-    end)
+        end)
+        return success, result
+    end
+    return false, "Remote not found"
 end
 
--- [[ CHARACTER RESPAWN HANDLER ]] --
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1) -- Wait for character to load
-    saveOriginalValues()
+-- [[ WEATHER FUNCTIONS ]] --
+local function buyWeather(weatherType)
+    local success, result = callRemote(RPath, "purchase_weather", weatherType)
     
-    -- Reapply blatant features if they were enabled
-    if blatantConfig.speedEnabled then
-        enableSpeed(blatantConfig.walkSpeed)
-    end
-    if blatantConfig.jumpEnabled then
-        enableJump(blatantConfig.jumpPower)
-    end
-    if blatantConfig.flyEnabled then
-        enableFly()
-    end
-    if blatantConfig.noclipEnabled then
-        enableNoclip()
-    end
-end)
-
--- [[ BLATANT TAB CREATION ]] --
-local BlatantTab = Window:AddTab({ Title = "⚡ Blatant", Icon = "zap" })
-
-BlatantTab:AddParagraph({
-    Title = "⚡ Player Modifications",
-    Content = "Advanced movement and player modifications.\n⚠️ Warning: These features are highly detectable!"
-})
-
--- Speed Section
-BlatantTab:AddSection("🏃 Speed Modifications")
-
-local SpeedToggle = BlatantTab:AddToggle("Speed", {
-    Title = "🏃 Speed Hack",
-    Description = "Modify player walk speed",
-    Default = false
-})
-
-SpeedToggle:OnChanged(function(Value)
-    if Value then
-        enableSpeed(blatantConfig.walkSpeed)
+    if success then
         Fluent:Notify({
-            Title = "🏃 Speed Enabled",
-            Content = "Walk speed: " .. blatantConfig.walkSpeed,
+            Title = "🌤️ Weather Purchased",
+            Content = "Weather set to: " .. weatherType,
+            Duration = 4
+        })
+        return true
+    else
+        -- Try alternative remote paths
+        local alternativeSuccess = false
+        pcall(function()
+            local weatherRemote = ReplicatedStorage:FindFirstChild("WeatherRemote") or
+                                 ReplicatedStorage:FindFirstChild("BuyWeather") or
+                                 ReplicatedStorage.events:FindFirstChild("weather")
+            if weatherRemote then
+                weatherRemote:FireServer(weatherType)
+                alternativeSuccess = true
+            end
+        end)
+        
+        if alternativeSuccess then
+            Fluent:Notify({
+                Title = "🌤️ Weather Purchased",
+                Content = "Weather set to: " .. weatherType,
+                Duration = 4
+            })
+            return true
+        else
+            Fluent:Notify({
+                Title = "❌ Purchase Failed",
+                Content = "Could not buy " .. weatherType .. " weather",
+                Duration = 4
+            })
+            return false
+        end
+    end
+end
+
+local function getCurrentWeather()
+    local weather = "Unknown"
+    pcall(function()
+        local lighting = game:GetService("Lighting")
+        if lighting:FindFirstChild("Weather") then
+            weather = tostring(lighting.Weather.Value)
+        elseif lighting:FindFirstChild("CurrentWeather") then
+            weather = tostring(lighting.CurrentWeather.Value)
+        else
+            -- Check atmospheric conditions
+            if lighting.FogEnd < 500 then
+                weather = "Foggy"
+            elseif lighting.Brightness < 1 then
+                weather = "Night"
+            else
+                weather = "Clear"
+            end
+        end
+    end)
+    return weather
+end
+
+local function startAutoWeather()
+    weatherThread = task.spawn(function()
+        while weatherConfig.autoWeather do
+            if weatherConfig.selectedWeather ~= "Clear" then
+                buyWeather(weatherConfig.selectedWeather)
+            end
+            task.wait(weatherConfig.weatherInterval)
+        end
+    end)
+end
+
+local function stopAutoWeather()
+    weatherConfig.autoWeather = false
+    if weatherThread then
+        task.cancel(weatherThread)
+        weatherThread = nil
+    end
+end
+
+-- [[ ITEM MANAGEMENT FUNCTIONS ]] --
+local function sellAllItems()
+    local success = false
+    
+    -- Try multiple sell methods
+    pcall(function()
+        local sellRemote = ReplicatedStorage:FindFirstChild("SellAll") or
+                          ReplicatedStorage.events:FindFirstChild("sell_all") or
+                          ReplicatedStorage.events:FindFirstChild("sell")
+        if sellRemote then
+            sellRemote:InvokeServer()
+            success = true
+        end
+    end)
+    
+    if success then
+        Fluent:Notify({
+            Title = "💰 Items Sold",
+            Content = "All items sold successfully",
             Duration = 3
         })
     else
-        disableSpeed()
         Fluent:Notify({
-            Title = "🏃 Speed Disabled", 
-            Content = "Walk speed restored to normal",
+            Title = "❌ Sell Failed",
+            Content = "Could not sell items - trying alternative method",
+            Duration = 3
+        })
+    end
+end
+
+local function equipBestGear()
+    local bestRod = getRodInInventory()
+    if bestRod and bestRod.Parent == LocalPlayer.Backpack then
+        local humanoid = GetHumanoid()
+        if humanoid then
+            humanoid:EquipTool(bestRod)
+            Fluent:Notify({
+                Title = "🎣 Gear Equipped",
+                Content = "Equipped: " .. bestRod.Name,
+                Duration = 3
+            })
+            return
+        end
+    end
+    
+    Fluent:Notify({
+        Title = "❌ No Gear Available",
+        Content = "No fishing rod found to equip",
+        Duration = 3
+    })
+end
+
+local function buyBait(baitType, quantity)
+    local success = false
+    quantity = quantity or 100
+    
+    pcall(function()
+        local baitRemote = ReplicatedStorage:FindFirstChild("BuyBait") or
+                          ReplicatedStorage.events:FindFirstChild("purchase_bait") or
+                          ReplicatedStorage.events:FindFirstChild("buy_bait")
+        if baitRemote then
+            baitRemote:InvokeServer(baitType, quantity)
+            success = true
+        end
+    end)
+    
+    if success then
+        Fluent:Notify({
+            Title = "🪱 Bait Purchased",
+            Content = quantity .. "x " .. baitType .. " bought",
+            Duration = 3
+        })
+    else
+        Fluent:Notify({
+            Title = "❌ Purchase Failed",
+            Content = "Could not buy " .. baitType,
+            Duration = 3
+        })
+    end
+end
+
+-- [[ UTILITIES TAB CREATION ]] --
+local UtilitiesTab = Window:AddTab({ Title = "🛠️ Utilities", Icon = "wrench" })
+
+UtilitiesTab:AddParagraph({
+    Title = "🛠️ Game Utilities",
+    Content = "Weather control, item management, teleports and other useful features.\nEasily manage your game experience with these powerful tools."
+})
+
+-- Weather Section
+UtilitiesTab:AddSection("🌤️ Weather Control")
+
+local WeatherDropdown = UtilitiesTab:AddDropdown("WeatherSelect", {
+    Title = "🌤️ Select Weather",
+    Description = "Choose weather type to purchase",
+    Values = weatherTypes,
+    Multi = false,
+    Default = 1,
+})
+
+WeatherDropdown:OnChanged(function(Value)
+    weatherConfig.selectedWeather = Value
+end)
+
+UtilitiesTab:AddButton({
+    Title = "🌤️ Buy Selected Weather",
+    Description = "Purchase the selected weather type",
+    Callback = function()
+        buyWeather(weatherConfig.selectedWeather)
+    end
+})
+
+local AutoWeatherToggle = UtilitiesTab:AddToggle("AutoWeather", {
+    Title = "🔄 Auto Buy Weather",
+    Description = "Automatically rebuy weather when it expires",
+    Default = false
+})
+
+AutoWeatherToggle:OnChanged(function(Value)
+    if Value then
+        weatherConfig.autoWeather = true
+        startAutoWeather()
+        Fluent:Notify({
+            Title = "🔄 Auto Weather Started",
+            Content = "Will rebuy " .. weatherConfig.selectedWeather .. " every " .. (weatherConfig.weatherInterval/60) .. " minutes",
+            Duration = 4
+        })
+    else
+        stopAutoWeather()
+        Fluent:Notify({
+            Title = "🛑 Auto Weather Stopped",
+            Content = "Automatic weather purchasing disabled",
             Duration = 3
         })
     end
 end)
 
-BlatantTab:AddSlider("SpeedValue", {
-    Title = "🏃 Speed Value",
-    Description = "Set custom walk speed",
-    Default = 50,
-    Min = 16,
-    Max = 200,
+UtilitiesTab:AddSlider("WeatherInterval", {
+    Title = "⏱️ Auto Weather Interval",
+    Description = "How often to rebuy weather (minutes)",
+    Default = 5,
+    Min = 1,
+    Max = 30,
     Rounding = 1,
     Callback = function(Value)
-        blatantConfig.walkSpeed = Value
-        if blatantConfig.speedEnabled then
-            local humanoid = GetHumanoid()
-            if humanoid then
-                humanoid.WalkSpeed = Value
-            end
-        end
+        weatherConfig.weatherInterval = Value * 60
     end
 })
 
--- Jump Section
-BlatantTab:AddSection("🦘 Jump Modifications")
-
-local JumpToggle = BlatantTab:AddToggle("Jump", {
-    Title = "🦘 Jump Boost",
-    Description = "Modify player jump power",
-    Default = false
+-- Current Weather Display
+local WeatherStatusDisplay = UtilitiesTab:AddParagraph({
+    Title = "🌤️ Weather Status",
+    Content = "Loading weather information..."
 })
 
-JumpToggle:OnChanged(function(Value)
-    if Value then
-        enableJump(blatantConfig.jumpPower)
-        Fluent:Notify({
-            Title = "🦘 Jump Boost Enabled",
-            Content = "Jump power: " .. blatantConfig.jumpPower,
-            Duration = 3
-        })
-    else
-        disableJump()
-        Fluent:Notify({
-            Title = "🦘 Jump Boost Disabled",
-            Content = "Jump power restored to normal", 
-            Duration = 3
-        })
-    end
-end)
+-- Item Management Section
+UtilitiesTab:AddSection("📦 Item Management")
 
-BlatantTab:AddSlider("JumpValue", {
-    Title = "🦘 Jump Power",
-    Description = "Set custom jump power",
-    Default = 100,
-    Min = 50,
-    Max = 300,
-    Rounding = 5,
-    Callback = function(Value)
-        blatantConfig.jumpPower = Value
-        if blatantConfig.jumpEnabled then
-            enableJump(Value)
-        end
+UtilitiesTab:AddButton({
+    Title = "💰 Sell All Items",
+    Description = "Sell all caught fish and items",
+    Callback = function()
+        sellAllItems()
     end
 })
 
-local InfiniteJumpToggle = BlatantTab:AddToggle("InfiniteJump", {
-    Title = "🚀 Infinite Jump",
-    Description = "Jump unlimited times in the air",
-    Default = false
-})
-
-InfiniteJumpToggle:OnChanged(function(Value)
-    blatantConfig.infiniteJump = Value
-    if Value then
-        Fluent:Notify({
-            Title = "🚀 Infinite Jump Enabled",
-            Content = "You can now jump infinitely",
-            Duration = 3
-        })
-    else
-        Fluent:Notify({
-            Title = "🚀 Infinite Jump Disabled", 
-            Content = "Normal jump behavior restored",
-            Duration = 3
-        })
-    end
-end)
-
--- Flight Section  
-BlatantTab:AddSection("✈️ Flight")
-
-local FlyToggle = BlatantTab:AddToggle("Fly", {
-    Title = "✈️ Fly Mode",
-    Description = "Enable flight with WASD + Space/Shift controls",
-    Default = false
-})
-
-FlyToggle:OnChanged(function(Value)
-    if Value then
-        enableFly()
-        Fluent:Notify({
-            Title = "✈️ Flight Enabled",
-            Content = "Use WASD + Space/Shift to fly\nFly speed: " .. blatantConfig.flySpeed,
-            Duration = 5
-        })
-    else
-        disableFly()
-        Fluent:Notify({
-            Title = "✈️ Flight Disabled",
-            Content = "Flight mode deactivated",
-            Duration = 3
-        })
-    end
-end)
-
-BlatantTab:AddSlider("FlySpeed", {
-    Title = "✈️ Fly Speed",
-    Description = "Set flight movement speed",
-    Default = 50,
-    Min = 10,
-    Max = 150,
-    Rounding = 5,
-    Callback = function(Value)
-        blatantConfig.flySpeed = Value
+UtilitiesTab:AddButton({
+    Title = "🎣 Equip Best Rod",
+    Description = "Equip the best fishing rod available",
+    Callback = function()
+        equipBestGear()
     end
 })
 
--- Noclip Section
-BlatantTab:AddSection("👻 Noclip")
-
-local NoclipToggle = BlatantTab:AddToggle("Noclip", {
-    Title = "👻 Noclip",
-    Description = "Walk through walls and objects",
-    Default = false
+UtilitiesTab:AddButton({
+    Title = "🪱 Buy Basic Bait (100x)",
+    Description = "Purchase 100 basic bait",
+    Callback = function()
+        buyBait("Basic Bait", 100)
+    end
 })
 
-NoclipToggle:OnChanged(function(Value)
-    if Value then
-        enableNoclip()
-        Fluent:Notify({
-            Title = "👻 Noclip Enabled", 
-            Content = "You can now walk through objects",
-            Duration = 3
-        })
-    else
-        disableNoclip()
-        Fluent:Notify({
-            Title = "👻 Noclip Disabled",
-            Content = "Normal collision restored",
-            Duration = 3
-        })
+UtilitiesTab:AddButton({
+    Title = "🎭 Buy Premium Bait (50x)",
+    Description = "Purchase 50 premium bait",
+    Callback = function()
+        buyBait("Premium Bait", 50)
     end
-end)
+})
+
+UtilitiesTab:AddButton({
+    Title = "🌟 Buy Legendary Bait (10x)",
+    Description = "Purchase 10 legendary bait",
+    Callback = function()
+        buyBait("Legendary Bait", 10)
+    end
+})
 
 -- Quick Actions Section
-BlatantTab:AddSection("⚡ Quick Actions")
+UtilitiesTab:AddSection("⚡ Quick Actions")
 
-BlatantTab:AddButton({
-    Title = "🔄 Reset Character",
-    Description = "Reset your character to spawn",
+UtilitiesTab:AddButton({
+    Title = "🔄 Refresh Character",
+    Description = "Refresh your character and equipment",
+    Callback = function()
+        local character = LocalPlayer.Character
+        if character then
+            task.spawn(function()
+                wait(0.1)
+                equipBestGear()
+            end)
+        end
+        
+        Fluent:Notify({
+            Title = "🔄 Character Refreshed",
+            Content = "Character and equipment refreshed",
+            Duration = 3
+        })
+    end
+})
+
+UtilitiesTab:AddButton({
+    Title = "💊 Heal Character",
+    Description = "Restore character health to maximum",
     Callback = function()
         local humanoid = GetHumanoid()
         if humanoid then
-            humanoid.Health = 0
+            humanoid.Health = humanoid.MaxHealth
             Fluent:Notify({
-                Title = "🔄 Character Reset",
-                Content = "Your character has been reset",
+                Title = "💊 Character Healed",
+                Content = "Health restored to maximum",
                 Duration = 3
             })
         end
     end
 })
 
-BlatantTab:AddButton({
-    Title = "⚡ Disable All Blatant",
-    Description = "Disable all blatant features at once",
+UtilitiesTab:AddButton({
+    Title = "🧹 Clean Workspace",
+    Description = "Remove unnecessary objects from workspace",
     Callback = function()
-        -- Disable all toggles
-        SpeedToggle:SetValue(false)
-        JumpToggle:SetValue(false)
-        InfiniteJumpToggle:SetValue(false)
-        FlyToggle:SetValue(false)
-        NoclipToggle:SetValue(false)
+        local cleaned = 0
+        pcall(function()
+            for _, obj in pairs(workspace:GetChildren()) do
+                if obj.Name == "Part" or obj.Name == "Debris" then
+                    obj:Destroy()
+                    cleaned = cleaned + 1
+                end
+            end
+        end)
         
         Fluent:Notify({
-            Title = "⚡ All Blatant Disabled",
-            Content = "All modifications have been disabled",
-            Duration = 4
-        })
-    end
-})
-
-BlatantTab:AddButton({
-    Title = "💾 Save Current Values",
-    Description = "Save current speed/jump as default",
-    Callback = function()
-        saveOriginalValues()
-        Fluent:Notify({
-            Title = "💾 Values Saved",
-            Content = "Current player values saved as default",
+            Title = "🧹 Workspace Cleaned",
+            Content = "Removed " .. cleaned .. " objects",
             Duration = 3
         })
     end
 })
 
--- Status Display
-local BlatantStatusDisplay = BlatantTab:AddParagraph({
-    Title = "📊 Blatant Status",
-    Content = "Loading blatant status..."
+-- [[ LOCATIONS TAB ]] --
+local LocationsTab = Window:AddTab({ Title = "📍 Locations", Icon = "map-pin" })
+
+LocationsTab:AddParagraph({
+    Title = "📍 Teleport Locations",
+    Content = "Quick teleport to important game locations.\nSelect a location below to teleport instantly with safety checks."
 })
 
--- Update blatant status
+-- Create location buttons dynamically
+for locationName, position in pairs(gameLocations) do
+    LocationsTab:AddButton({
+        Title = locationName,
+        Description = "Teleport to " .. locationName:gsub("🏠 ", ""):gsub("🏪 ", ""):gsub("🪱 ", ""),
+        Callback = function()
+            local success = doTeleport(position)
+            if success then
+                Fluent:Notify({
+                    Title = "📍 Teleported!",
+                    Content = "You are now at " .. locationName,
+                    Duration = 3
+                })
+            else
+                Fluent:Notify({
+                    Title = "❌ Teleport Failed",
+                    Content = "Could not teleport to " .. locationName,
+                    Duration = 3
+                })
+            end
+        end
+    })
+end
+
+-- Custom Coordinates Section
+LocationsTab:AddSection("🎯 Custom Teleport")
+
+local customX = 0
+local customY = 50
+local customZ = 0
+
+LocationsTab:AddInput("CustomX", {
+    Title = "🎯 X Coordinate",
+    Description = "Enter X position",
+    Default = "0",
+    Placeholder = "X position...",
+    Numeric = true,
+    Callback = function(Value)
+        customX = tonumber(Value) or 0
+    end
+})
+
+LocationsTab:AddInput("CustomY", {
+    Title = "🎯 Y Coordinate", 
+    Description = "Enter Y position",
+    Default = "50",
+    Placeholder = "Y position...",
+    Numeric = true,
+    Callback = function(Value)
+        customY = tonumber(Value) or 50
+    end
+})
+
+LocationsTab:AddInput("CustomZ", {
+    Title = "🎯 Z Coordinate",
+    Description = "Enter Z position", 
+    Default = "0",
+    Placeholder = "Z position...",
+    Numeric = true,
+    Callback = function(Value)
+        customZ = tonumber(Value) or 0
+    end
+})
+
+LocationsTab:AddButton({
+    Title = "🚀 Teleport to Custom Coordinates",
+    Description = "Teleport to the specified coordinates",
+    Callback = function()
+        local targetPos = Vector3.new(customX, customY, customZ)
+        local success = doTeleport(targetPos)
+        
+        if success then
+            Fluent:Notify({
+                Title = "🚀 Custom Teleport Success",
+                Content = string.format("Teleported to (%.0f, %.0f, %.0f)", customX, customY, customZ),
+                Duration = 4
+            })
+        else
+            Fluent:Notify({
+                Title = "❌ Custom Teleport Failed",
+                Content = "Could not teleport to specified coordinates",
+                Duration = 3
+            })
+        end
+    end
+})
+
+LocationsTab:AddButton({
+    Title = "📋 Copy Current Position",
+    Description = "Copy your current position to custom coordinates",
+    Callback = function()
+        local hrp = GetHRP()
+        if hrp then
+            local pos = hrp.Position
+            customX = math.floor(pos.X)
+            customY = math.floor(pos.Y) 
+            customZ = math.floor(pos.Z)
+            
+            Fluent:Notify({
+                Title = "📋 Position Copied",
+                Content = string.format("Position copied: (%.0f, %.0f, %.0f)", customX, customY, customZ),
+                Duration = 4
+            })
+        else
+            Fluent:Notify({
+                Title = "❌ Copy Failed",
+                Content = "Could not get current position",
+                Duration = 3
+            })
+        end
+    end
+})
+
+LocationsTab:AddButton({
+    Title = "🔍 Scan Nearby Locations",
+    Description = "Find and list nearby important locations",
+    Callback = function()
+        local hrp = GetHRP()
+        if not hrp then return end
+        
+        local currentPos = hrp.Position
+        local nearbyLocations = {}
+        
+        for locationName, position in pairs(gameLocations) do
+            local distance = (currentPos - position).Magnitude
+            if distance <= 1000 then -- Within 1000 studs
+                table.insert(nearbyLocations, {
+                    name = locationName,
+                    distance = math.floor(distance)
+                })
+            end
+        end
+        
+        table.sort(nearbyLocations, function(a, b)
+            return a.distance < b.distance
+        end)
+        
+        if #nearbyLocations > 0 then
+            local content = "Nearby Locations:\n"
+            for i, loc in ipairs(nearbyLocations) do
+                if i <= 3 then -- Show only top 3
+                    content = content .. loc.name .. " (" .. loc.distance .. " studs)\n"
+                end
+            end
+            
+            Fluent:Notify({
+                Title = "🔍 Nearby Locations Found",
+                Content = content,
+                Duration = 6
+            })
+        else
+            Fluent:Notify({
+                Title = "🔍 No Nearby Locations",
+                Content = "No major locations within 1000 studs",
+                Duration = 4
+            })
+        end
+    end
+})
+
+-- [[ STATUS UPDATE THREADS ]] --
+
+-- Update weather status
 task.spawn(function()
     while true do
         pcall(function()
-            local status = {}
+            local currentWeather = getCurrentWeather()
+            local autoStatus = weatherConfig.autoWeather and "🟢 Active" or "🔴 Disabled"
+            local selectedWeather = weatherConfig.selectedWeather
             
-            if blatantConfig.speedEnabled then
-                table.insert(status, "🏃 Speed: " .. blatantConfig.walkSpeed)
-            end
-            if blatantConfig.jumpEnabled then
-                table.insert(status, "🦘 Jump: " .. blatantConfig.jumpPower)
-            end
-            if blatantConfig.flyEnabled then
-                table.insert(status, "✈️ Fly: " .. blatantConfig.flySpeed)
-            end
-            if blatantConfig.noclipEnabled then
-                table.insert(status, "👻 Noclip: ON")
-            end
-            if blatantConfig.infiniteJump then
-                table.insert(status, "🚀 Infinite Jump: ON")
-            end
-            
-            if #status == 0 then
-                BlatantStatusDisplay:SetDesc("Status: 🔴 All features disabled\nPerformance: ✅ Normal")
-            else
-                BlatantStatusDisplay:SetDesc("Active Features:\n" .. table.concat(status, "\n") .. "\n\n⚠️ High detection risk!")
-            end
+            WeatherStatusDisplay:SetDesc(
+                "Current Weather: " .. currentWeather .. "\n" ..
+                "Selected Weather: " .. selectedWeather .. "\n" ..
+                "Auto Weather: " .. autoStatus .. "\n" ..
+                "Interval: " .. (weatherConfig.weatherInterval/60) .. " min"
+            )
         end)
-        
-        task.wait(2)
+        task.wait(5)
     end
 end)
 
--- Initialize
-saveOriginalValues()
-setupInfiniteJump()
+-- [[ FINAL CLEANUP & INITIALIZATION ]] --
 
--- Warning message
-task.wait(1)
+-- Add cleanup for new features
+Players.PlayerRemoving:Connect(function(player)
+    if player == LocalPlayer then
+        -- Stop weather thread
+        if weatherThread then
+            pcall(function() task.cancel(weatherThread) end)
+        end
+    end
+end)
+
+-- Character respawn handler for utilities
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(2)
+    Fluent:Notify({
+        Title = "🔄 Character Respawned",
+        Content = "All utilities ready for use",
+        Duration = 3
+    })
+end)
+
+-- [[ FINAL SUCCESS NOTIFICATIONS ]] --
+task.wait(2)
 Fluent:Notify({
-    Title = "⚠️ Blatant Features Loaded",
-    Content = "Use these features responsibly!\nThey are easily detectable.",
-    Duration = 5
+    Title = "✨ All Features Loaded Successfully!",
+    Content = "NPN Hub Premium v3.0 Fluent Edition\n" ..
+              "🎣 Auto Fishing ✅\n" ..
+              "⚡ Events & Lochness ✅\n" ..
+              "🚀 Blatant Features ✅\n" ..
+              "🌤️ Weather Control ✅\n" ..
+              "📍 Teleports ✅\n" ..
+              "📊 Status Monitoring ✅\n\n" ..
+              "Ready for action! 🚀",
+    Duration = 10
 })
 
-print("✅ PART 6/7 - Blatant Features & Player Modifications LOADED!")
+-- [[ ULTIMATE FINAL CONSOLE OUTPUT ]] --
+print("╔═══════════════════════════════════════════════════════════╗")
+print("║                 🎣 NPN HUB PREMIUM v3.0                  ║")
+print("║                  FLUENT EDITION COMPLETE!                ║")
+print("╚═══════════════════════════════════════════════════════════╝")
+print("")
+print("🎯 IMPLEMENTATION COMPLETE - ALL 7 PARTS LOADED:")
+print("")
+print("✅ PART 1: Core Setup & Helper Functions")
+print("✅ PART 2: Lochness Timer & Event Engine") 
+print("✅ PART 3: Main UI Tabs & Event System")
+print("✅ PART 4: Status Monitoring & Settings")
+print("✅ PART 5: Advanced Auto Fishing System")
+print("✅ PART 6: Blatant Player Modifications") 
+print("✅ PART 7: Weather Control & Utilities")
+print("")
+print("🚀 COMPLETE FEATURE ARSENAL:")
+print("   • 🎯 Smart Event Detection & Auto Teleport")
+print("   • 🐉 Lochness Monster Timer & Auto Hunt")
+print("   • 🎣 Advanced Auto Fishing with Rod Management")
+print("   • ⚡ Speed/Jump/Fly/Noclip Modifications")
+print("   • 🌤️ Weather Control & Auto Purchase")
+print("   • 📍 Location Teleports & Custom Coordinates")
+print("   • 💰 Item Management & Auto Sell")
+print("   • 📊 Real-time Status Monitoring")
+print("   • 🛡️ Performance Optimization & Safety")
+print("   • 🚫 Anti-AFK Protection")
+print("")
+print("🎮 CONTROLS & USAGE:")
+print("   • Left Alt = Minimize/Restore GUI")
+print("   • WASD + Space/Shift = Fly Controls (when enabled)")
+print("   • All features accessible through Fluent UI tabs")
+print("")
+print("⚠️  SAFETY REMINDERS:")
+print("   • Use blatant features responsibly")
+print("   • Weather purchases may cost in-game currency")
+print("   • Event teleports are optimized for safety")
+print("")
+print("🎉 SCRIPT STATUS: FULLY OPERATIONAL!")
+print("💫 Developed by: XYOURZONE")
+print("🔗 UI Library: Fluent by dawid-scripts")
+print("═══════════════════════════════════════════════════════════")
+
+-- Mark as completely finished
+_G.NPNHubFullyComplete = true
+_G.NPNHubVersion = "3.0 Fluent Edition - Complete"
+_G.NPNHubFeatures = {
+    "AutoFishing", "EventTeleport", "BlatantHacks", 
+    "WeatherControl", "LocationTeleports", "ItemManagement",
+    "LochnessTimer", "StatusMonitoring", "AntiAFK", "SafetyChecks"
+}
+
+print("🎊 CONGRATULATIONS! NPN HUB PREMIUM v3.0 IS READY TO USE! 🎊")
