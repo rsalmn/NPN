@@ -1,7 +1,8 @@
--- [[ UNIVERSAL FISH IT SCRIPT - FREE EXECUTOR COMPATIBLE ]] --
--- Compatible: Delta, Xeno, Krnl, JJSploit, Fluxus, dan lainnya
+-- [[ FISH IT HUB - FLUENT UI EDITION ]] --
+-- Universal compatibility untuk semua executor
+-- Optimized untuk Delta, Xeno, Krnl, JJSploit, Fluxus
 
--- [[ EXECUTOR DETECTION & CONFIG ]] --
+-- [[ EXECUTOR DETECTION & CONFIGURATION ]] --
 local function detectExecutor()
     if identifyexecutor then
         local name = identifyexecutor():lower()
@@ -18,498 +19,720 @@ end
 local currentExecutor = detectExecutor()
 local isFreeTier = (currentExecutor == "xeno" or currentExecutor == "krnl" or currentExecutor == "jjsploit")
 
--- [[ UNIVERSAL CONFIG ]] --
-local UniversalConfig = {
-    -- Delays untuk free executors
-    TeleportDelay = isFreeTier and 2 or 0.5,
-    ScanInterval = isFreeTier and 15 or 8,
-    HttpTimeout = isFreeTier and 10 or 5,
-    
-    -- Feature toggles
-    UseAdvancedAntiAFK = not isFreeTier,
-    UseFallbackLoader = isFreeTier,
+-- Universal configuration
+local Config = {
+    TeleportDelay = isFreeTier and 3 or 1,
+    ScanInterval = isFreeTier and 20 or 8,
     MaxTeleportDistance = isFreeTier and 800 or 9999,
-    
-    -- Safety settings
+    UseAdvancedFeatures = not isFreeTier,
     AddRandomDelay = isFreeTier,
-    UseGradualTeleport = isFreeTier,
     EnableDebugMode = false
 }
 
-print("[🎣 Fish It] Detected Executor:", currentExecutor, isFreeTier and "(Free Tier)" or "(Premium)")
-
--- [[ UNIVERSAL WINDUI LOADER ]] --
-local function universalLoadWindUI()
-    local attempts = {
-        "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua",
-        "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua",
-        -- Fallback URLs for limited executors
-        "https://pastebin.com/raw/windui_backup" -- Replace with actual backup
-    }
+-- [[ FLUENT UI LOADER ]] --
+local function loadFluentUI()
+    local success, Fluent = pcall(function()
+        return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+    end)
     
-    for i, url in ipairs(attempts) do
-        local success, result = pcall(function()
-            if UniversalConfig.EnableDebugMode then
-                print("[Debug] Trying URL", i, ":", url)
-            end
-            return loadstring(game:HttpGet(url, true))()
+    if not success then
+        -- Fallback URL
+        success, Fluent = pcall(function()
+            return loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Source.lua"))()
         end)
-        
-        if success and result then
-            print("[✅ WindUI] Loaded successfully from attempt", i)
-            return result
-        else
-            print("[⚠️ WindUI] Attempt", i, "failed, trying next...")
-            task.wait(1) -- Delay between attempts
-        end
     end
     
-    error("Failed to load WindUI from all sources!")
+    if not success then
+        error("Failed to load Fluent UI! Please check your internet connection.")
+    end
+    
+    return Fluent
 end
 
-local WindUI = universalLoadWindUI()
+local Fluent = loadFluentUI()
 
--- [[ UNIVERSAL WINDOW CREATION ]] --
-local Window = WindUI:CreateWindow({
-    Title = "🎣 Fish It Hub - Universal Edition",
-    Icon = "geist:fish",
-    Author = "Universal Script | All Executors",
-    Folder = "FishItUniversal",
-    Size = UDim2.fromOffset(isFreeTier and 500 or 600, isFreeTier and 400 or 450),
-    Transparent = true,
-    Theme = "Dark",
-    Resizable = true,
-    KeySystem = not isFreeTier and {
-        Note = "Premium features available",
-        API = {
-            {
-                Type = "pandadevelopment",
-                ServiceId = "FishItUniversal",
-            }
-        }
-    } or nil -- No key system for free tier testing
-})
+-- Load save manager
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 -- [[ SERVICES & VARIABLES ]] --
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local RepStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser") -- For fallback anti-AFK
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
 
-local UniversalConfig_Manager = Window.ConfigManager:CreateConfig("fishit_universal")
-local function Reg(id, element)
-    UniversalConfig_Manager:Register(id, element)
-    return element
+-- Script variables
+local autoEventRunning = false
+local selectedEvent = "Shark Hunt"
+local lastTeleportTime = 0
+local currentStatus = "Initializing..."
+local statusUpdateThread = nil
+local autoEventThread = nil
+
+-- [[ HELPER FUNCTIONS ]] --
+local function safeWait(duration)
+    local start = tick()
+    while tick() - start < duration do
+        RunService.Heartbeat:Wait()
+    end
 end
 
--- [[ UNIVERSAL HELPER FUNCTIONS ]] --
-local function safeGetService(serviceName)
-    local success, service = pcall(function()
-        return game:GetService(serviceName)
-    end)
-    return success and service or nil
+local function GetCharacter()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
 
 local function GetHumanoid()
-    local Character = LocalPlayer.Character
-    if not Character then 
-        local success = pcall(function()
-            Character = LocalPlayer.CharacterAdded:Wait()
-        end)
-        if not success then return nil end
-    end
-    return Character and Character:FindFirstChildOfClass("Humanoid")
+    local character = GetCharacter()
+    return character and character:FindFirstChildOfClass("Humanoid")
 end
 
 local function GetHRP()
-    local Character = LocalPlayer.Character
-    if not Character then 
-        local success = pcall(function()
-            Character = LocalPlayer.CharacterAdded:Wait()
-        end)
-        if not success then return nil end
-    end
-    return Character and Character:WaitForChild("HumanoidRootPart", 5)
+    local character = GetCharacter()
+    return character and character:WaitForChild("HumanoidRootPart", 5)
 end
 
--- [[ UNIVERSAL ANTI-AFK SYSTEM ]] --
-local function setupUniversalAntiAFK()
+-- [[ ANTI-AFK SYSTEM ]] --
+local function setupAntiAFK()
     local success = false
     
-    -- Method 1: Advanced (Premium executors)
-    if UniversalConfig.UseAdvancedAntiAFK then
-        local advancedSuccess = pcall(function()
-            for i, v in pairs(getconnections(LocalPlayer.Idled)) do
-                if v.Disable then
-                    v:Disable()
+    -- Advanced method for premium executors
+    if Config.UseAdvancedFeatures then
+        pcall(function()
+            for _, connection in pairs(getconnections(LocalPlayer.Idled)) do
+                if connection.Disable then
+                    connection:Disable()
                     success = true
                 end
             end
         end)
-        
-        if advancedSuccess and success then
-            print("[✅ Anti-AFK] Advanced method activated")
-            return
-        end
     end
     
-    -- Method 2: Universal Fallback (All executors)
-    local fallbackSuccess = pcall(function()
-        LocalPlayer.Idled:Connect(function()
-            local cam = workspace.CurrentCamera
-            if cam then
-                VirtualUser:Button2Down(Vector2.new(0,0), cam.CFrame)
-                task.wait(0.1)
-                VirtualUser:Button2Up(Vector2.new(0,0), cam.CFrame)
-            end
+    -- Universal fallback method
+    if not success then
+        pcall(function()
+            LocalPlayer.Idled:Connect(function()
+                VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+                safeWait(0.1)
+                VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+            end)
+            success = true
         end)
-        success = true
-    end)
-    
-    if fallbackSuccess then
-        print("[✅ Anti-AFK] Universal method activated")
-    else
-        print("[❌ Anti-AFK] Failed to setup")
     end
+    
+    return success
 end
 
-setupUniversalAntiAFK()
-
--- [[ UNIVERSAL STATUS DETECTION ]] --
-local function getUniversalStatus()
+-- [[ STATUS DETECTION SYSTEM ]] --
+local function detectPlayerStatus()
     local success, result = pcall(function()
-        local char = LocalPlayer.Character
-        if not char then return "UNKNOWN" end
+        local character = LocalPlayer.Character
+        if not character then return "No Character" end
         
-        local hum = char:FindFirstChild("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = character:FindFirstChild("Humanoid")
+        local hrp = character:FindFirstChild("HumanoidRootPart")
         
-        if not hum or not hrp then return "UNKNOWN" end
+        if not humanoid or not hrp then return "Loading..." end
 
-        -- Swimming state check
-        if hum:GetState() == Enum.HumanoidStateType.Swimming then
-            return "WATER (SWIMMING)"
+        -- Check swimming state
+        if humanoid:GetState() == Enum.HumanoidStateType.Swimming then
+            return "🌊 Swimming"
         end
 
-        -- Floor material check
-        if hum.FloorMaterial == Enum.Material.Water then
-            return "WATER"
-        elseif hum.FloorMaterial ~= Enum.Material.Air then
-            return "LAND"
+        -- Check floor material
+        local floorMaterial = humanoid.FloorMaterial
+        if floorMaterial == Enum.Material.Water then
+            return "🌊 In Water"
+        elseif floorMaterial ~= Enum.Material.Air then
+            return "🏝️ On Land"
         end
 
-        -- Simple raycast for free executors
-        if not isFreeTier then
-            local origin = hrp.Position
-            local direction = Vector3.new(0, -10, 0)
+        -- Raycast check (for premium executors)
+        if Config.UseAdvancedFeatures then
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterDescendantsInstances = {character}
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+            raycastParams.IgnoreWater = false
             
-            local params = RaycastParams.new()
-            params.FilterDescendantsInstances = {char}
-            params.FilterType = Enum.RaycastFilterType.Exclude
-            params.IgnoreWater = false
+            local raycastResult = Workspace:Raycast(
+                hrp.Position, 
+                Vector3.new(0, -15, 0), 
+                raycastParams
+            )
             
-            local rayResult = workspace:Raycast(origin, direction, params)
-            
-            if rayResult and rayResult.Material == Enum.Material.Water then
-                return "WATER"
-            elseif rayResult then
-                return "LAND"
+            if raycastResult then
+                if raycastResult.Material == Enum.Material.Water then
+                    return "🌊 Above Water"
+                else
+                    return "🏝️ Above Land"
+                end
             end
         end
 
-        return "UNKNOWN"
+        return "✈️ Airborne"
     end)
     
-    return success and result or "ERROR"
+    return success and result or "❌ Error"
 end
 
--- [[ UNIVERSAL TELEPORT SYSTEM ]] --
-local lastTeleportTime = 0
+-- [[ EVENT TELEPORT SYSTEM ]] --
+local EventLocations = {
+    ["Shark Hunt"] = {
+        {pos = Vector3.new(1.65, 5, 2095.72), name = "Shark Spot 1"},
+        {pos = Vector3.new(1369.94, 5, 930.12), name = "Shark Spot 2"},
+        {pos = Vector3.new(-1585.5, 5, 1242.87), name = "Shark Spot 3"},
+        {pos = Vector3.new(-1896.8, 5, 2634.37), name = "Shark Spot 4"}
+    },
+    ["Worm Hunt"] = {
+        {pos = Vector3.new(2190.85, 5, 97.57), name = "Worm Spot 1"},
+        {pos = Vector3.new(-2450.6, 5, 139.73), name = "Worm Spot 2"},
+        {pos = Vector3.new(-267.47, 5, 5188.53), name = "Worm Spot 3"}
+    },
+    ["Megalodon Hunt"] = {
+        {pos = Vector3.new(-1076.3, 5, 1676.19), name = "Megalodon Spot 1"},
+        {pos = Vector3.new(-1191.8, 5, 3597.30), name = "Megalodon Spot 2"},
+        {pos = Vector3.new(412.70, 5, 4134.39), name = "Megalodon Spot 3"}
+    },
+    ["Ghost Shark Hunt"] = {
+        {pos = Vector3.new(489.56, 5, 25.41), name = "Ghost Spot 1"},
+        {pos = Vector3.new(-1358.2, 5, 4100.55), name = "Ghost Spot 2"},
+        {pos = Vector3.new(627.86, 5, 3798.08), name = "Ghost Spot 3"}
+    },
+    ["Treasure Hunt"] = {
+        {pos = Vector3.new(0, 5, 0), name = "Treasure Island"}
+    },
+    ["Black Hole"] = {
+        {pos = Vector3.new(-500, 5, -500), name = "Black Hole Zone"}
+    },
+    ["Meteor Rain"] = {
+        {pos = Vector3.new(1000, 5, 1000), name = "Meteor Zone"}
+    }
+}
 
-local function universalTeleport(position, lookVector)
-    local currentTime = tick()
-    
-    -- Rate limiting for free executors
-    if isFreeTier and currentTime - lastTeleportTime < UniversalConfig.TeleportDelay then
-        WindUI:Notify({
-            Title = "Teleport Cooldown", 
-            Description = "Please wait " .. math.ceil(UniversalConfig.TeleportDelay - (currentTime - lastTeleportTime)) .. "s",
-            Duration = 2,
-            Icon = "clock"
-        })
-        return false
+local function universalTeleport(targetPosition, locationName)
+    if not targetPosition or typeof(targetPosition) ~= "Vector3" then 
+        return false, "Invalid position"
     end
     
-    local success = pcall(function()
+    -- Rate limiting
+    local currentTime = tick()
+    if currentTime - lastTeleportTime < Config.TeleportDelay then
+        local remaining = math.ceil(Config.TeleportDelay - (currentTime - lastTeleportTime))
+        return false, "Cooldown: " .. remaining .. "s"
+    end
+    
+    local success, error = pcall(function()
         local hrp = GetHRP()
-        if not hrp or typeof(position) ~= "Vector3" then return end
+        if not hrp then error("No HumanoidRootPart found") end
         
         -- Add random delay for free executors
-        if UniversalConfig.AddRandomDelay then
-            task.wait(math.random(50, 200) / 100) -- 0.5-2s random delay
+        if Config.AddRandomDelay then
+            safeWait(math.random(50, 150) / 100)
         end
         
-        -- Gradual teleport for long distances (free executors)
-        if UniversalConfig.UseGradualTeleport then
-            local currentPos = hrp.Position
-            local distance = (position - currentPos).Magnitude
-            
-            if distance > UniversalConfig.MaxTeleportDistance then
-                -- Split into multiple teleports
-                local midPoint = currentPos:Lerp(position, 0.6)
-                hrp.CFrame = CFrame.new(midPoint, midPoint + (lookVector or Vector3.new(0, 0, 1)))
-                task.wait(1)
-            end
+        local currentPos = hrp.Position
+        local distance = (targetPosition - currentPos).Magnitude
+        
+        -- Split long teleports for free executors
+        if isFreeTier and distance > Config.MaxTeleportDistance then
+            local midpoint = currentPos:Lerp(targetPosition, 0.5)
+            hrp.CFrame = CFrame.new(midpoint)
+            safeWait(1.5)
         end
         
         -- Final teleport
-        local targetCFrame = lookVector and CFrame.new(position, position + lookVector) or CFrame.new(position)
-        hrp.CFrame = targetCFrame * CFrame.new(0, 0.5, 0)
-        
+        hrp.CFrame = CFrame.new(targetPosition)
         lastTeleportTime = currentTime
     end)
     
     if success then
-        WindUI:Notify({
-            Title = "Teleport Success!", 
-            Description = "Moved to target location",
-            Duration = 2,
-            Icon = "map-pin"
-        })
-        return true
+        return true, locationName or "Unknown Location"
     else
-        WindUI:Notify({
-            Title = "Teleport Failed", 
-            Description = "Please try again",
-            Duration = 3,
-            Icon = "alert-triangle"
-        })
-        return false
+        return false, tostring(error)
     end
 end
 
--- [[ UNIVERSAL EVENT SYSTEM ]] --
-local UniversalEvents = {
-    ["Shark Hunt"] = {
-        Vector3.new(1.65, -1.35, 2095.72),
-        Vector3.new(1369.94, -1.35, 930.12),
-        Vector3.new(-1585.5, -1.35, 1242.87),
-    },
-    ["Worm Hunt"] = {
-        Vector3.new(2190.85, -1.40, 97.57),
-        Vector3.new(-2450.6, -1.40, 139.73),
-        Vector3.new(-267.47, -1.40, 5188.53),
-    },
-    ["Megalodon Hunt"] = {
-        Vector3.new(-1076.3, -1.40, 1676.19),
-        Vector3.new(-1191.8, -1.40, 3597.30),
-        Vector3.new(412.70, -1.40, 4134.39),
-    },
-    ["Ghost Shark Hunt"] = {
-        Vector3.new(489.56, -1.35, 25.41),
-        Vector3.new(-1358.2, -1.35, 4100.55),
-        Vector3.new(627.86, -1.35, 3798.08),
-    },
-    ["Treasure Hunt"] = {
-        Vector3.new(0, -1.35, 0), -- Placeholder
-    }
-}
-
-local currentAutoEvent = nil
-local autoEventRunning = false
-
-local function scanForEvent(eventName, timeout)
-    if not UniversalEvents[eventName] then return nil end
+local function scanForActiveEvent(eventName)
+    if not EventLocations[eventName] then return nil end
     
-    local startTime = tick()
-    timeout = timeout or (isFreeTier and 30 or 15)
-    
-    for _, coord in ipairs(UniversalEvents[eventName]) do
-        if tick() - startTime > timeout then break end
-        
-        local success, parts = pcall(function()
+    for _, location in ipairs(EventLocations[eventName]) do
+        local searchPos = location.pos
+        local success, foundParts = pcall(function()
             local region = Region3.new(
-                coord - Vector3.new(25, 15, 25),
-                coord + Vector3.new(25, 15, 25)
+                searchPos - Vector3.new(30, 20, 30),
+                searchPos + Vector3.new(30, 20, 30)
             ):ExpandToGrid(4)
-            return workspace:FindPartsInRegion3(region, nil, isFreeTier and 30 or 50)
+            
+            return Workspace:FindPartsInRegion3(region, nil, isFreeTier and 25 or 50)
         end)
         
-        if success and parts then
-            for _, part in ipairs(parts) do
+        if success and foundParts then
+            for _, part in ipairs(foundParts) do
                 local partSuccess = pcall(function()
-                    if part and part.Parent and (part.Position - coord).Magnitude <= 20 then
-                        return true
-                    end
+                    return part and part.Parent and (part.Position - searchPos).Magnitude <= 25
                 end)
                 
                 if partSuccess then
-                    return Vector3.new(coord.X, coord.Y + 10, coord.Z) -- Add height offset
+                    return {
+                        pos = Vector3.new(searchPos.X, searchPos.Y + 3, searchPos.Z),
+                        name = location.name
+                    }
                 end
             end
         end
         
-        task.wait(isFreeTier and 1 or 0.5) -- Longer delays for free executors
+        safeWait(isFreeTier and 1 or 0.3)
     end
     
     return nil
 end
 
--- [[ GUI CREATION ]] --
-local MainTab = Window:CreateTab({ Title = "🎣 Main Features", Icon = "fish" })
+-- [[ LOCHNESS MONSTER TIMER SYSTEM ]] --
+local LOCHNESS_INTERVAL = 4 * 3600  -- 4 hours in seconds
+local LOCHNESS_DURATION = 10 * 60   -- 10 minutes in seconds
+local lochCountdownGUI = nil
 
--- Status Section
-local StatusSection = MainTab:CreateSection("📊 Player Status")
+local function getLochnessSchedule()
+    local currentTime = os.time()
+    local cycleStart = math.floor(currentTime / LOCHNESS_INTERVAL) * LOCHNESS_INTERVAL
+    
+    if currentTime >= cycleStart + LOCHNESS_DURATION then
+        cycleStart = cycleStart + LOCHNESS_INTERVAL
+    end
+    
+    local eventStart = cycleStart
+    local eventEnd = eventStart + LOCHNESS_DURATION
+    local isActive = currentTime >= eventStart and currentTime < eventEnd
+    
+    return eventStart, eventEnd, isActive
+end
 
-local StatusLabel = StatusSection:CreateParagraph({
-    Title = "Current Status",
-    Content = "Initializing..."
+local function formatTime(seconds)
+    seconds = math.max(0, math.floor(seconds))
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+    
+    if hours > 0 then
+        return string.format("%02d:%02d:%02d", hours, minutes, secs)
+    else
+        return string.format("%02d:%02d", minutes, secs)
+    end
+end
+
+-- [[ FLUENT UI CREATION ]] --
+local Window = Fluent:CreateWindow({
+    Title = "🎣 Fish It Hub",
+    SubTitle = "Universal Edition v2.0",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(600, 500),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftAlt
 })
 
--- Auto-update status
-task.spawn(function()
-    while task.wait(isFreeTier and 2 or 1) do -- Slower updates for free executors
-        local status = getUniversalStatus()
-        StatusLabel:SetContent("Location: " .. status .. "\nExecutor: " .. currentExecutor .. " " .. (isFreeTier and "(Free)" or "(Premium)"))
-    end
-end)
+local Tabs = {
+    Main = Window:AddTab({ Title = "🎣 Main", Icon = "fish" }),
+    Events = Window:AddTab({ Title = "⚡ Events", Icon = "zap" }),
+    Auto = Window:AddTab({ Title = "🤖 Auto", Icon = "bot" }),
+    Status = Window:AddTab({ Title = "📊 Status", Icon = "activity" }),
+    Settings = Window:AddTab({ Title = "⚙️ Settings", Icon = "settings" })
+}
 
--- Teleport Section
-local TeleportSection = MainTab:CreateSection("🌍 Teleportation")
+-- [[ MAIN TAB ]] --
+local MainSection = Tabs.Main:AddSection("🌍 Teleportation")
 
-local eventDropdown = TeleportSection:CreateDropdown({
+local EventDropdown = Tabs.Main:AddDropdown("EventSelect", {
     Title = "Select Event",
-    Values = {"Shark Hunt", "Worm Hunt", "Megalodon Hunt", "Ghost Shark Hunt", "Treasure Hunt"},
+    Description = "Choose which event to teleport to",
+    Values = {"Shark Hunt", "Worm Hunt", "Megalodon Hunt", "Ghost Shark Hunt", "Treasure Hunt", "Black Hole", "Meteor Rain"},
     Multi = false,
     Default = 1,
 })
 
-Reg("selected_event", eventDropdown)
+EventDropdown:OnChanged(function(Value)
+    selectedEvent = Value
+    if Config.EnableDebugMode then
+        print("[Debug] Selected event:", Value)
+    end
+end)
 
-TeleportSection:CreateButton({
+Tabs.Main:AddButton({
     Title = "🎯 Teleport to Event",
-    Description = "Teleport to selected event location",
+    Description = "Instantly teleport to the selected event location",
     Callback = function()
-        local selectedEvent = eventDropdown.Value
-        if not selectedEvent or selectedEvent == "" then
-            WindUI:Notify({
-                Title = "No Event Selected",
-                Description = "Please select an event first",
-                Duration = 3,
-                Icon = "alert-triangle"
+        if not selectedEvent then
+            Fluent:Notify({
+                Title = "❌ No Event Selected",
+                Content = "Please select an event first",
+                Duration = 3
             })
             return
         end
         
-        WindUI:Notify({
-            Title = "Searching for " .. selectedEvent,
-            Description = "Please wait...",
-            Duration = 2,
-            Icon = "search"
+        Fluent:Notify({
+            Title = "🔍 Searching...",
+            Content = "Looking for " .. selectedEvent,
+            Duration = 2
         })
         
         task.spawn(function()
-            local eventPos = scanForEvent(selectedEvent)
-            if eventPos then
-                universalTeleport(eventPos)
+            local activeEvent = scanForActiveEvent(selectedEvent)
+            if activeEvent then
+                local success, result = universalTeleport(activeEvent.pos, activeEvent.name)
+                if success then
+                    Fluent:Notify({
+                        Title = "✅ Teleported!",
+                        Content = "Moved to " .. result,
+                        Duration = 4
+                    })
+                else
+                    Fluent:Notify({
+                        Title = "❌ Teleport Failed",
+                        Content = result,
+                        Duration = 4
+                    })
+                end
             else
-                WindUI:Notify({
-                    Title = "Event Not Found",
-                    Description = selectedEvent .. " is not currently active",
-                    Duration = 4,
-                    Icon = "x-circle"
-                })
+                -- Use preset location as fallback
+                if EventLocations[selectedEvent] and #EventLocations[selectedEvent] > 0 then
+                    local fallbackLocation = EventLocations[selectedEvent][1]
+                    local success, result = universalTeleport(fallbackLocation.pos, fallbackLocation.name)
+                    if success then
+                        Fluent:Notify({
+                            Title = "📍 Teleported to Preset Location",
+                            Content = selectedEvent .. " (Event may not be active)",
+                            Duration = 4
+                        })
+                    end
+                else
+                    Fluent:Notify({
+                        Title = "❌ Event Not Found",
+                        Content = selectedEvent .. " is not currently active",
+                        Duration = 4
+                    })
+                end
             end
         end)
     end
 })
 
--- Auto Event Section
-local AutoSection = MainTab:CreateSection("🤖 Auto Features")
+Tabs.Main:AddButton({
+    Title = "🏠 Teleport to Spawn",
+    Description = "Return to the spawn location",
+    Callback = function()
+        local success, result = universalTeleport(Vector3.new(0, 50, 0), "Spawn")
+        if success then
+            Fluent:Notify({
+                Title = "🏠 Returned to Spawn",
+                Content = "Teleported safely",
+                Duration = 3
+            })
+        else
+            Fluent:Notify({
+                Title = "❌ Teleport Failed",
+                Content = result,
+                Duration = 3
+            })
+        end
+    end
+})
 
-local autoEventToggle = AutoSection:CreateToggle({
-    Title = "Auto Event Teleport",
-    Description = "Automatically teleport to events when they spawn",
+-- [[ EVENTS TAB ]] --
+local EventsSection = Tabs.Events:AddSection("⚡ Event Information")
+
+local LochToggle = Tabs.Events:AddToggle("LochCountdown", {
+    Title = "🐉 Lochness Monster Timer",
+    Description = "Show countdown to next Lochness Monster event",
     Default = false
 })
 
-Reg("auto_event", autoEventToggle)
+LochToggle:OnChanged(function(Value)
+    if Value then
+        -- Show Lochness countdown
+        task.spawn(function()
+            while LochToggle.Value do
+                local startTime, endTime, isActive = getLochnessSchedule()
+                local currentTime = os.time()
+                local timeRemaining = isActive and (endTime - currentTime) or (startTime - currentTime)
+                
+                local status = isActive and "🔥 ACTIVE" or "⏰ Upcoming"
+                local timeStr = formatTime(math.max(0, timeRemaining))
+                
+                Fluent:Notify({
+                    Title = "🐉 Lochness Monster",
+                    Content = status .. " - " .. timeStr,
+                    Duration = 1
+                })
+                
+                task.wait(isFreeTier and 60 or 30) -- Update every 30-60 seconds
+            end
+        end)
+    end
+end)
 
-autoEventToggle:OnChanged(function(Value)
+-- Event quick teleport buttons
+Tabs.Events:AddButton({
+    Title = "🦈 Quick Teleport - Shark Hunt",
+    Description = "Instantly teleport to Shark Hunt location",
+    Callback = function()
+        selectedEvent = "Shark Hunt"
+        local location = EventLocations["Shark Hunt"][1]
+        local success, result = universalTeleport(location.pos, location.name)
+        if success then
+            Fluent:Notify({
+                Title = "🦈 Shark Hunt",
+                Content = "Teleported to " .. result,
+                Duration = 3
+            })
+        end
+    end
+})
+
+Tabs.Events:AddButton({
+    Title = "🪱 Quick Teleport - Worm Hunt", 
+    Description = "Instantly teleport to Worm Hunt location",
+    Callback = function()
+        selectedEvent = "Worm Hunt"
+        local location = EventLocations["Worm Hunt"][1]
+        local success, result = universalTeleport(location.pos, location.name)
+        if success then
+            Fluent:Notify({
+                Title = "🪱 Worm Hunt",
+                Content = "Teleported to " .. result,
+                Duration = 3
+            })
+        end
+    end
+})
+
+Tabs.Events:AddButton({
+    Title = "🦣 Quick Teleport - Megalodon Hunt",
+    Description = "Instantly teleport to Megalodon Hunt location", 
+    Callback = function()
+        selectedEvent = "Megalodon Hunt"
+        local location = EventLocations["Megalodon Hunt"][1]
+        local success, result = universalTeleport(location.pos, location.name)
+        if success then
+            Fluent:Notify({
+                Title = "🦣 Megalodon Hunt", 
+                Content = "Teleported to " .. result,
+                Duration = 3
+            })
+        end
+    end
+})
+
+-- [[ AUTO TAB ]] --
+local AutoSection = Tabs.Auto:AddSection("🤖 Automation Features")
+
+local AutoEventToggle = Tabs.Auto:AddToggle("AutoEvent", {
+    Title = "Auto Event Teleport",
+    Description = "Automatically teleport when events become active",
+    Default = false
+})
+
+AutoEventToggle:OnChanged(function(Value)
     autoEventRunning = Value
-    currentAutoEvent = eventDropdown.Value
     
     if Value then
-        WindUI:Notify({
-            Title = "Auto Event Started",
-            Description = "Watching for: " .. (currentAutoEvent or "Any Event"),
-            Duration = 3,
-            Icon = "play"
+        Fluent:Notify({
+            Title = "🤖 Auto Event Started", 
+            Content = "Watching for: " .. selectedEvent,
+            Duration = 3
         })
         
-        task.spawn(function()
+        autoEventThread = task.spawn(function()
             while autoEventRunning do
-                if currentAutoEvent then
-                    local pos = scanForEvent(currentAutoEvent)
-                    if pos then
-                        universalTeleport(pos)
-                        WindUI:Notify({
-                            Title = "Auto Teleport",
-                            Description = "Found " .. currentAutoEvent,
-                            Duration = 3,
-                            Icon = "zap"
-                        })
+                if selectedEvent then
+                    local activeEvent = scanForActiveEvent(selectedEvent)
+                    if activeEvent then
+                        local success, result = universalTeleport(activeEvent.pos, activeEvent.name)
+                        if success then
+                            Fluent:Notify({
+                                Title = "⚡ Auto Teleport",
+                                Content = "Found active " .. selectedEvent,
+                                Duration = 5
+                            })
+                        end
+                        
+                        -- Wait longer after successful teleport
+                        safeWait(Config.ScanInterval * 2)
                     end
                 end
-                task.wait(UniversalConfig.ScanInterval)
+                
+                safeWait(Config.ScanInterval)
             end
         end)
     else
-        WindUI:Notify({
-            Title = "Auto Event Stopped",
-            Duration = 2,
-            Icon = "stop"
+        if autoEventThread then
+            task.cancel(autoEventThread)
+            autoEventThread = nil
+        end
+        
+        Fluent:Notify({
+            Title = "🛑 Auto Event Stopped",
+            Content = "Automation disabled",
+            Duration = 2
         })
     end
 end)
 
--- Settings Tab
-local SettingsTab = Window:CreateTab({ Title = "⚙️ Settings", Icon = "settings" })
+local ScanIntervalSlider = Tabs.Auto:AddSlider("ScanInterval", {
+    Title = "Scan Interval",
+    Description = "How often to check for events (seconds)",
+    Default = Config.ScanInterval,
+    Min = 5,
+    Max = 60,
+    Rounding = 1,
+    Callback = function(Value)
+        Config.ScanInterval = Value
+    end
+})
 
-local ExecutorSection = SettingsTab:CreateSection("🔧 Executor Info")
+-- [[ STATUS TAB ]] --
+local StatusSection = Tabs.Status:AddSection("📊 Player Information")
 
-ExecutorSection:CreateParagraph({
-    Title = "Compatibility Info",
+local StatusParagraph = Tabs.Status:AddParagraph({
+    Title = "Current Status",
+    Content = "Loading status information..."
+})
+
+local ExecutorInfo = Tabs.Status:AddParagraph({
+    Title = "Executor Information", 
     Content = "Executor: " .. currentExecutor .. "\n" ..
              "Tier: " .. (isFreeTier and "Free" or "Premium") .. "\n" ..
-             "Teleport Delay: " .. UniversalConfig.TeleportDelay .. "s\n" ..
-             "Scan Interval: " .. UniversalConfig.ScanInterval .. "s"
+             "Advanced Features: " .. (Config.UseAdvancedFeatures and "Enabled" or "Disabled")
 })
 
-local DebugSection = SettingsTab:CreateSection("🐛 Debug")
-
-DebugSection:CreateToggle({
-    Title = "Debug Mode",
-    Description = "Show detailed logs in console",
-    Default = false
-}):OnChanged(function(Value)
-    UniversalConfig.EnableDebugMode = Value
-    print("[Debug] Debug mode:", Value and "ON" or "OFF")
+-- Status update loop
+statusUpdateThread = task.spawn(function()
+    while task.wait(isFreeTier and 3 or 1.5) do
+        currentStatus = detectPlayerStatus()
+        local character = LocalPlayer.Character
+        local position = "Unknown"
+        
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local pos = character.HumanoidRootPart.Position
+            position = string.format("X: %d, Y: %d, Z: %d", 
+                math.floor(pos.X), math.floor(pos.Y), math.floor(pos.Z))
+        end
+        
+        StatusParagraph:SetContent(
+            "Status: " .. currentStatus .. "\n" ..
+            "Position: " .. position .. "\n" ..
+            "Selected Event: " .. (selectedEvent or "None") .. "\n" ..
+            "Auto Event: " .. (autoEventRunning and "🟢 Running" or "🔴 Stopped")
+        )
+    end
 end)
 
--- Final notification
-WindUI:Notify({
-    Title = "🎣 Fish It Universal Loaded!",
-    Description = "Compatible with " .. currentExecutor .. " executor\n" .. 
-                 (isFreeTier and "Free tier optimizations active" or "Premium features available"),
-    Duration = 5,
-    Icon = "check-circle"
+-- [[ SETTINGS TAB ]] --
+local SettingsSection = Tabs.Settings:AddSection("⚙️ Configuration")
+
+local TeleportDelaySlider = Tabs.Settings:AddSlider("TeleportDelay", {
+    Title = "Teleport Delay", 
+    Description = "Delay between teleports (seconds)",
+    Default = Config.TeleportDelay,
+    Min = 1,
+    Max = 10,
+    Rounding = 0.5,
+    Callback = function(Value)
+        Config.TeleportDelay = Value
+    end
 })
 
-print("=== 🎣 FISH IT UNIVERSAL SCRIPT LOADED ===")
-print("Executor:", currentExecutor)
-print("Free Tier:", isFreeTier)
-print("All features loaded successfully!")
-print("=== READY TO USE ===")
+local DebugToggle = Tabs.Settings:AddToggle("DebugMode", {
+    Title = "Debug Mode",
+    Description = "Show detailed information in console",
+    Default = false
+})
+
+DebugToggle:OnChanged(function(Value)
+    Config.EnableDebugMode = Value
+    if Value then
+        print("[🐛 Debug] Debug mode enabled")
+        print("[🐛 Debug] Executor:", currentExecutor)
+        print("[🐛 Debug] Free Tier:", isFreeTier)
+        print("[🐛 Debug] Config:", Config)
+    end
+end)
+
+Tabs.Settings:AddButton({
+    Title = "🔄 Reset All Settings",
+    Description = "Reset all settings to default values",
+    Callback = function()
+        Config.TeleportDelay = isFreeTier and 3 or 1
+        Config.ScanInterval = isFreeTier and 20 or 8
+        Config.EnableDebugMode = false
+        
+        TeleportDelaySlider:SetValue(Config.TeleportDelay)
+        ScanIntervalSlider:SetValue(Config.ScanInterval) 
+        DebugToggle:SetValue(false)
+        
+        Fluent:Notify({
+            Title = "🔄 Settings Reset",
+            Content = "All settings restored to defaults",
+            Duration = 3
+        })
+    end
+})
+
+-- [[ SAVE MANAGER SETUP ]] --
+SaveManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+SaveManager:SetFolder("FishItHub")
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+InterfaceManager:SetLibrary(Fluent)
+InterfaceManager:SetFolder("FishItHub")
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+
+SaveManager:LoadAutoloadConfig()
+
+-- [[ INITIALIZATION ]] --
+local function initialize()
+    -- Setup Anti-AFK
+    local antiAFKSuccess = setupAntiAFK()
+    
+    -- Welcome notification
+    Fluent:Notify({
+        Title = "🎣 Fish It Hub Loaded!",
+        Content = "Welcome! Executor: " .. currentExecutor .. "\n" ..
+                 "Anti-AFK: " .. (antiAFKSuccess and "✅" or "❌") .. "\n" ..
+                 "Ready to use!",
+        Duration = 6
+    })
+    
+    -- Debug info
+    if Config.EnableDebugMode then
+        print("=== 🎣 FISH IT HUB DEBUG INFO ===")
+        print("Executor:", currentExecutor)
+        print("Free Tier:", isFreeTier) 
+        print("Anti-AFK:", antiAFKSuccess)
+        print("Config:", Config)
+        print("=== INITIALIZATION COMPLETE ===")
+    end
+end
+
+-- Start initialization
+initialize()
+
+-- [[ CLEANUP ON SCRIPT END ]] --
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+    if player == LocalPlayer then
+        if statusUpdateThread then
+            task.cancel(statusUpdateThread)
+        end
+        if autoEventThread then
+            task.cancel(autoEventThread)
+        end
+    end
+end)
+
+print("🎣 Fish It Hub - Fluent UI Edition loaded successfully!")
+print("Executor: " .. currentExecutor .. " | Free Tier: " .. tostring(isFreeTier))
+print("Press Left Alt to minimize/restore the GUI")
