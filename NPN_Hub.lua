@@ -1433,9 +1433,9 @@ do
             local t = tick()
             V4_State.lastCast = t
             
-            safe(function() Remotes.Charge:InvokeServer({[1] = t}) end)
+            safe(function() Remotes.Charge:InvokeServer({[30] = t}) end)
             task.wait(0.001)
-            safe(function() Remotes.StartMinigame:InvokeServer(1, 0, t) end)
+            safe(function() Remotes.StartMinigame:InvokeServer(10, 0, t) end)
         end
         
         local function V4_MainLoop()
@@ -1608,7 +1608,7 @@ do
 
     Remotes.REFishCaught.OnClientEvent:Connect(function(fishName, info)
         if V5_Active then
-            _G.RecastSpam()
+            autoRecast()
         end
     end)
 
