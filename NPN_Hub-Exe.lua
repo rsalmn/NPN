@@ -1,8 +1,8 @@
--- [[ FISH IT HUB - FLUENT UI EDITION - FIXED ]] --
+-- [[ FISH IT HUB - FLUENT UI WITH ADVANCED FEATURES ]] --
+-- Implementasi fitur dari Wind UI ke Fluent UI
 -- Universal compatibility untuk semua executor
--- Optimized untuk Delta, Xeno, Krnl, JJSploit, Fluxus
 
--- [[ EXECUTOR DETECTION & CONFIGURATION ]] --
+-- [[ EXECUTOR DETECTION ]] --
 local function detectExecutor()
     if identifyexecutor then
         local name = identifyexecutor():lower()
@@ -20,50 +20,30 @@ end
 local currentExecutor = detectExecutor()
 local isFreeTier = (currentExecutor == "xeno" or currentExecutor == "krnl" or currentExecutor == "jjsploit")
 
--- Universal configuration
+-- Configuration
 local Config = {
     TeleportDelay = isFreeTier and 3 or 1,
     ScanInterval = isFreeTier and 20 or 8,
     MaxTeleportDistance = isFreeTier and 800 or 9999,
     UseAdvancedFeatures = not isFreeTier,
     AddRandomDelay = isFreeTier,
-    EnableDebugMode = false
+    EnableDebugMode = false,
+    SearchRadius = 25,
+    HeightOffset = 15,
+    WaitForEventTimeout = 300
 }
 
 -- [[ FLUENT UI LOADER ]] --
-local function loadFluentUI()
-    local success, Fluent = pcall(function()
-        return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-    end)
-    
-    if not success then
-        -- Fallback URL
-        success, Fluent = pcall(function()
-            return loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Source.lua"))()
-        end)
-    end
-    
-    if not success then
-        error("Failed to load Fluent UI! Please check your internet connection.")
-    end
-    
-    return Fluent
-end
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
-local Fluent = loadFluentUI()
-
--- Load save manager
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
-
--- [[ SERVICES & VARIABLES ]] --
+-- [[ SERVICES ]] --
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
+local RepStorage = game:GetService("ReplicatedStorage")
 
 -- Script variables
 local autoEventRunning = false
@@ -72,6 +52,45 @@ local lastTeleportTime = 0
 local currentStatus = "Initializing..."
 local statusUpdateThread = nil
 local autoEventThread = nil
+local lochCountdownGui = nil
+local lochCountdownThread = nil
+
+-- Event variables
+local cachedEventPosition = nil
+local eventIsActive = false
+local lastTeleportPosition = nil
+local lastScanTime = 0
+local scanCooldown = 10
+
+-- [[ ADVANCED ANTI-AFK SYSTEM ]] --
+local function setupAntiAFK()
+    local success = false
+    
+    -- Advanced method dari Wind UI
+    pcall(function()
+        local player = LocalPlayer
+        for i, v in pairs(getconnections(player.Idled)) do
+            if v.Disable then
+                v:Disable()
+                success = true
+            end
+        end
+    end)
+    
+    -- Fallback method
+    if not success then
+        pcall(function()
+            LocalPlayer.Idled:Connect(function()
+                VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+                task.wait(0.1)
+                VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+            end)
+            success = true
+        end)
+    end
+    
+    return success
+end
 
 -- [[ HELPER FUNCTIONS ]] --
 local function safeWait(duration)
@@ -86,250 +105,311 @@ local function GetCharacter()
 end
 
 local function GetHumanoid()
-    local character = GetCharacter()
-    return character and character:FindFirstChildOfClass("Humanoid")
+    local Character = LocalPlayer.Character
+    if not Character then Character = LocalPlayer.CharacterAdded:Wait() end
+    return Character:FindFirstChildOfClass("Humanoid")
 end
 
 local function GetHRP()
-    local character = GetCharacter()
-    return character and character:WaitForChild("HumanoidRootPart", 5)
+    local Character = LocalPlayer.Character
+    if not Character then Character = LocalPlayer.CharacterAdded:Wait() end
+    return Character:WaitForChild("HumanoidRootPart", 5)
 end
 
--- [[ ANTI-AFK SYSTEM ]] --
-local function setupAntiAFK()
-    local success = false
+-- [[ ADVANCED STATUS DETECTION - DARI WIND UI ]] --
+local function getStatus()
+    local char = LocalPlayer.Character
+    if not char then return "UNKNOWN" end
     
-    -- Advanced method for premium executors
-    if Config.UseAdvancedFeatures then
-        pcall(function()
-            for _, connection in pairs(getconnections(LocalPlayer.Idled)) do
-                if connection.Disable then
-                    connection:Disable()
-                    success = true
-                end
+    local hum = char:FindFirstChild("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or not hrp then return "UNKNOWN" end
+
+    -- Cek State Swimming (Paling Akurat)
+    if hum:GetState() == Enum.HumanoidStateType.Swimming then
+        return "🌊 WATER (SWIMMING)"
+    end
+
+    -- Cek Material Pijakan (FloorMaterial)
+    if hum.FloorMaterial == Enum.Material.Water then
+        return "🌊 WATER"
+    end
+    
+    if hum.FloorMaterial ~= Enum.Material.Air then
+        return "🏝️ LAND"
+    end
+
+    -- Raycast Fallback
+    local origin = hrp.Position
+    local direction = Vector3.new(0, -15, 0)
+
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {char}
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.IgnoreWater = false
+
+    local result = Workspace:Raycast(origin, direction, params)
+
+    if result then
+        if result.Material == Enum.Material.Water then
+            return "🌊 WATER"
+        else
+            return "🏝️ LAND"
+        end
+    end
+
+    return "✈️ AIRBORNE"
+end
+
+-- [[ LOCHNESS TIMER SYSTEM - DARI WIND UI ]] --
+local LOCH_INTERVAL = 4 * 3600    -- 4 jam
+local LOCH_DURATION = 10 * 60     -- 10 menit
+
+local function getLochNextTimes()
+    local now = os.time()
+    local base = math.floor(now / LOCH_INTERVAL) * LOCH_INTERVAL
+    if now >= base + LOCH_DURATION then
+        base = base + LOCH_INTERVAL
+    end
+    local startTime = base
+    local endTime = startTime + LOCH_DURATION
+    local active = now >= startTime and now < endTime
+    return startTime, endTime, active
+end
+
+local function formatTimeSeconds(sec)
+    sec = math.max(0, math.floor(sec))
+    local m = math.floor(sec / 60)
+    local s = sec % 60
+    return string.format("%02d:%02d", m, s)
+end
+
+local function showLochCountdown()
+    if lochCountdownGui and lochCountdownGui.Parent then
+        lochCountdownGui.Enabled = true
+        return
+    end
+
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    lochCountdownGui = Instance.new("ScreenGui")
+    lochCountdownGui.Name = "LochnessCountdownGUI"
+    lochCountdownGui.ResetOnSpawn = false
+    lochCountdownGui.IgnoreGuiInset = true
+    lochCountdownGui.Parent = playerGui
+
+    local frame = Instance.new("Frame")
+    frame.Name = "LochFrame"
+    frame.AnchorPoint = Vector2.new(0.5, 0)
+    frame.Size = UDim2.new(0, 280, 0, 50)
+    frame.Position = UDim2.new(0.5, 0, 0.06, 0)
+    frame.BackgroundTransparency = 0.3
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    frame.BorderSizePixel = 0
+    frame.Parent = lochCountdownGui
+
+    -- Rounded corners
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -12, 1, -8)
+    label.Position = UDim2.new(0, 6, 0, 4)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 16
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Text = "🐉 Lochness: calculating..."
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.Parent = frame
+
+    -- Update loop
+    if lochCountdownThread then task.cancel(lochCountdownThread) end
+    lochCountdownThread = task.spawn(function()
+        while lochCountdownGui and lochCountdownGui.Parent do
+            local startT, endT, active = getLochNextTimes()
+            local now = os.time()
+            local remaining = (active and (endT - now)) or (startT - now)
+            remaining = math.max(0, remaining)
+            if active then
+                label.Text = ("🔥 Lochness ACTIVE! Ends in %s"):format(formatTimeSeconds(remaining))
+                label.TextColor3 = Color3.fromRGB(255, 100, 100)
+            else
+                label.Text = ("🐉 Next Lochness in %s"):format(formatTimeSeconds(remaining))
+                label.TextColor3 = Color3.fromRGB(100, 200, 255)
             end
-        end)
+            task.wait(1)
+        end
+    end)
+end
+
+local function hideLochCountdown()
+    if lochCountdownThread then
+        pcall(function() task.cancel(lochCountdownThread) end)
+        lochCountdownThread = nil
     end
-    
-    -- Universal fallback method
-    if not success then
-        pcall(function()
-            LocalPlayer.Idled:Connect(function()
-                VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
-                safeWait(0.1)
-                VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
-            end)
-            success = true
-        end)
+    if lochCountdownGui then
+        pcall(function() lochCountdownGui:Destroy() end)
+        lochCountdownGui = nil
     end
-    
+end
+
+-- [[ ADVANCED EVENT LOCATIONS - DARI WIND UI ]] --
+local EventLocations = {
+    ["Shark Hunt"] = {
+        Vector3.new(1.64999, -1.3500, 2095.72),
+        Vector3.new(1369.94, -1.3500, 930.125),
+        Vector3.new(-1585.5, -1.3500, 1242.87),
+        Vector3.new(-1896.8, -1.3500, 2634.37),
+    },
+    ["Worm Hunt"] = {
+        Vector3.new(2190.85, -1.3999, 97.5749),
+        Vector3.new(-2450.6, -1.3999, 139.731),
+        Vector3.new(-267.47, -1.3999, 5188.53),
+    },
+    ["Megalodon Hunt"] = {
+        Vector3.new(-1076.3, -1.3999, 1676.19),
+        Vector3.new(-1191.8, -1.3999, 3597.30),
+        Vector3.new(412.700, -1.3999, 4134.39),
+    },
+    ["Ghost Shark Hunt"] = {
+        Vector3.new(489.558, -1.3500, 25.4060),
+        Vector3.new(-1358.2, -1.3500, 4100.55),
+        Vector3.new(627.859, -1.3500, 3798.08),
+    },
+    ["Lochness Hunt"] = {
+        Vector3.new(0, 5, 0), -- Dynamic location
+    },
+    ["Ghost Worm"] = {
+        Vector3.new(-500, 5, -500),
+    },
+    ["Black Hole"] = {
+        Vector3.new(1000, 5, 1000),
+    },
+    ["Shocked"] = {
+        Vector3.new(-1000, 5, -1000),
+    },
+    ["Meteor Rain"] = {
+        Vector3.new(2000, 5, 2000),
+    },
+    ["Treasure Event"] = {
+        Vector3.new(-2000, 5, -2000),
+    }
+}
+
+-- [[ ADVANCED TELEPORT SYSTEM ]] --
+local function applyOffset(v)
+    return Vector3.new(v.X, v.Y + Config.HeightOffset, v.Z)
+end
+
+local function isAlivePart(p)
+    if typeof(p) ~= "Instance" then return false end
+    if not p:IsA("BasePart") then return false end
+
+    local success = pcall(function()
+        return p.Parent ~= nil and p:IsDescendantOf(Workspace)
+    end)
+
     return success
 end
 
--- [[ STATUS DETECTION SYSTEM ]] --
-local function detectPlayerStatus()
-    local success, result = pcall(function()
-        local character = LocalPlayer.Character
-        if not character then return "No Character" end
-        
-        local humanoid = character:FindFirstChild("Humanoid")
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        
-        if not humanoid or not hrp then return "Loading..." end
+local function advancedEventScan(eventName)
+    local now = tick()
+    if now - lastScanTime < scanCooldown then
+        return cachedEventPosition
+    end
 
-        -- Check swimming state
-        if humanoid:GetState() == Enum.HumanoidStateType.Swimming then
-            return "🌊 Swimming"
-        end
+    local list = EventLocations[eventName]
+    if not list or #list == 0 then return nil end
 
-        -- Check floor material
-        local floorMaterial = humanoid.FloorMaterial
-        if floorMaterial == Enum.Material.Water then
-            return "🌊 In Water"
-        elseif floorMaterial ~= Enum.Material.Air then
-            return "🏝️ On Land"
-        end
+    lastScanTime = now
 
-        -- Raycast check (for premium executors)
-        if Config.UseAdvancedFeatures then
-            local raycastParams = RaycastParams.new()
-            raycastParams.FilterDescendantsInstances = {character}
-            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-            raycastParams.IgnoreWater = false
-            
-            local raycastResult = Workspace:Raycast(
-                hrp.Position, 
-                Vector3.new(0, -15, 0), 
-                raycastParams
-            )
-            
-            if raycastResult then
-                if raycastResult.Material == Enum.Material.Water then
-                    return "🌊 Above Water"
-                else
-                    return "🏝️ Above Land"
+    for _, coord in ipairs(list) do
+        local region = Region3.new(
+            coord - Vector3.new(30, 30, 30),
+            coord + Vector3.new(30, 30, 30)
+        ):ExpandToGrid(4)
+
+        local ok, parts = pcall(function()
+            return Workspace:FindPartsInRegion3(region, nil, 50)
+        end)
+
+        if ok and parts and #parts > 0 then
+            for _, p in ipairs(parts) do
+                if isAlivePart(p) then
+                    local ps = p.Position
+                    if (ps - coord).Magnitude <= Config.SearchRadius then
+                        local final = applyOffset(ps)
+                        cachedEventPosition = final
+                        eventIsActive = true
+                        return final
+                    end
                 end
             end
         end
-
-        return "✈️ Airborne"
-    end)
-    
-    return success and result or "❌ Error"
+    end
+    return nil
 end
-
--- [[ EVENT TELEPORT SYSTEM ]] --
-local EventLocations = {
-    ["Shark Hunt"] = {
-        {pos = Vector3.new(1.65, 5, 2095.72), name = "Shark Spot 1"},
-        {pos = Vector3.new(1369.94, 5, 930.12), name = "Shark Spot 2"},
-        {pos = Vector3.new(-1585.5, 5, 1242.87), name = "Shark Spot 3"},
-        {pos = Vector3.new(-1896.8, 5, 2634.37), name = "Shark Spot 4"}
-    },
-    ["Worm Hunt"] = {
-        {pos = Vector3.new(2190.85, 5, 97.57), name = "Worm Spot 1"},
-        {pos = Vector3.new(-2450.6, 5, 139.73), name = "Worm Spot 2"},
-        {pos = Vector3.new(-267.47, 5, 5188.53), name = "Worm Spot 3"}
-    },
-    ["Megalodon Hunt"] = {
-        {pos = Vector3.new(-1076.3, 5, 1676.19), name = "Megalodon Spot 1"},
-        {pos = Vector3.new(-1191.8, 5, 3597.30), name = "Megalodon Spot 2"},
-        {pos = Vector3.new(412.70, 5, 4134.39), name = "Megalodon Spot 3"}
-    },
-    ["Ghost Shark Hunt"] = {
-        {pos = Vector3.new(489.56, 5, 25.41), name = "Ghost Spot 1"},
-        {pos = Vector3.new(-1358.2, 5, 4100.55), name = "Ghost Spot 2"},
-        {pos = Vector3.new(627.86, 5, 3798.08), name = "Ghost Spot 3"}
-    },
-    ["Treasure Hunt"] = {
-        {pos = Vector3.new(0, 5, 0), name = "Treasure Island"}
-    },
-    ["Black Hole"] = {
-        {pos = Vector3.new(-500, 5, -500), name = "Black Hole Zone"}
-    },
-    ["Meteor Rain"] = {
-        {pos = Vector3.new(1000, 5, 1000), name = "Meteor Zone"}
-    }
-}
 
 local function universalTeleport(targetPosition, locationName)
     if not targetPosition or typeof(targetPosition) ~= "Vector3" then 
         return false, "Invalid position"
     end
     
-    -- Rate limiting
     local currentTime = tick()
-    if currentTime - lastTeleportTime < Config.TeleportDelay then
-        local remaining = math.ceil(Config.TeleportDelay - (currentTime - lastTeleportTime))
-        return false, "Cooldown: " .. remaining .. "s"
+    local delayTime = tonumber(Config.TeleportDelay) or 1
+    
+    if currentTime - lastTeleportTime < delayTime then
+        local remaining = math.ceil(delayTime - (currentTime - lastTeleportTime))
+        return false, "Cooldown: " .. tostring(remaining) .. "s"
     end
     
-    local success, error = pcall(function()
+    local success, err = pcall(function()
         local hrp = GetHRP()
         if not hrp then error("No HumanoidRootPart found") end
         
-        -- Add random delay for free executors
         if Config.AddRandomDelay then
             safeWait(math.random(50, 150) / 100)
         end
         
         local currentPos = hrp.Position
         local distance = (targetPosition - currentPos).Magnitude
+        local maxDistance = tonumber(Config.MaxTeleportDistance) or 9999
         
-        -- Split long teleports for free executors
-        if isFreeTier and distance > Config.MaxTeleportDistance then
+        if isFreeTier and distance > maxDistance then
             local midpoint = currentPos:Lerp(targetPosition, 0.5)
             hrp.CFrame = CFrame.new(midpoint)
             safeWait(1.5)
         end
         
-        -- Final teleport
-        hrp.CFrame = CFrame.new(targetPosition)
+        -- Advanced teleport with look direction
+        local character = LocalPlayer.Character
+        if character and character.PrimaryPart then
+            character:PivotTo(CFrame.new(targetPosition))
+        else
+            hrp.CFrame = CFrame.new(targetPosition)
+        end
+        
         lastTeleportTime = currentTime
+        lastTeleportPosition = targetPosition
     end)
     
     if success then
         return true, locationName or "Unknown Location"
     else
-        return false, tostring(error)
-    end
-end
-
-local function scanForActiveEvent(eventName)
-    if not EventLocations[eventName] then return nil end
-    
-    for _, location in ipairs(EventLocations[eventName]) do
-        local searchPos = location.pos
-        local success, foundParts = pcall(function()
-            local region = Region3.new(
-                searchPos - Vector3.new(30, 20, 30),
-                searchPos + Vector3.new(30, 20, 30)
-            ):ExpandToGrid(4)
-            
-            return Workspace:FindPartsInRegion3(region, nil, isFreeTier and 25 or 50)
-        end)
-        
-        if success and foundParts then
-            for _, part in ipairs(foundParts) do
-                local partSuccess = pcall(function()
-                    return part and part.Parent and (part.Position - searchPos).Magnitude <= 25
-                end)
-                
-                if partSuccess then
-                    return {
-                        pos = Vector3.new(searchPos.X, searchPos.Y + 3, searchPos.Z),
-                        name = location.name
-                    }
-                end
-            end
-        end
-        
-        safeWait(isFreeTier and 1 or 0.3)
-    end
-    
-    return nil
-end
-
--- [[ LOCHNESS MONSTER TIMER SYSTEM ]] --
-local LOCHNESS_INTERVAL = 4 * 3600  -- 4 hours in seconds
-local LOCHNESS_DURATION = 10 * 60   -- 10 minutes in seconds
-
-local function getLochnessSchedule()
-    local currentTime = os.time()
-    local cycleStart = math.floor(currentTime / LOCHNESS_INTERVAL) * LOCHNESS_INTERVAL
-    
-    if currentTime >= cycleStart + LOCHNESS_DURATION then
-        cycleStart = cycleStart + LOCHNESS_INTERVAL
-    end
-    
-    local eventStart = cycleStart
-    local eventEnd = eventStart + LOCHNESS_DURATION
-    local isActive = currentTime >= eventStart and currentTime < eventEnd
-    
-    return eventStart, eventEnd, isActive
-end
-
-local function formatTime(seconds)
-    seconds = math.max(0, math.floor(seconds))
-    local hours = math.floor(seconds / 3600)
-    local minutes = math.floor((seconds % 3600) / 60)
-    local secs = seconds % 60
-    
-    if hours > 0 then
-        return string.format("%02d:%02d:%02d", hours, minutes, secs)
-    else
-        return string.format("%02d:%02d", minutes, secs)
+        return false, tostring(err)
     end
 end
 
 -- [[ FLUENT UI CREATION ]] --
 local Window = Fluent:CreateWindow({
-    Title = "🎣 Fish It Hub",
-    SubTitle = "Universal Edition v2.0",
+    Title = "🎣 Fish It Hub Advanced",
+    SubTitle = "Premium Features Edition v3.0",
     TabWidth = 160,
-    Size = UDim2.fromOffset(600, 500),
+    Size = UDim2.fromOffset(620, 500),
     Acrylic = true,
-    Theme = "Dark",
+    Theme = "Darker",
     MinimizeKey = Enum.KeyCode.LeftAlt
 })
 
@@ -337,6 +417,7 @@ local Tabs = {
     Main = Window:AddTab({ Title = "🎣 Main", Icon = "fish" }),
     Events = Window:AddTab({ Title = "⚡ Events", Icon = "zap" }),
     Auto = Window:AddTab({ Title = "🤖 Auto", Icon = "bot" }),
+    Lochness = Window:AddTab({ Title = "🐉 Lochness", Icon = "crown" }),
     Status = Window:AddTab({ Title = "📊 Status", Icon = "activity" }),
     Settings = Window:AddTab({ Title = "⚙️ Settings", Icon = "settings" })
 }
@@ -345,7 +426,7 @@ local Tabs = {
 local EventDropdown = Tabs.Main:AddDropdown("EventSelect", {
     Title = "Select Event",
     Description = "Choose which event to teleport to",
-    Values = {"Shark Hunt", "Worm Hunt", "Megalodon Hunt", "Ghost Shark Hunt", "Treasure Hunt", "Black Hole", "Meteor Rain"},
+    Values = {"Shark Hunt", "Worm Hunt", "Megalodon Hunt", "Ghost Shark Hunt", "Ghost Worm", "Black Hole", "Shocked", "Meteor Rain", "Treasure Event"},
     Multi = false,
     Default = 1,
 })
@@ -358,8 +439,8 @@ EventDropdown:OnChanged(function(Value)
 end)
 
 Tabs.Main:AddButton({
-    Title = "🎯 Teleport to Event",
-    Description = "Instantly teleport to the selected event location",
+    Title = "🎯 Advanced Event Scan & Teleport",
+    Description = "Advanced scanning with real-time event detection",
     Callback = function()
         if not selectedEvent then
             Fluent:Notify({
@@ -371,19 +452,19 @@ Tabs.Main:AddButton({
         end
         
         Fluent:Notify({
-            Title = "🔍 Searching...",
-            Content = "Looking for " .. selectedEvent,
+            Title = "🔍 Advanced Scanning...",
+            Content = "Scanning for " .. selectedEvent,
             Duration = 2
         })
         
         task.spawn(function()
-            local activeEvent = scanForActiveEvent(selectedEvent)
+            local activeEvent = advancedEventScan(selectedEvent)
             if activeEvent then
-                local success, result = universalTeleport(activeEvent.pos, activeEvent.name)
+                local success, result = universalTeleport(activeEvent, selectedEvent)
                 if success then
                     Fluent:Notify({
-                        Title = "✅ Teleported!",
-                        Content = "Moved to " .. result,
+                        Title = "✅ Advanced Teleport Success!",
+                        Content = "Found active " .. selectedEvent,
                         Duration = 4
                     })
                 else
@@ -394,23 +475,17 @@ Tabs.Main:AddButton({
                     })
                 end
             else
-                -- Use preset location as fallback
+                -- Fallback to preset locations
                 if EventLocations[selectedEvent] and #EventLocations[selectedEvent] > 0 then
                     local fallbackLocation = EventLocations[selectedEvent][1]
-                    local success, result = universalTeleport(fallbackLocation.pos, fallbackLocation.name)
+                    local success, result = universalTeleport(fallbackLocation, selectedEvent)
                     if success then
                         Fluent:Notify({
-                            Title = "📍 Teleported to Preset Location",
+                            Title = "📍 Teleported to Preset",
                             Content = selectedEvent .. " (Event may not be active)",
                             Duration = 4
                         })
                     end
-                else
-                    Fluent:Notify({
-                        Title = "❌ Event Not Found",
-                        Content = selectedEvent .. " is not currently active",
-                        Duration = 4
-                    })
                 end
             end
         end)
@@ -418,20 +493,22 @@ Tabs.Main:AddButton({
 })
 
 Tabs.Main:AddButton({
-    Title = "🏠 Teleport to Spawn",
-    Description = "Return to the spawn location",
+    Title = "🏠 Smart Return to Spawn",
+    Description = "Intelligently return to spawn with status check",
     Callback = function()
-        local success, result = universalTeleport(Vector3.new(0, 50, 0), "Spawn")
+        local status = getStatus()
+        local spawnPos = Vector3.new(0, 50, 0)
+        
+        -- Adjust spawn position based on current status
+        if status:find("WATER") then
+            spawnPos = Vector3.new(0, 10, 0) -- Lower for water spawn
+        end
+        
+        local success, result = universalTeleport(spawnPos, "Smart Spawn")
         if success then
             Fluent:Notify({
-                Title = "🏠 Returned to Spawn",
-                Content = "Teleported safely",
-                Duration = 3
-            })
-        else
-            Fluent:Notify({
-                Title = "❌ Teleport Failed",
-                Content = result,
+                Title = "🏠 Smart Spawn Return",
+                Content = "Returned safely (" .. status .. ")",
                 Duration = 3
             })
         end
@@ -439,95 +516,43 @@ Tabs.Main:AddButton({
 })
 
 -- [[ EVENTS TAB ]] --
-local LochToggle = Tabs.Events:AddToggle("LochCountdown", {
-    Title = "🐉 Lochness Monster Timer",
-    Description = "Show countdown to next Lochness Monster event",
-    Default = false
-})
+local eventButtons = {
+    {"🦈 Shark Hunt", "Shark Hunt"},
+    {"🪱 Worm Hunt", "Worm Hunt"},
+    {"🦣 Megalodon Hunt", "Megalodon Hunt"},
+    {"👻 Ghost Shark Hunt", "Ghost Shark Hunt"},
+    {"🌪️ Ghost Worm", "Ghost Worm"},
+    {"🕳️ Black Hole", "Black Hole"},
+    {"⚡ Shocked", "Shocked"},
+    {"☄️ Meteor Rain", "Meteor Rain"},
+    {"💰 Treasure Event", "Treasure Event"}
+}
 
-LochToggle:OnChanged(function(Value)
-    if Value then
-        -- Show Lochness countdown
-        task.spawn(function()
-            while LochToggle.Value do
-                local startTime, endTime, isActive = getLochnessSchedule()
-                local currentTime = os.time()
-                local timeRemaining = isActive and (endTime - currentTime) or (startTime - currentTime)
-                
-                local status = isActive and "🔥 ACTIVE" or "⏰ Upcoming"
-                local timeStr = formatTime(math.max(0, timeRemaining))
-                
-                -- Only notify every few minutes to avoid spam
-                if math.floor(timeRemaining) % 300 == 0 or timeRemaining <= 60 then
+for _, eventData in ipairs(eventButtons) do
+    Tabs.Events:AddButton({
+        Title = eventData[1],
+        Description = "Quick teleport to " .. eventData[2],
+        Callback = function()
+            selectedEvent = eventData[2]
+            if EventLocations[eventData[2]] then
+                local location = EventLocations[eventData[2]][1]
+                local success, result = universalTeleport(location, eventData[2])
+                if success then
                     Fluent:Notify({
-                        Title = "🐉 Lochness Monster",
-                        Content = status .. " - " .. timeStr,
+                        Title = eventData[1],
+                        Content = "Teleported successfully",
                         Duration = 3
                     })
                 end
-                
-                task.wait(60) -- Update every minute
             end
-        end)
-    end
-end)
-
--- Event quick teleport buttons
-Tabs.Events:AddButton({
-    Title = "🦈 Quick Teleport - Shark Hunt",
-    Description = "Instantly teleport to Shark Hunt location",
-    Callback = function()
-        selectedEvent = "Shark Hunt"
-        local location = EventLocations["Shark Hunt"][1]
-        local success, result = universalTeleport(location.pos, location.name)
-        if success then
-            Fluent:Notify({
-                Title = "🦈 Shark Hunt",
-                Content = "Teleported to " .. result,
-                Duration = 3
-            })
         end
-    end
-})
-
-Tabs.Events:AddButton({
-    Title = "🪱 Quick Teleport - Worm Hunt", 
-    Description = "Instantly teleport to Worm Hunt location",
-    Callback = function()
-        selectedEvent = "Worm Hunt"
-        local location = EventLocations["Worm Hunt"][1]
-        local success, result = universalTeleport(location.pos, location.name)
-        if success then
-            Fluent:Notify({
-                Title = "🪱 Worm Hunt",
-                Content = "Teleported to " .. result,
-                Duration = 3
-            })
-        end
-    end
-})
-
-Tabs.Events:AddButton({
-    Title = "🦣 Quick Teleport - Megalodon Hunt",
-    Description = "Instantly teleport to Megalodon Hunt location", 
-    Callback = function()
-        selectedEvent = "Megalodon Hunt"
-        local location = EventLocations["Megalodon Hunt"][1]
-        local success, result = universalTeleport(location.pos, location.name)
-        if success then
-            Fluent:Notify({
-                Title = "🦣 Megalodon Hunt", 
-                Content = "Teleported to " .. result,
-                Duration = 3
-            })
-        end
-    end
-})
+    })
+end
 
 -- [[ AUTO TAB ]] --
 local AutoEventToggle = Tabs.Auto:AddToggle("AutoEvent", {
-    Title = "Auto Event Teleport",
-    Description = "Automatically teleport when events become active",
+    Title = "🤖 Advanced Auto Event",
+    Description = "Smart auto-teleport with event detection",
     Default = false
 })
 
@@ -536,7 +561,7 @@ AutoEventToggle:OnChanged(function(Value)
     
     if Value then
         Fluent:Notify({
-            Title = "🤖 Auto Event Started", 
+            Title = "🤖 Advanced Auto Started", 
             Content = "Watching for: " .. selectedEvent,
             Duration = 3
         })
@@ -544,23 +569,20 @@ AutoEventToggle:OnChanged(function(Value)
         autoEventThread = task.spawn(function()
             while autoEventRunning do
                 if selectedEvent then
-                    local activeEvent = scanForActiveEvent(selectedEvent)
+                    local activeEvent = advancedEventScan(selectedEvent)
                     if activeEvent then
-                        local success, result = universalTeleport(activeEvent.pos, activeEvent.name)
+                        local success, result = universalTeleport(activeEvent, selectedEvent)
                         if success then
                             Fluent:Notify({
-                                Title = "⚡ Auto Teleport",
-                                Content = "Found active " .. selectedEvent,
+                                Title = "⚡ Auto Event Success",
+                                Content = "Found & teleported to " .. selectedEvent,
                                 Duration = 5
                             })
                         end
-                        
-                        -- Wait longer after successful teleport
-                        safeWait(Config.ScanInterval * 2)
+                        safeWait(tonumber(Config.ScanInterval) * 2 or 40)
                     end
                 end
-                
-                safeWait(Config.ScanInterval)
+                safeWait(tonumber(Config.ScanInterval) or 20)
             end
         end)
     else
@@ -568,164 +590,277 @@ AutoEventToggle:OnChanged(function(Value)
             task.cancel(autoEventThread)
             autoEventThread = nil
         end
-        
         Fluent:Notify({
-            Title = "🛑 Auto Event Stopped",
-            Content = "Automation disabled",
+            Title = "🛑 Advanced Auto Stopped",
             Duration = 2
         })
     end
 end)
 
-local ScanIntervalSlider = Tabs.Auto:AddSlider("ScanInterval", {
-    Title = "Scan Interval",
-    Description = "How often to check for events (seconds)",
+Tabs.Auto:AddSlider("ScanInterval", {
+    Title = "Smart Scan Interval",
+    Description = "How often to perform advanced scans (seconds)",
     Default = Config.ScanInterval,
     Min = 5,
     Max = 60,
     Rounding = 1,
     Callback = function(Value)
-        Config.ScanInterval = Value
+        Config.ScanInterval = tonumber(Value) or 20
+    end
+})
+
+Tabs.Auto:AddSlider("SearchRadius", {
+    Title = "Event Detection Radius",
+    Description = "Radius for event detection (studs)",
+    Default = Config.SearchRadius,
+    Min = 10,
+    Max = 50,
+    Rounding = 1,
+    Callback = function(Value)
+        Config.SearchRadius = tonumber(Value) or 25
+    end
+})
+
+-- [[ LOCHNESS TAB ]] --
+local LochCountdownToggle = Tabs.Lochness:AddToggle("LochCountdown", {
+    Title = "🐉 Lochness Monster Timer",
+    Description = "Show advanced countdown overlay for Lochness Monster",
+    Default = false
+})
+
+LochCountdownToggle:OnChanged(function(Value)
+    if Value then
+        showLochCountdown()
+        Fluent:Notify({
+            Title = "🐉 Lochness Timer Active",
+            Content = "Countdown overlay enabled",
+            Duration = 3
+        })
+    else
+        hideLochCountdown()
+        Fluent:Notify({
+            Title = "🐉 Lochness Timer Disabled",
+            Content = "Countdown overlay hidden",
+            Duration = 2
+        })
+    end
+end)
+
+Tabs.Lochness:AddButton({
+    Title = "📊 Check Lochness Schedule",
+    Description = "Get detailed information about next Lochness event",
+    Callback = function()
+        local startTime, endTime, isActive = getLochNextTimes()
+        local now = os.time()
+        
+        if isActive then
+            local remaining = endTime - now
+            Fluent:Notify({
+                Title = "🔥 Lochness Monster ACTIVE!",
+                Content = "Event ends in " .. formatTimeSeconds(remaining),
+                Duration = 8
+            })
+        else
+            local nextIn = startTime - now
+            Fluent:Notify({
+                Title = "🐉 Next Lochness Monster",
+                Content = "Starts in " .. formatTimeSeconds(nextIn),
+                Duration = 6
+            })
+        end
     end
 })
 
 -- [[ STATUS TAB ]] --
-local StatusParagraph = Tabs.Status:AddParagraph({
-    Title = "Current Status",
-    Content = "Loading status information..."
+local statusInfo = {
+    status = "Loading...",
+    position = "Unknown",
+    selectedEvent = "None",
+    autoRunning = "🔴 Stopped",
+    lochStatus = "Unknown"
+}
+
+local StatusDisplay = Tabs.Status:AddParagraph({
+    Title = "Advanced Player Status",
+    Content = "Loading advanced status information..."
 })
 
-local ExecutorInfo = Tabs.Status:AddParagraph({
-    Title = "Executor Information", 
-    Content = "Executor: " .. currentExecutor .. "\n" ..
-             "Tier: " .. (isFreeTier and "Free" or "Premium") .. "\n" ..
-             "Advanced Features: " .. (Config.UseAdvancedFeatures and "Enabled" or "Disabled")
+local SystemDisplay = Tabs.Status:AddParagraph({
+    Title = "System Information",
+    Content = "Executor: " .. currentExecutor .. "\nTier: " .. (isFreeTier and "Free" or "Premium") .. "\nAdvanced Features: " .. (Config.UseAdvancedFeatures and "✅ Enabled" or "❌ Disabled")
 })
 
--- Status update loop
-statusUpdateThread = task.spawn(function()
-    while task.wait(isFreeTier and 3 or 1.5) do
-        currentStatus = detectPlayerStatus()
-        local character = LocalPlayer.Character
-        local position = "Unknown"
+local EventDisplay = Tabs.Status:AddParagraph({
+    Title = "Event Information",
+    Content = "Loading event data..."
+})
+
+-- Advanced status update
+local function updateAdvancedStatus()
+    pcall(function()
+        statusInfo.status = getStatus()
         
+        local character = LocalPlayer.Character
         if character and character:FindFirstChild("HumanoidRootPart") then
             local pos = character.HumanoidRootPart.Position
-            position = string.format("X: %d, Y: %d, Z: %d", 
+            statusInfo.position = string.format("X: %d, Y: %d, Z: %d", 
                 math.floor(pos.X), math.floor(pos.Y), math.floor(pos.Z))
+        else
+            statusInfo.position = "Unknown"
         end
         
-        StatusParagraph:SetContent(
-            "Status: " .. currentStatus .. "\n" ..
-            "Position: " .. position .. "\n" ..
-            "Selected Event: " .. (selectedEvent or "None") .. "\n" ..
-            "Auto Event: " .. (autoEventRunning and "🟢 Running" or "🔴 Stopped")
+        statusInfo.selectedEvent = selectedEvent or "None"
+        statusInfo.autoRunning = autoEventRunning and "🟢 Running" or "🔴 Stopped"
+        
+        -- Lochness status
+        local _, _, lochActive = getLochNextTimes()
+        statusInfo.lochStatus = lochActive and "🔥 ACTIVE" or "⏰ Waiting"
+        
+        StatusDisplay.Content = string.format(
+            "Status: %s\nPosition: %s\nSelected Event: %s\nAuto Event: %s",
+            statusInfo.status,
+            statusInfo.position,
+            statusInfo.selectedEvent,
+            statusInfo.autoRunning
         )
+        
+        EventDisplay.Content = string.format(
+            "Event Cache: %s\nLast Teleport: %s\nLochness: %s\nEvent Active: %s",
+            cachedEventPosition and "✅ Valid" or "❌ None",
+            lastTeleportPosition and "Set" or "None",
+            statusInfo.lochStatus,
+            eventIsActive and "✅ Yes" or "❌ No"
+        )
+    end)
+end
+
+statusUpdateThread = task.spawn(function()
+    while task.wait(2) do
+        updateAdvancedStatus()
     end
 end)
 
 -- [[ SETTINGS TAB ]] --
-local TeleportDelaySlider = Tabs.Settings:AddSlider("TeleportDelay", {
-    Title = "Teleport Delay", 
+Tabs.Settings:AddSlider("TeleportDelay", {
+    Title = "Teleport Cooldown", 
     Description = "Delay between teleports (seconds)",
     Default = Config.TeleportDelay,
     Min = 1,
     Max = 10,
     Rounding = 0.5,
     Callback = function(Value)
-        Config.TeleportDelay = Value
+        Config.TeleportDelay = tonumber(Value) or 1
+    end
+})
+
+Tabs.Settings:AddSlider("HeightOffset", {
+    Title = "Teleport Height Offset",
+    Description = "Height above detected events (studs)",
+    Default = Config.HeightOffset,
+    Min = 5,
+    Max = 30,
+    Rounding = 1,
+    Callback = function(Value)
+        Config.HeightOffset = tonumber(Value) or 15
     end
 })
 
 local DebugToggle = Tabs.Settings:AddToggle("DebugMode", {
-    Title = "Debug Mode",
-    Description = "Show detailed information in console",
+    Title = "🐛 Advanced Debug Mode",
+    Description = "Show detailed debug information",
     Default = false
 })
 
 DebugToggle:OnChanged(function(Value)
     Config.EnableDebugMode = Value
     if Value then
-        print("[🐛 Debug] Debug mode enabled")
-        print("[🐛 Debug] Executor:", currentExecutor)
-        print("[🐛 Debug] Free Tier:", isFreeTier)
-        print("[🐛 Debug] Config:", Config)
+        print("🐛 [Advanced Debug] Debug mode enabled")
+        print("🐛 [Advanced Debug] Executor:", currentExecutor)
+        print("🐛 [Advanced Debug] Free Tier:", isFreeTier)
+        print("🐛 [Advanced Debug] Config:", Config)
+        print("🐛 [Advanced Debug] Event Cache:", cachedEventPosition)
     end
 end)
 
 Tabs.Settings:AddButton({
-    Title = "🔄 Reset All Settings",
-    Description = "Reset all settings to default values",
+    Title = "🔄 Reset All Advanced Settings",
+    Description = "Reset all settings to optimized defaults",
     Callback = function()
         Config.TeleportDelay = isFreeTier and 3 or 1
         Config.ScanInterval = isFreeTier and 20 or 8
+        Config.SearchRadius = 25
+        Config.HeightOffset = 15
         Config.EnableDebugMode = false
         
-        TeleportDelaySlider:SetValue(Config.TeleportDelay)
-        ScanIntervalSlider:SetValue(Config.ScanInterval) 
-        DebugToggle:SetValue(false)
+        cachedEventPosition = nil
+        eventIsActive = false
         
         Fluent:Notify({
-            Title = "🔄 Settings Reset",
-            Content = "All settings restored to defaults",
+            Title = "🔄 Advanced Reset Complete",
+            Content = "All settings & cache cleared",
             Duration = 3
         })
     end
 })
 
--- [[ SAVE MANAGER SETUP ]] --
-SaveManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-SaveManager:SetFolder("FishItHub")
-SaveManager:BuildConfigSection(Tabs.Settings)
-
-InterfaceManager:SetLibrary(Fluent)
-InterfaceManager:SetFolder("FishItHub")
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-
-SaveManager:LoadAutoloadConfig()
-
--- [[ INITIALIZATION ]] --
-local function initialize()
+-- [[ ADVANCED INITIALIZATION ]] --
+local function advancedInitialization()
     -- Setup Anti-AFK
     local antiAFKSuccess = setupAntiAFK()
     
+    -- Setup workspace listeners for better event detection
+    pcall(function()
+        Workspace.ChildAdded:Connect(function(child)
+            if autoEventRunning and selectedEvent then
+                task.wait(1) -- Wait for object to fully load
+                if EventLocations[selectedEvent] then
+                    for _, coord in ipairs(EventLocations[selectedEvent]) do
+                        if child:IsA("BasePart") and (child.Position - coord).Magnitude <= Config.SearchRadius then
+                            cachedEventPosition = applyOffset(child.Position)
+                            eventIsActive = true
+                            if Config.EnableDebugMode then
+                                print("🐛 [Event Detected]", selectedEvent, "at", child.Position)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+    
     -- Welcome notification
     Fluent:Notify({
-        Title = "🎣 Fish It Hub Loaded!",
-        Content = "Welcome! Executor: " .. currentExecutor .. "\n" ..
-                 "Anti-AFK: " .. (antiAFKSuccess and "✅" or "❌") .. "\n" ..
-                 "Ready to use!",
-        Duration = 6
+        Title = "🎣 Fish It Hub Advanced Loaded!",
+        Content = "Executor: " .. currentExecutor .. "\nAdvanced Features: " .. (Config.UseAdvancedFeatures and "✅" or "❌") .. "\nAnti-AFK: " .. (antiAFKSuccess and "✅" or "❌") .. "\n🚀 Ready for advanced fishing!",
+        Duration = 8
     })
     
-    -- Debug info
     if Config.EnableDebugMode then
-        print("=== 🎣 FISH IT HUB DEBUG INFO ===")
+        print("=== 🎣 FISH IT HUB ADVANCED DEBUG ===")
         print("Executor:", currentExecutor)
-        print("Free Tier:", isFreeTier) 
+        print("Free Tier:", isFreeTier)
         print("Anti-AFK:", antiAFKSuccess)
-        print("Config:", Config)
-        print("=== INITIALIZATION COMPLETE ===")
+        print("Advanced Config:", Config)
+        print("Event Locations Count:", #EventLocations)
+        print("=== ADVANCED INIT COMPLETE ===")
     end
 end
 
--- Start initialization
-initialize()
+-- Start advanced initialization
+advancedInitialization()
 
--- [[ CLEANUP ON SCRIPT END ]] --
+-- [[ CLEANUP ]] --
 game:GetService("Players").PlayerRemoving:Connect(function(player)
     if player == LocalPlayer then
-        if statusUpdateThread then
-            task.cancel(statusUpdateThread)
-        end
-        if autoEventThread then
-            task.cancel(autoEventThread)
-        end
+        if statusUpdateThread then task.cancel(statusUpdateThread) end
+        if autoEventThread then task.cancel(autoEventThread) end
+        if lochCountdownThread then task.cancel(lochCountdownThread) end
+        if lochCountdownGui then lochCountdownGui:Destroy() end
     end
 end)
 
-print("🎣 Fish It Hub - Fluent UI Edition loaded successfully!")
-print("Executor: " .. currentExecutor .. " | Free Tier: " .. tostring(isFreeTier))
-print("Press Left Alt to minimize/restore the GUI")
+print("🎣 Fish It Hub Advanced v3.0 - Loaded Successfully!")
+print("🚀 Advanced Features:", Config.UseAdvancedFeatures and "Enabled" or "Limited")
+print("🎯 Event Detection: Enhanced")
+print("🐉 Lochness Timer: Available")
+print("📱 Press Left Alt to minimize/restore GUI")
