@@ -1298,104 +1298,229 @@ do
     -- =====================================================
     -- MODE 3: BLATANT V1 (STABLE)
     -- =====================================================
-    local v4 = fishMancing:Section({ Title = "2. Blatant V1", TextSize = 20 })
-    
-    -- V4 State Management
-    local V4_State = {
-        lastComplete = 0,
-        cooldown = 0.30,
-        doingCycle = false,
-        lastCast = 0
-    }
-    
-    -- V4 Core Functions
-    local function V4_ProtectedComplete()
-        local now = tick()
-        if now - V4_State.lastComplete < V4_State.cooldown then
-            return false
-        end
+    do
+        local v4 = fishMancing:Section({ Title = "2. Blatant V1", TextSize = 20 })
         
-        V4_State.lastComplete = now
-        safe(function() Remotes.Complete:FireServer() end)
-        return true
-    end
-    
-    local function V4_PerformCast()
-        local t = tick()
-        V4_State.lastCast = t
-        
-        safe(function() Remotes.Charge:InvokeServer({[20] = t}) end)
-        task.wait(0.001)
-        safe(function() Remotes.StartMinigame:InvokeServer(20, 0, t) end)
-    end
-    
-    local function V4_MainLoop()
-        while V4_Active do
-            V4_State.doingCycle = true
-            
-            V4_PerformCast()
-            task.wait(Config.V4.completeDelay)
-            
-            if V4_Active then V4_ProtectedComplete() end
-            task.wait(Config.V4.cancelDelay)
+        -- State Variables
+        _G.RockHub_BlatantActive = false
+        local blatantInstantState = false -- Menggunakan variabel lokal agar sinkron dengan disableAllModes
 
-            if V4_Active then
-                safe(function() Remotes.Cancel:InvokeServer() end)
-            end
-            
-            V4_State.doingCycle = false
-            local t = math.max((Config.V4.recastDelay or 1) * 0.1, 0.10)
-            task.wait(t)
-        end
-        V4_State.doingCycle = false
-    end
-    
-    -- V4 UI Controls
-    Reg("v4_complete", v4:Input({
-        Title = "Complete Delay",
-        Value = tostring(Config.V4.completeDelay),
-        Placeholder = "0.72",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0.1 then Config.V4.completeDelay = n end
-        end
-    }))
-    
-    Reg("v4_cancel", v4:Input({
-        Title = "Cancel Delay",
-        Value = tostring(Config.V4.cancelDelay),
-        Placeholder = "0.28",
-        Callback = function(v)
-            local n = tonumber(v)
-            if n and n >= 0.1 then Config.V4.cancelDelay = n end
-        end
-    }))
-    
-    Reg("v4toggle", v4:Toggle({
-        Title = "Enable Blatant V1",
-        Value = false,
-        Callback = function(state)
-            if not checkFishingRemotes() then return end
-            
-            disableAllModes()
-            V4_Active = state
-            
-            if state then
-                safe(function() Remotes.UpdateState:InvokeServer(true) end)
-                V4_LoopThread = task.spawn(V4_MainLoop)
+        -- [[ 1. LOGIC KILLER: LUMPUHKAN CONTROLLER ]]
+        -- Memastikan controller game tidak bisa mengirim request manual saat Blatant ON
+        task.spawn(function()
+            local S1, FishingController = pcall(function() return require(game:GetService("ReplicatedStorage").Controllers.FishingController) end)
+            if S1 and FishingController then
+                local Old_Charge = FishingController.RequestChargeFishingRod
+                local Old_Cast = FishingController.SendFishingRequestToServer
                 
-                WindUI:Notify({
-                    Title = "Blatant V1 Enabled",
-                    Content = "Stable Mode Activated",
-                    Duration = 4,
-                    Icon = "zap"
-                })
-            else
-                safe(function() Remotes.Cancel:InvokeServer() end)
-                WindUI:Notify({ Title = "Blatant V1 Stopped", Duration = 3 })
+                -- Hook fungsi charge & cast asli
+                FishingController.RequestChargeFishingRod = function(...)
+                    if _G.RockHub_BlatantActive then return end 
+                    return Old_Charge(...)
+                end
+                FishingController.SendFishingRequestToServer = function(...)
+                    if _G.RockHub_BlatantActive then return false, "Blocked by RockHub" end
+                    return Old_Cast(...)
+                end
+            end
+        end)
+
+        -- [[ 2. REMOTE KILLER: BLOKIR KOMUNIKASI ]]
+        -- Memblokir sinyal keluar yang tidak diinginkan (Stealth Mode)
+        local mt = getrawmetatable(game)
+        local old_namecall = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if _G.RockHub_BlatantActive and not checkcaller() then
+                -- Cegah game mengirim request mancing atau request update state secara manual
+                if method == "InvokeServer" and (self.Name == "RequestFishingMinigameStarted" or self.Name == "ChargeFishingRod" or self.Name == "UpdateAutoFishingState") then
+                    return nil 
+                end
+                if method == "FireServer" and self.Name == "FishingCompleted" then
+                    return nil
+                end
+            end
+            return old_namecall(self, ...)
+        end)
+        setreadonly(mt, true)
+
+        -- [[ 3. UI & NOTIF KILLER (VISUAL SPOOFING) ]]
+        -- Memanipulasi tampilan agar terlihat idle/inactive di mata user (Ghost UI)
+        local function SuppressGameVisuals(active)
+            -- A. Hook Notifikasi biar ga spam "Auto Fishing: Enabled"
+            local Succ, TextController = pcall(function() return require(game.ReplicatedStorage.Controllers.TextNotificationController) end)
+            if Succ and TextController then
+                if active then
+                    if not TextController._OldDeliver then TextController._OldDeliver = TextController.DeliverNotification end
+                    TextController.DeliverNotification = function(self, data)
+                        -- Filter pesan Auto Fishing
+                        if data and data.Text and (string.find(tostring(data.Text), "Auto Fishing") or string.find(tostring(data.Text), "Reach Level")) then
+                            return 
+                        end
+                        return TextController._OldDeliver(self, data)
+                    end
+                elseif TextController._OldDeliver then
+                    TextController.DeliverNotification = TextController._OldDeliver
+                    TextController._OldDeliver = nil
+                end
+            end
+
+            -- B. Paksa Tombol Jadi Merah (Inactive) Setiap Frame
+            if active then
+                task.spawn(function()
+                    local RunService = game:GetService("RunService")
+                    local CollectionService = game:GetService("CollectionService")
+                    local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+                    
+                    -- Warna Merah (Inactive)
+                    local InactiveColor = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromHex("ff5d60")), 
+                        ColorSequenceKeypoint.new(1, Color3.fromHex("ff2256"))
+                    })
+
+                    while _G.RockHub_BlatantActive do
+                        local targets = {}
+                        
+                        -- Cek Tag "AutoFishingButton"
+                        for _, btn in ipairs(CollectionService:GetTagged("AutoFishingButton")) do
+                            table.insert(targets, btn)
+                        end
+                        
+                        -- Fallback cek path manual di Backpack
+                        if #targets == 0 then
+                            local btn = PlayerGui:FindFirstChild("Backpack") and PlayerGui.Backpack:FindFirstChild("AutoFishingButton")
+                            if btn then table.insert(targets, btn) end
+                        end
+
+                        -- Paksa Gradientnya jadi Merah
+                        for _, btn in ipairs(targets) do
+                            local grad = btn:FindFirstChild("UIGradient")
+                            if grad then
+                                grad.Color = InactiveColor
+                            end
+                        end
+                        
+                        RunService.RenderStepped:Wait()
+                    end
+                end)
             end
         end
-    }))
+
+        -- V4 State Management
+        local V4_State = {
+            lastComplete = 0,
+            cooldown = 0.25,
+            doingCycle = false,
+            lastCast = 0
+        }
+        
+        -- V4 Core Functions
+        local function V4_ProtectedComplete()
+            local now = tick()
+            if now - V4_State.lastComplete < V4_State.cooldown then
+                return false
+            end
+            
+            V4_State.lastComplete = now
+            safe(function() Remotes.Complete:FireServer() end)
+            return true
+        end
+        
+        local function V4_PerformCast()
+            local t = tick()
+            V4_State.lastCast = t
+            
+            safe(function() Remotes.Charge:InvokeServer({[1] = t}) end)
+            task.wait(0.001)
+            safe(function() Remotes.StartMinigame:InvokeServer(1, 0, t) end)
+        end
+        
+        local function V4_MainLoop()
+            while V4_Active do
+                V4_State.doingCycle = true
+                
+                V4_PerformCast()
+                task.wait(Config.V4.completeDelay)
+                
+                if V4_Active then V4_ProtectedComplete() end
+                task.wait(Config.V4.cancelDelay)
+
+                if V4_Active then
+                    safe(function() Remotes.Cancel:InvokeServer() end)
+                end
+                
+                V4_State.doingCycle = false
+                local t = math.max((Config.V4.recastDelay or 1) * 0.2, 0.05)
+                task.wait(t)
+            end
+            V4_State.doingCycle = false
+        end
+        
+        -- V4 UI Controls
+        Reg("v4_complete", v4:Input({
+            Title = "Complete Delay",
+            Value = tostring(Config.V4.completeDelay),
+            Placeholder = "0.72",
+            Callback = function(v)
+                local n = tonumber(v)
+                if n and n >= 0.1 then Config.V4.completeDelay = n end
+            end
+        }))
+        
+        Reg("v4_cancel", v4:Input({
+            Title = "Cancel Delay",
+            Value = tostring(Config.V4.cancelDelay),
+            Placeholder = "0.28",
+            Callback = function(v)
+                local n = tonumber(v)
+                if n and n >= 0.1 then Config.V4.cancelDelay = n end
+            end
+        }))
+        
+        Reg("v4toggle", v4:Toggle({
+            Title = "Enable Blatant V1",
+            Value = false,
+            Callback = function(state)
+                if not checkFishingRemotes() then return end
+                
+                disableAllModes()
+                V4_Active = state
+                SuppressGameVisuals(state)
+
+                if state then
+                    if RF_UpdateAutoFishingState then
+                        pcall(function ()
+                            RF_UpdateAutoFishingState:InvokeServer(true) end)
+                        end
+                    end
+                    task.wait(0.5)
+                    if RF_UpdateAutoFishingState then
+                        pcall(function ()
+                            RF_UpdateAutoFishingState:InvokeServer(true) end)
+                        end
+                    end
+
+                    safe(function() Remotes.UpdateState:InvokeServer(true) end)
+                    V4_LoopThread = task.spawn(function ()
+                        pcall(function ()
+                            V4_MainLoop()
+                        end
+                    end
+                    
+                    WindUI:Notify({
+                        Title = "Blatant V1 Enabled",
+                        Content = "Stable Mode Activated",
+                        Duration = 4,
+                        Icon = "zap"
+                    })
+                else
+                    safe(function() Remotes.Cancel:InvokeServer() end)
+                    WindUI:Notify({ Title = "Blatant V1 Stopped", Duration = 3 })
+                end
+            end
+        }))
+    end
 
     -- MAIN LOGIC --
     
@@ -1447,58 +1572,9 @@ do
             local t = tick()
             
             -- Ultra fast cast
-            safe(function() Remotes.Charge:InvokeServer({[25] = t}) end)
+            safe(function() Remotes.Charge:InvokeServer({[5] = t}) end)
             task.wait(BlatantUltra.Settings.CastDelay)
             safe(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
-            
-            BlatantUltra.CurrentCycle = BlatantUltra.CurrentCycle + 1
-            BlatantUltra.Stats.TotalCasts = BlatantUltra.Stats.TotalCasts + 1
-            
-            task.spawn(function()
-                local success = pcall(function()
-                    -- Ultra-fast batch casting (using correct remotes)
-                    safe(function() Remotes.Charge:InvokeServer({[25] = t}) end)Remotes.Charge:InvokeServer({[25] = tick()})
-                    task.wait(BlatantUltra.Settings.CastDelay)
-                    safe(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
-                    
-                    -- Timeout handler
-                    task.delay(BlatantUltra.Settings.TimeoutDelay, function()
-                        if BlatantUltra.WaitingHook and BlatantUltra.Running then
-                            BlatantUltra.WaitingHook = false
-                            BlatantUltra.Stats.FailedCasts = BlatantUltra.Stats.FailedCasts + 1
-                            
-                            pcall(function()
-                                if Remotes.Complete then
-                                    Remotes.Complete:FireServer()()
-                                end
-                            end)
-                            
-                            task.wait(Config.V5.cancelDelay)
-                            pcall(function() 
-                                if Remotes.Cancel then
-                                    Remotes.CancelFishingInputs:InvokeServer() 
-                                end
-                            end)
-                            
-                            task.wait(Config.V5.completeDelay)
-                            
-                            -- Continue casting if still running
-                            if BlatantUltra.Running and not BlatantUltra.CheckAutoStop() then
-                                V5_MainLoop()
-                            end
-                        end
-                    end)
-                end)
-                
-                if not success then
-                    print("❌ [ULTRA] Cast failed, retrying...")
-                    BlatantUltra.Stats.FailedCasts = BlatantUltra.Stats.FailedCasts + 1
-                    task.wait(0.5)
-                    if BlatantUltra.Running then
-                        V5_MainLoop()
-                    end
-                end
-            end)
             
             -- Complete phase
             task.wait(Config.V5.completeDelay)
@@ -2272,7 +2348,250 @@ do
         
     end
 
-    -- FISHING AREA SECTION
+
+do
+    farm:Divider()
+    local fishingSupport = farm:Section({ Title = "Fishing Support (Tools)",  TextSize = 20})
+
+    local REObtainedNewFishNotification = GetRemote(RPath, "RE/ObtainedNewFishNotification")
+    local RunService = game:GetService("RunService")
+
+    local notif = Reg("togglenot",fishingSupport:Toggle({
+        Title = "Remove Fish Notification Pop-up",
+        Value = false,
+        Icon = "slash",
+        Callback = function(state)
+            local PlayerGui = game:GetService("Players").LocalPlayer.PlayerGui
+            local SmallNotification = PlayerGui:FindFirstChild("Small Notification")
+            
+            if not SmallNotification then
+                SmallNotification = PlayerGui:WaitForChild("Small Notification", 5)
+                if not SmallNotification then
+                    WindUI:Notify({ Title = "Error", Duration = 3, Icon = "x" })
+                    return false
+                end
+            end
+
+            if state then
+                -- ON: Menggunakan RenderStepped untuk pemblokiran per-frame
+                DisableNotificationConnection = RunService.RenderStepped:Connect(function()
+                    -- Memastikan GUI selalu mati pada setiap frame render
+                    SmallNotification.Enabled = false
+                end)
+                
+                WindUI:Notify({ Title = "Pop-up Diblokir",Duration = 3, Icon = "check" })
+            else
+                -- OFF: Putuskan koneksi RenderStepped
+                if DisableNotificationConnection then
+                    DisableNotificationConnection:Disconnect()
+                    DisableNotificationConnection = nil
+                end
+
+                -- Kembalikan GUI ke status normal (aktif)
+                SmallNotification.Enabled = true
+                
+                WindUI:Notify({ Title = "Pop-up Diaktifkan", Content = "Notifikasi kembali normal.", Duration = 3, Icon = "x" })
+            end
+        end
+    }))
+
+    -- =========================================================
+    -- WALK ON WATER (USER VERSION - INTEGRATED)
+    -- =========================================================
+    local walkOnWaterConnection = nil
+    local isWalkOnWater = false
+    local waterPlatform = nil
+    
+    -- Simpan elemen toggle ke variabel agar bisa diakses Smart System
+    local WalkOnWaterToggleElement = Reg("walkwat", fishingSupport:Toggle({
+        Title = "Walk on Water", 
+        -- (Ganti 'farm' dengan tab yang kamu mau, misal 'ability')
+        Value = false,
+        Callback = function(state)
+            isWalkOnWater = state
+
+            if state then
+                WindUI:Notify({ Title = "Walk on Water ON!", Duration = 2, Icon = "droplet" })
+                
+                -- Buat Platform jika belum ada
+                if not waterPlatform then
+                    waterPlatform = Instance.new("Part")
+                    waterPlatform.Name = "WaterPlatform"
+                    waterPlatform.Anchored = true
+                    waterPlatform.CanCollide = true
+                    waterPlatform.Transparency = 1 
+                    waterPlatform.Size = Vector3.new(20, 1, 20) -- Diperbesar sedikit
+                    waterPlatform.Parent = workspace
+                end
+
+                if walkOnWaterConnection then walkOnWaterConnection:Disconnect() end
+
+                walkOnWaterConnection = game:GetService("RunService").RenderStepped:Connect(function()
+                    local character = game:GetService("Players").LocalPlayer.Character
+                    if not isWalkOnWater or not character then return end
+                    
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+
+                    if not waterPlatform or not waterPlatform.Parent then
+                        waterPlatform = Instance.new("Part")
+                        waterPlatform.Name = "WaterPlatform"
+                        waterPlatform.Anchored = true
+                        waterPlatform.CanCollide = true
+                        waterPlatform.Transparency = 1 
+                        waterPlatform.Size = Vector3.new(20, 1, 20)
+                        waterPlatform.Parent = workspace
+                    end
+
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = {workspace.Terrain} 
+                    rayParams.FilterType = Enum.RaycastFilterType.Include
+                    rayParams.IgnoreWater = false 
+
+                    local rayOrigin = hrp.Position + Vector3.new(0, 5, 0) 
+                    local rayDirection = Vector3.new(0, -500, 0)
+                    local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+
+                    if result and result.Material == Enum.Material.Water then
+                        local waterSurfaceHeight = result.Position.Y
+                        waterPlatform.Position = Vector3.new(hrp.Position.X, waterSurfaceHeight, hrp.Position.Z)
+                        
+                        -- Logic angkat kaki jika tenggelam dikit
+                        if hrp.Position.Y < (waterSurfaceHeight + 2) and hrp.Position.Y > (waterSurfaceHeight - 5) then
+                             if not game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.Space) then
+                                hrp.CFrame = CFrame.new(hrp.Position.X, waterSurfaceHeight + 3.5, hrp.Position.Z)
+                            end
+                        end
+                    else
+                        waterPlatform.Position = Vector3.new(hrp.Position.X, -500, hrp.Position.Z)
+                    end
+                end)
+            else
+                WindUI:Notify({ Title = "Walk on Water OFF!", Duration = 2, Icon = "x", })
+                if walkOnWaterConnection then walkOnWaterConnection:Disconnect() walkOnWaterConnection = nil end
+                if waterPlatform then waterPlatform:Destroy() waterPlatform = nil end
+            end
+        end
+    }))
+
+    -- 2. ENABLE FISHING RADAR
+    local RF_UpdateFishingRadar = GetRemote(RPath, "RF/UpdateFishingRadar")
+    fishingSupport:Toggle({
+        Title = "Enable Fishing Radar",
+        Value = false,
+        Icon = "radar",
+        Callback = function(state)
+            if RF_UpdateFishingRadar then
+                pcall(function() RF_UpdateFishingRadar:InvokeServer(state) end)
+                WindUI:Notify({ Title = state and "Radar ON" or "Radar OFF", Duration = 2 })
+            end
+        end
+    })
+
+    -- Tambahkan di bagian atas blok 'utility'
+    local VFXControllerModule = require(game:GetService("ReplicatedStorage"):WaitForChild("Controllers").VFXController)
+    local originalVFXHandle = VFXControllerModule.Handle
+    local originalPlayVFX = VFXControllerModule.PlayVFX.Fire -- Asumsi PlayVFX adalah Signal/Event yang memiliki Fire
+
+    -- Variabel global untuk status VFX
+    local isVFXDisabled = false
+
+    -- 2. REMOVE SKIN EFFECT
+    local SkinCleanerConnection = nil
+    fishingSupport:Toggle({
+        Title = "Remove Skin Effect",
+        Value = false,
+        Icon = "sparkles",
+        Callback = function(state)
+            isVFXDisabled = state
+            if state then
+                -- 1. Blokir fungsi Handle (dipanggil oleh Handle Remote dan PlayVFX Signal)
+                VFXControllerModule.Handle = function(...) 
+                    -- Memastikan tidak ada kode efek yang berjalan 
+                end
+
+                -- 2. Blokir fungsi RenderAtPoint dan RenderInstance (untuk jaga-jaga)
+                VFXControllerModule.RenderAtPoint = function(...) end
+                VFXControllerModule.RenderInstance = function(...) end
+                
+                -- 3. Hapus semua efek yang sedang aktif (opsional, untuk membersihkan layar)
+                local cosmeticFolder = workspace:FindFirstChild("CosmeticFolder")
+                if cosmeticFolder then
+                    pcall(function() cosmeticFolder:ClearAllChildren() end)
+                end
+
+                WindUI:Notify({ Title = "No Skin Effect ON", Duration = 3, Icon = "eye-off" })
+            else
+                -- 1. Kembalikan fungsi Handle asli
+                VFXControllerModule.Handle = originalVFXHandle
+            end
+
+        end
+    })
+
+    local CutsceneController = nil
+    local OldPlayCutscene = nil
+    local isNoCutsceneActive = false
+
+    -- Mencoba require module CutsceneController dengan aman
+    pcall(function()
+        CutsceneController = require(game:GetService("ReplicatedStorage"):WaitForChild("Controllers"):WaitForChild("CutsceneController"))
+        if CutsceneController and CutsceneController.Play then
+            OldPlayCutscene = CutsceneController.Play
+            
+            -- Overwrite fungsi Play
+            CutsceneController.Play = function(self, ...)
+                if isNoCutsceneActive then
+                    -- Jika aktif, jangan jalankan apa-apa (Skip Cutscene)
+                    return 
+                end
+                -- Jika tidak aktif, jalankan fungsi asli
+                return OldPlayCutscene(self, ...)
+            end
+        end
+    end)
+
+    local tcutscen = Reg("tnocut",fishingSupport:Toggle({
+        Title = "No Cutscene",
+        Value = false,
+        Icon = "film", -- Icon film strip
+        Callback = function(state)
+            isNoCutsceneActive = state
+            
+            if not CutsceneController then
+                WindUI:Notify({ Title = "Gagal Hook", Content = "Module CutsceneController tidak ditemukan.", Duration = 3, Icon = "x" })
+                return
+            end
+
+            if state then
+                WindUI:Notify({ Title = "No Cutscene ON", Content = "Animasi tangkapan dimatikan.", Duration = 3, Icon = "video-off" })
+            else
+                WindUI:Notify({ Title = "No Cutscene OFF", Content = "Animasi kembali normal.", Duration = 3, Icon = "video" })
+            end
+        end
+    }))
+
+    -- 1. NO ANIMATION
+    fishingSupport:Toggle({
+        Title = "No Animation",
+        Desc = "Mematikan animasi karakter.",
+        Value = false,
+        Icon = "activity",
+        Callback = function(state)
+            isNoAnimationActive = state
+            if state then
+                DisableAnimations()
+                WindUI:Notify({ Title = "No Animation ON!", Duration = 3, Icon = "zap" })
+            else
+                EnableAnimations()
+                WindUI:Notify({ Title = "No Animation OFF!", Duration = 3, Icon = "x" })
+            end
+        end
+    })
+
+end
+
+-- FISHING AREA SECTION
 do
     farm:Divider()
     local areafish = farm:Section({ Title = "Teleport Area", TextSize = 20 })
