@@ -7,21 +7,8 @@ local Window = WindUI:CreateWindow({
     Folder = "RockHubCombined",
     Size = UDim2.fromOffset(600, 450),
     Transparent = true,
-    Theme = "Dark",
+    Theme = "White",
     Resizable = true,
-    KeySystem = {                                                   
-        Note = "FREEMIUM KEY IN DISCORD CHANNEL",        
-        API = {                                                     
-            { -- pandadevelopment
-                Type = "pandadevelopment", -- type
-                ServiceId = "NPNHub", -- service id
-            },
-            {   -- 🧪 Junkie Development
-                Type = "junkiedevelopment",
-                ServiceId = "293b1e7e-d799-4eb5-b531-9391e859a975", 
-            },                                                      
-        },
-    },
 })
 
 -- [[ GLOBAL VARIABLES & SERVICES ]] --
@@ -4934,5 +4921,6 @@ do
     })
 
 end
+
 
 WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
