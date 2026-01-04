@@ -9,6 +9,19 @@ local Window = WindUI:CreateWindow({
     Transparent = true,
     Theme = "Dark",
     Resizable = true,
+    KeySystem = {                                                   
+        Note = "FREEMIUM KEY IN DISCORD CHANNEL",        
+        API = {                                                     
+            { -- pandadevelopment
+                Type = "pandadevelopment", -- type
+                ServiceId = "NPNHub", -- service id
+            },
+            {   -- 🧪 Junkie Development
+                Type = "junkiedevelopment",
+                ServiceId = "293b1e7e-d799-4eb5-b531-9391e859a975", 
+            },                                                      
+        },
+    },
 })
 
 -- [[ GLOBAL VARIABLES & SERVICES ]] --
@@ -352,6 +365,18 @@ local function isAlivePart(p)
 
     return success
 end
+
+-- [[ FIX TICK ERROR ]] --
+if not tick then
+    getgenv().tick = function() 
+        return workspace:GetServerTimeNow() 
+    end
+end
+-- Jika getgenv tidak support, gunakan local fallback:
+local function tick()
+    return workspace:GetServerTimeNow()
+end
+--------------------------
 
 local function scan(eventName)
     local now = tick()
@@ -1415,14 +1440,14 @@ do
             safe(function() Remotes.Complete:FireServer() end)
             return true
         end
-        
+
         local function V4_PerformCast()
             local t = tick()
             V4_State.lastCast = t
             
             safe(function() Remotes.Charge:InvokeServer({[30] = t}) end)
             task.wait(0.001)
-            safe(function() Remotes.StartMinigame:InvokeServer(10, 0, t) end)
+            safe(function() RF_RequestFishingMinigameStarted:InvokeServer(-139.6379699707, 0.99647927980797) end)
         end
         
         local function V4_MainLoop()
@@ -1445,6 +1470,36 @@ do
             end
             V4_State.doingCycle = false
         end
+
+        -- Backup listener
+        local lastEventTime = 0
+
+        Remotes.MinigameChanged.OnClientEvent:Connect(function(state)
+            if not V4_Active then return end
+            
+            local now = tick()
+            
+            if now - lastEventTime < 0.2 then
+                return
+            end
+            lastEventTime = now
+            
+            if now - V4_State.lastComplete < 0.3 then
+                return
+            end
+            
+            task.spawn(function()
+                task.wait(Config.V4.completeDelay)
+                
+                if V4_ProtectedComplete() then
+                    task.wait(Config.V4.cancelDelay)
+                    safe(function()
+                        Remotes.Cancel:InvokeServer()
+                    end)
+                end
+            end)
+        end)
+
         
         -- V4 UI Controls
         Reg("v4_complete", v4:Input({
@@ -2094,24 +2149,29 @@ do
                 local tracks = humanoid:GetPlayingAnimationTracks()
                 
                 for _, track in ipairs(tracks) do
-                    if string.find(string.lower(track.Name or ""), "skin_pool") then
-                        continue
-                    end
+                    -- PERBAIKAN: Mengganti logika 'continue' dengan 'if not'
                     
-                    if killedTracks[track] then
-                        if track.IsPlaying then
-                            pcall(function()
-                                track:Stop(0)
-                                track:AdjustSpeed(0)
-                            end)
+                    -- 1. Cek apakah track BUKAN 'skin_pool'
+                    if not string.find(string.lower(track.Name or ""), "skin_pool") then
+                        
+                        -- 2. Cek apakah track harus dimatikan (killedTracks)
+                        if killedTracks[track] then
+                            if track.IsPlaying then
+                                pcall(function()
+                                    track:Stop(0)
+                                    track:AdjustSpeed(0)
+                                end)
+                            end
+                            -- 'continue' dihapus, karena kode di bawah ada di dalam blok 'else'
+                        
+                        -- 3. Jika tidak dimatikan, baru cek animasi ikan
+                        else
+                            if track.IsPlaying and IsFishCaughtAnimation(track) then
+                                task.spawn(function()
+                                    InstantReplace(track)
+                                end)
+                            end
                         end
-                        continue
-                    end
-                    
-                    if track.IsPlaying and IsFishCaughtAnimation(track) then
-                        task.spawn(function()
-                            InstantReplace(track)
-                        end)
                     end
                 end
             end)
@@ -2123,16 +2183,18 @@ do
                 local tracks = humanoid:GetPlayingAnimationTracks()
                 
                 for _, track in ipairs(tracks) do
-                    if string.find(string.lower(track.Name or ""), "skin_pool") then
-                        continue
-                    end
-                    
-                    if killedTracks[track] and track.IsPlaying then
-                        pcall(function()
-                            track:Stop(0)
-                            track:AdjustSpeed(0)
-                        end)
-                    end
+                    -- Cek jika BUKAN skin_pool (Pengganti continue pertama)
+                    if not string.find(string.lower(track.Name or ""), "skin_pool") then
+                        
+                        -- Logika utama
+                        if killedTracks[track] and track.IsPlaying then
+                            pcall(function()
+                                track:Stop(0)
+                                track:AdjustSpeed(0)
+                            end)
+                        end
+                        
+                    end -- End if not skin_pool
                 end
             end)
             
@@ -4922,6 +4984,4 @@ do
 
 end
 
-
 WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
-
