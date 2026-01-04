@@ -7,7 +7,7 @@ local Window = WindUI:CreateWindow({
     Folder = "RockHubCombined",
     Size = UDim2.fromOffset(600, 450),
     Transparent = true,
-    Theme = "White",
+    Theme = "Dark",
     Resizable = true,
 })
 
@@ -4924,3 +4924,4 @@ end
 
 
 WindUI:Notify({ Title = "NPN Hub Loaded", Content = "All Blatant Modes Ready!", Duration = 5, Icon = "check" })
+
