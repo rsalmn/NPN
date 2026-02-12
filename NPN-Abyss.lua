@@ -859,8 +859,8 @@ do
         -- Mode Selection
         AutoFishingCollapsible:AddDropdown({
             Name = "Minigame Mode",
-            Options = {"Auto", "Legit", "Fast"},
-            Default = MinigameMode or "Legit",
+            Options = {"Auto", "Instant", "Legit", "Blatant"},
+            Default = MinigameMode,
             Callback = function(v)
                 MinigameMode = v
                 Window:Notify({
@@ -874,7 +874,7 @@ do
 
         AutoFishingCollapsible:AddTextbox({
             Name = "Minigame Delay (sec)",
-            PlaceholderText = tostring(MinigameDelay or 0.3),
+            PlaceholderText = tostring(MinigameDelay),
             Callback = function(v)
                 local n = tonumber(v)
                 if n and n >= 0 then 
@@ -889,19 +889,27 @@ do
             end
         })
 
-        AutoFishingCollapsible:AddSlider({
-            Name = "Max Fish Range (studs)",
-            Min = 50,
-            Max = 300,
-            Default = MAX_RANGE or 150,
+        AutoFishingCollapsible:AddTextbox({
+            Name = "Minibar Position (Legit Mode)",
+            PlaceholderText = tostring(OptimalMinibarPos) .. " (0.15-0.25 recommended)",
             Callback = function(v)
-                MAX_RANGE = v
-                Window:Notify({
-                    Title = "Max Range Updated",
-                    Content = "Will detect fish up to " .. v .. " studs",
-                    Duration = 2,
-                    Type = "Success"
-                })
+                local n = tonumber(v)
+                if n and n >= 0 and n <= 1 then 
+                    OptimalMinibarPos = n 
+                    Window:Notify({
+                        Title = "Minibar Position",
+                        Content = "Set to " .. n .. " (0=top, 1=bottom)",
+                        Duration = 3,
+                        Type = "Success"
+                    })
+                else
+                    Window:Notify({
+                        Title = "Invalid Value",
+                        Content = "Enter number between 0-1",
+                        Duration = 2,
+                        Type = "Error"
+                    })
+                end
             end
         })
 
@@ -1005,12 +1013,10 @@ do
                                 local character = Players.LocalPlayer.Character
                                 if not character then return end
 
-                                -- Get inventory weight
+                                -- Get inventory weight from player's backpack/inventory
                                 local currentWeight = 0
                                 pcall(function()
-                                    currentWeight = character:GetAttribute("inventoryweight") 
-                                        or character:GetAttribute("weight") 
-                                        or 0
+                                    currentWeight = character:GetAttribute("inventoryweight") or character:GetAttribute("weight") or 0
                                 end)
 
                                 -- Fallback: scan backpack
@@ -1030,7 +1036,6 @@ do
                                 if currentWeight >= WeightTargetKg then
                                     -- Step 1: Stop auto fish
                                     AutoTest = false
-                                    Busy = false
                                     task.wait(0.5)
 
                                     -- Step 2: Teleport to Kraken NPC
@@ -1043,8 +1048,7 @@ do
 
                                             local target = nil
                                             if npcFolder then
-                                                target = npcFolder:FindFirstChild("Kraken") 
-                                                    or npcFolder:FindFirstChild("kraken")
+                                                target = npcFolder:FindFirstChild("Kraken") or npcFolder:FindFirstChild("kraken")
                                                 if not target then
                                                     for _, npc in pairs(npcFolder:GetChildren()) do
                                                         if npc.Name:lower():find("sell") or npc.Name:lower():find("shop") then
@@ -1102,6 +1106,7 @@ do
                                                         local maxSellVal = RarityOrder[SellFilterMode] or 0
                                                         
                                                         for uuid, item in pairs(inventory) do
+                                                            -- Check favorited/locked
                                                             if not item.favorited and not item.locked then
                                                                 local rarity = "Common"
                                                                 local itemConfig = nil
@@ -1121,7 +1126,7 @@ do
                                                                 if itemRarityVal <= maxSellVal then
                                                                     SellService:WaitForChild("SellFish"):InvokeServer(uuid)
                                                                     soldCount = soldCount + 1
-                                                                    task.wait(0.05)
+                                                                    task.wait(0.05) -- prevent flood
                                                                 end
                                                             end
                                                         end
@@ -1149,17 +1154,18 @@ do
                                             })
                                         end
 
+                                        -- Step 5: Verify and resume
                                         task.wait(2)
                                         shouldSellAndResume = true
                                     end
                                 end
                             end)
 
-                            -- Resume auto fish V2
+                            -- Resume auto fish outside pcall scope
                             if shouldSellAndResume then
                                 Busy = false
                                 AutoTest = true
-                                AutoFarmV2() -- 🔥 GUNAKAN AUTOFARMV2
+                                AutoLoop()
                                 Window:Notify({
                                     Title = "Auto Fish Resumed",
                                     Content = "Back to fishing! Monitoring weight again...",
@@ -1168,7 +1174,7 @@ do
                                 })
                             end
 
-                            task.wait(3)
+                            task.wait(3) -- Check every 3 seconds
                         end
                     end)
                 end
@@ -1182,12 +1188,11 @@ do
                 pcall(function()
                     local character = Players.LocalPlayer.Character
                     if character then
-                        weight = character:GetAttribute("inventoryweight") 
-                            or character:GetAttribute("weight") 
-                            or 0
+                        weight = character:GetAttribute("inventoryweight") or character:GetAttribute("weight") or 0
                     end
                 end)
 
+                -- Also try backpack scan
                 if weight == 0 then
                     pcall(function()
                         local backpack = Players.LocalPlayer:FindFirstChild("Backpack")
@@ -1210,48 +1215,24 @@ do
 
         AutoFishingCollapsible:AddDivider()
 
-        -- 🔥 MAIN AUTO FISH TOGGLE - MENGGUNAKAN AUTOFARMV2
         AutoFishingCollapsible:AddToggle({
             Name = "🎯 Auto Fish",
             Default = false,
             Callback = function(v)
                 AutoTest = v
                 if v then
-                    Busy = false
-                    AutoFarmV2() -- 🔥 PANGGIL AUTOFARMV2 YANG SUDAH DIIMPROVE
+                    Busy = false -- Reset busy flag so AutoLoop can start fresh
+                    AutoLoop()
                 else
+                    -- Force stop: reset Busy so next enable works
                     Busy = false
                 end
                 Window:Notify({
-                    Title = "Auto Fish V2",
-                    Content = v and "Started with improved method!" or "Stopped",
+                    Title = "Auto Fish",
+                    Content = v and "Enabled" or "Disabled - Stopping...",
                     Duration = 2,
                     Type = v and "Success" or "Warning"
                 })
-            end
-        })
-
-        -- 🔧 DEBUG BUTTON
-        AutoFishingCollapsible:AddButton({
-            Name = "🔍 Test Fish Detection",
-            Callback = function()
-                local fish = GetNearestFishV2()
-                if fish then
-                    Window:Notify({
-                        Title = "Fish Detected",
-                        Content = string.format("ID: %s...\nDistance: %.1f studs", 
-                            fish.Id:sub(1, 8), fish.Distance),
-                        Duration = 3,
-                        Type = "Success"
-                    })
-                else
-                    Window:Notify({
-                        Title = "No Fish Found",
-                        Content = "No fish within " .. MAX_RANGE .. " studs",
-                        Duration = 2,
-                        Type = "Warning"
-                    })
-                end
             end
         })
     end
@@ -1286,11 +1267,14 @@ do
                     task.spawn(function()
                         while AutoFavoriteEnabled do
                             pcall(function()
+                                -- Get Inventory Data
                                 local DataController = require(ReplicatedStorage.common.source.controllers.DataController)
                                 local replica = DataController:GetReplica()
                                 
                                 if replica and replica.Data and replica.Data.inventory then
                                     local inventory = replica.Data.inventory
+                                    
+                                    -- Load Item Data just once per loop
                                     local presets = ReplicatedStorage.common.presets
                                     local itemsFolder = presets and presets:FindFirstChild("items")
                                     
@@ -1298,10 +1282,15 @@ do
                                         for uuid, item in pairs(inventory) do
                                             if not AutoFavoriteEnabled then break end
                                             
+                                            -- Check if already favorited
                                             if not item.favorited then
-                                                local rarity = "Common"
+                                                -- Find Item Rarity
+                                                local rarity = "Common" -- default
+                                                
+                                                -- Search for item config in presets
                                                 local itemConfig = nil
                                                 
+                                                -- Scan categories to find item
                                                 for _, cat in pairs(itemsFolder:GetChildren()) do
                                                     local found = cat:FindFirstChild(item.id)
                                                     if found then
@@ -1314,17 +1303,19 @@ do
                                                     rarity = itemConfig.rarity
                                                 end
                                                 
+                                                -- Check if this rarity is enabled
                                                 if FavoriteRarities[rarity] then
+                                                    -- Favorite it!
                                                     BackpackService:InvokeServer("Favorite", uuid, true)
                                                     print("🌟 Auto Favorite: " .. item.id .. " (" .. rarity .. ")")
-                                                    task.wait(0.1)
+                                                    task.wait(0.1) -- gentle delay
                                                 end
                                             end
                                         end
                                     end
                                 end
                             end)
-                            task.wait(3)
+                            task.wait(3) -- Check every 3 seconds
                         end
                     end)
                 end
