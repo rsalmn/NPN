@@ -235,10 +235,9 @@ end
 -- ════════════════════════════════════════════
 -- NEW MINIGAME BYPASS (POST-UPDATE FIX)
 -- ════════════════════════════════════════════
-
 local function CompleteMinigameNewMethod()
     task.spawn(function()
-        print("🎣 Starting new minigame method...")
+        print("🎣 Starting new minigame method (Post-Update Rewards)...")
         
         -- Hold mouse button untuk simulate normal play
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
@@ -248,48 +247,52 @@ local function CompleteMinigameNewMethod()
         local maxAttempts = 200
         local attemptCount = 0
         
-        -- Micro-increment system (seperti di spy log)
         while currentProgress < 0.98 and attemptCount < maxAttempts and IsMinigameActive() do
-            attemptCount = attemptCount + 1
+            attemptCount += 1
             
-            -- Random increment antara 0.005 - 0.015 (mirip spy log)
-            local increment = math.random(500, 1500) / 100000 -- 0.005 - 0.015
-            currentProgress = currentProgress + increment
+            -- Random increment 0.005 - 0.015
+            local increment = math.random(500, 1500) / 100000
+            currentProgress = math.min(currentProgress + increment, 0.98)
             
-            -- Clamp progress
-            if currentProgress > 0.98 then 
-                currentProgress = 0.98 
-            end
+            -- Random progress reward mirip currentProgress tapi agak beda
+            local rewardProgress = math.clamp(currentProgress - math.random(1, 10) / 100, 0, 1)
             
-            -- Send update dengan progress micro-increment
+            -- Kirim update dengan format baru
             local success = pcall(function()
                 MinigameService:WaitForChild("Update"):InvokeServer("ProgressUpdate", {
                     progress = currentProgress,
-                    rewards = {}
+                    rewards = {
+                        [1] = {
+                            progress = rewardProgress,
+                            pos = 0.179
+                        }
+                    }
                 })
             end)
             
             if not success then
-                print("❌ MinigameService call failed at progress:", currentProgress)
+                warn("❌ MinigameService call failed @", currentProgress)
             end
             
-            -- Variable delay untuk avoid detection
-            local delay = math.random(20, 80) / 1000 -- 0.02-0.08 detik
-            task.wait(delay)
+            task.wait(math.random(20, 80) / 1000)
         end
         
-        -- Final completion push
-        task.wait(math.random(50, 150) / 1000)
-        
+        -- Final push dengan progress = 1
+        local finalReward = math.clamp(0.75 + math.random() * 0.25, 0, 1) -- antara 0.75 - 1
         local finalSuccess = pcall(function()
             MinigameService:WaitForChild("Update"):InvokeServer("ProgressUpdate", {
                 progress = 1,
-                rewards = {}
+                rewards = {
+                    [1] = {
+                        progress = finalReward,
+                        pos = 0.179
+                    }
+                }
             })
         end)
         
         if finalSuccess then
-            print("✅ Minigame completed successfully!")
+            print("✅ Minigame completed and rewards sent!")
         else
             print("❌ Final completion failed")
         end
@@ -298,6 +301,7 @@ local function CompleteMinigameNewMethod()
         VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
     end)
 end
+
 
 local function GetNearestFishV2()
     local hrp = getHRP()
@@ -619,13 +623,13 @@ local MinigameMode = "Auto" -- Auto | Instant | Legit | Blatant
 
 local function HandleMinigame()
     if MinigameMode == "Legit" then
-        CompleteMinigameLegit()
+        CompleteMinigameNewMethod()
     elseif MinigameMode == "Instant" then
-        CompleteMinigame()
+        CompleteMinigameNewMethod()
     elseif MinigameMode == "Blatant" then
-        CompleteMinigameBlatant()
+        CompleteMinigameNewMethod()
     else
-        CompleteMinigameAuto()
+        CompleteMinigameNewMethod()
     end
 end
 
